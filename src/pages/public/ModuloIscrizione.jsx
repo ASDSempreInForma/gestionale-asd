@@ -282,28 +282,28 @@ export default function ModuloIscrizione() {
     setInviando(true);
     setErroreInvio(null);
     try {
-      // 1. Crea/aggiorna il socio (upsert su CF)
-      const { error: errSocio } = await supabase.from("soci").upsert(
-        {
-          cf: anagrafica.cf.toUpperCase(),
-          nome: anagrafica.nome,
-          cognome: anagrafica.cognome,
-          data_nascita: anagrafica.dataNascita || null,
-          comune_nascita: anagrafica.luogoNascita || null,
-          indirizzo: residenza.indirizzo || null,
-          cap: residenza.cap || null,
-          comune_residenza: residenza.comune || null,
-          telefono: residenza.telefono || null,
-          email: residenza.email || null,
-          sesso: anagrafica.sesso || null,
-        },
-        { onConflict: "cf" }
-      );
-      if (errSocio) throw errSocio;
+      const cfUpper = anagrafica.cf.toUpperCase();
 
-      // 2. Inserisce le iscrizioni (una per corso scelto)
+      // 1. Inserisce il socio — se esiste già (23505 = duplicate key) va bene, proseguiamo
+      const { error: errSocio } = await supabase.from("soci").insert({
+        cf: cfUpper,
+        nome: anagrafica.nome,
+        cognome: anagrafica.cognome,
+        data_nascita: anagrafica.dataNascita || null,
+        comune_nascita: anagrafica.luogoNascita || null,
+        indirizzo: residenza.indirizzo || null,
+        cap: residenza.cap || null,
+        comune_residenza: residenza.comune || null,
+        telefono: residenza.telefono || null,
+        email: residenza.email || null,
+        sesso: anagrafica.sesso || null,
+      });
+      // Ignoro solo l'errore di chiave duplicata (socio già esistente)
+      if (errSocio && errSocio.code !== "23505") throw errSocio;
+
+      // 2. Inserisce le iscrizioni — se già esiste per questa stagione, la ignora
       const iscrizioniDaInserire = corsiConCodice.map((c) => ({
-        socio_cf: anagrafica.cf.toUpperCase(),
+        socio_cf: cfUpper,
         corso_id: c.corso.id,
         stagione_id: stagione.id,
         stato_pagamento: "in_attesa",
@@ -317,21 +317,20 @@ export default function ModuloIscrizione() {
           isMinorenne ? `Genitore: ${genitore.nome} ${genitore.cognome} (${genitore.cf})` : null,
           `Luogo firma: ${luogoFirma}`,
           `Data iscrizione: ${new Date().toLocaleDateString("it-IT")}`,
-        ]
-          .filter(Boolean)
-          .join(" | "),
+        ].filter(Boolean).join(" | "),
       }));
 
       const { error: errIsc } = await supabase
         .from("iscrizioni")
-        .upsert(iscrizioniDaInserire, { onConflict: "socio_cf,corso_id,stagione_id" });
-      if (errIsc) throw errIsc;
+        .insert(iscrizioniDaInserire);
+      // Ignoro solo duplicati (socio già iscritto a questo corso per questa stagione)
+      if (errIsc && errIsc.code !== "23505") throw errIsc;
 
       setInviato(true);
     } catch (err) {
       console.error("Errore invio iscrizione:", err);
       setErroreInvio(
-        "Si è verificato un errore durante l'invio. Riprova o contatta la segreteria al 327 868 1393."
+        `Errore: ${err?.message || err?.code || "sconosciuto"}. Contatta la segreteria al 327 868 1393.`
       );
     } finally {
       setInviando(false);
