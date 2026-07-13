@@ -308,7 +308,8 @@ export default function ModuloIscrizione() {
         stagione_id: stagione.id,
         stato_pagamento: "in_attesa",
         stato_certificato: "mancante",
-        tipo_pagamento: c.pagamento === "annuale" ? "annuale" : "quadrimestrale",
+        frequenza: c.frequenza || "2x",
+        tipo_pagamento: c.pagamento === "q1" ? "quad1" : c.pagamento === "q2" ? "quad2" : "annuale",
         note: [
           `Codice: ${c.codiceCompleto}`,
           `Frequenza: ${c.frequenza === "2x" ? "bisettimanale" : "monosettimanale"}`,
