@@ -52,6 +52,120 @@ function componiCodice(corso, frequenza, pagamento) {
   return codice;
 }
 
+// ---------------------------------------------------------------------
+// MOTORE DI CALCOLO PREZZO
+// ---------------------------------------------------------------------
+// Regole confermate con la segreteria (stagione 2025/26):
+// - Ogni corso (tranne Ginnastica Dolce) ha una quota mensile "corso puro"
+//   (quota_annuale o quota_quad1/quad2, al netto dell'iscrizione).
+// - Combinando 2+ corsi diversi (non Ginnastica Dolce): si sommano le quote
+//   mensili, si applica uno sconto di 5€/mese per il 2° corso e altri 5€/mese
+//   per ogni corso aggiuntivo (2 corsi=-5, 3 corsi=-10, 4 corsi=-15...),
+//   poi si moltiplica per i mesi del periodo. Iscrizione 40€ UNA SOLA VOLTA.
+// - Ginnastica Dolce da sola: tariffa flat salvata sul corso (già comprende
+//   la sua iscrizione da 30€, o 0€ per San Polo), NESSUNO sconto.
+// - Ginnastica Dolce combinata con altro: si paga per intero (nessuno sconto
+//   sulla parte Ginnastica Dolce), l'iscrizione unica è quella standard 40€
+//   (sostituisce i 30€ che si applicherebbero da sola).
+// - 2ª rata quadrimestrale ("rinnovo"): stessa formula, ma iscrizione = 0€.
+//
+// NOTA: il caso speciale "1 lezione a Villaggio Badia + 1 lezione della
+// stessa disciplina in un'altra sede = tariffa 2 lezioni" NON è ancora
+// gestito automaticamente — va verificato a mano dalla segreteria.
+
+const SCONTO_PER_CORSO_AGGIUNTIVO = 5; // €/mese
+const ISCRIZIONE_STANDARD = 40;
+
+function mesiPeriodo(corso, pagamento) {
+  const settembre = corso?.mese_inizio === "settembre";
+  if (pagamento === "annuale") return settembre ? 9 : 8;
+  return settembre ? 5 : 4; // q1 / q2
+}
+
+// Importo "corso puro" (senza iscrizione) per un singolo corso/frequenza/pagamento,
+// più il totale "con iscrizione" così com'è salvato a DB (utile per i casi flat).
+// `isolato` = true se questo è l'UNICO corso scelto in tutto il carrello: solo in
+// questo caso si applica l'eventuale tariffa promozionale Villaggio Badia.
+function importoCorso(corso, frequenza, pagamento, isolato) {
+  if (!corso) return null;
+  const is1x = frequenza === "1x" && corso.ha_variante_frequenza;
+  const mesi = mesiPeriodo(corso, pagamento);
+  const usaPromoBadia = isolato && corso.quota_annuale_badia !== null && corso.quota_annuale_badia !== undefined;
+
+  let totaleConIscrizione;
+  if (usaPromoBadia) {
+    if (pagamento === "annuale") totaleConIscrizione = corso.quota_annuale_badia;
+    else if (pagamento === "q1") totaleConIscrizione = corso.quota_quad1_badia;
+    else totaleConIscrizione = corso.quota_quad2_badia;
+  } else if (pagamento === "annuale") totaleConIscrizione = is1x ? corso.quota_annuale_1x : corso.quota_annuale;
+  else if (pagamento === "q1") totaleConIscrizione = is1x ? corso.quota_quad1_1x : corso.quota_quad1;
+  else totaleConIscrizione = is1x ? corso.quota_quad2_1x : corso.quota_quad2; // q2: già senza iscrizione
+
+  if (totaleConIscrizione === null || totaleConIscrizione === undefined) {
+    return { mesi, puro: null, totaleConIscrizione: null }; // dato mancante
+  }
+  const iscrizioneCorso = pagamento === "q2" ? 0 : Number(corso.quota_adesione || 0);
+  const puro = pagamento === "q2" ? Number(totaleConIscrizione) : Number(totaleConIscrizione) - iscrizioneCorso;
+  return { mesi, puro, totaleConIscrizione: Number(totaleConIscrizione) };
+}
+
+// Calcola il prezzo totale per l'intero carrello di corsi scelti.
+// corsiSelezionati: array di { corso, frequenza, pagamento } (come corsiConCodice)
+function calcolaPrezzoTotale(corsiSelezionati) {
+  const validi = corsiSelezionati.filter((c) => c.corso);
+  if (validi.length === 0) return { totale: null, incompleto: false, dettaglio: [] };
+
+  const isolato = validi.length === 1; // solo in questo caso vale l'eventuale promo Villaggio Badia
+
+  const gd = validi.filter((c) => c.corso.corso === "Ginnastica Dolce");
+  const altri = validi.filter((c) => c.corso.corso !== "Ginnastica Dolce");
+
+  let incompleto = false;
+  const dettaglio = [];
+
+  // Caso 1: solo Ginnastica Dolce (una o più) — tariffa flat, nessuno sconto
+  if (altri.length === 0) {
+    let totale = 0;
+    gd.forEach((c) => {
+      const r = importoCorso(c.corso, c.frequenza, c.pagamento, isolato);
+      if (!r || r.totaleConIscrizione === null) { incompleto = true; return; }
+      totale += r.totaleConIscrizione;
+      dettaglio.push({ corso: c.corso.corso, sede: c.corso.sede, importo: r.totaleConIscrizione });
+    });
+    return { totale: incompleto ? null : totale, incompleto, dettaglio, soloGinnasticaDolce: true };
+  }
+
+  // Caso 2: almeno un corso non-GD → formula generale + eventuale GD a parte
+  let sommaMensile = 0;
+  let mesiRiferimento = null;
+  altri.forEach((c) => {
+    const r = importoCorso(c.corso, c.frequenza, c.pagamento, isolato);
+    if (!r || r.puro === null) { incompleto = true; return; }
+    sommaMensile += r.puro / r.mesi;
+    mesiRiferimento = r.mesi;
+    dettaglio.push({ corso: c.corso.corso, sede: c.corso.sede, mensile: r.puro / r.mesi });
+  });
+
+  const n = altri.length;
+  const sconto = n >= 2 ? SCONTO_PER_CORSO_AGGIUNTIVO * (n - 1) : 0;
+  const totaleAltri = incompleto || !mesiRiferimento ? null : (sommaMensile - sconto) * mesiRiferimento;
+
+  let totaleGD = 0;
+  gd.forEach((c) => {
+    const r = importoCorso(c.corso, c.frequenza, c.pagamento, isolato);
+    if (!r || r.puro === null) { incompleto = true; return; }
+    totaleGD += r.puro; // GD a prezzo pieno, nessuno sconto
+    dettaglio.push({ corso: c.corso.corso, sede: c.corso.sede, importo: r.puro });
+  });
+
+  // iscrizione unica: 40€, tranne se TUTTI i corsi selezionati sono in 2a rata (rinnovo)
+  const tuttiRinnovo = validi.every((c) => c.pagamento === "q2");
+  const iscrizione = tuttiRinnovo ? 0 : ISCRIZIONE_STANDARD;
+
+  const totale = incompleto ? null : totaleAltri + totaleGD + iscrizione;
+  return { totale, incompleto, dettaglio, sconto, iscrizione, soloGinnasticaDolce: false };
+}
+
 function calcolaEta(dataNascitaISO) {
   if (!dataNascitaISO) return null;
   const oggi = new Date();
@@ -197,6 +311,17 @@ export default function ModuloIscrizione() {
             giorni_orari,
             ha_variante_frequenza,
             mese_inizio,
+            quota_annuale,
+            quota_quad1,
+            quota_quad2,
+            quota_annuale_1x,
+            quota_quad1_1x,
+            quota_quad2_1x,
+            quota_annuale_under65,
+            quota_annuale_badia,
+            quota_quad1_badia,
+            quota_quad2_badia,
+            quota_adesione,
             sedi ( nome ),
             istruttori_corsi (
               istruttori ( nome, cognome )
@@ -220,6 +345,17 @@ export default function ModuloIscrizione() {
             codice_corso: c.codice_corso,
             ha_variante_frequenza: c.ha_variante_frequenza,
             mese_inizio: c.mese_inizio,
+            quota_annuale: c.quota_annuale,
+            quota_quad1: c.quota_quad1,
+            quota_quad2: c.quota_quad2,
+            quota_annuale_1x: c.quota_annuale_1x,
+            quota_quad1_1x: c.quota_quad1_1x,
+            quota_quad2_1x: c.quota_quad2_1x,
+            quota_annuale_under65: c.quota_annuale_under65,
+            quota_annuale_badia: c.quota_annuale_badia,
+            quota_quad1_badia: c.quota_quad1_badia,
+            quota_quad2_badia: c.quota_quad2_badia,
+            quota_adesione: c.quota_adesione,
           };
         });
 
@@ -250,11 +386,17 @@ export default function ModuloIscrizione() {
       corsiScelti
         .filter((c) => c.corsoId)
         .map((c) => {
-          const corso = corsi.find((x) => x.id === c.corsoId);
+          let corso = corsi.find((x) => x.id === c.corsoId);
+          // Ginnastica Dolce standard (Bovezzo): tariffa under 65 se applicabile
+          if (corso && corso.quota_annuale_under65 && eta !== null && eta < 65) {
+            corso = { ...corso, quota_annuale: corso.quota_annuale_under65 };
+          }
           return { ...c, corso, codiceCompleto: componiCodice(corso, c.frequenza, c.pagamento) };
         }),
-    [corsiScelti, corsi]
+    [corsiScelti, corsi, eta]
   );
+
+  const prezzoTotale = useMemo(() => calcolaPrezzoTotale(corsiConCodice), [corsiConCodice]);
 
   const causaleCompleta = useMemo(() => {
     if (!anagrafica.nome || !anagrafica.cognome || corsiConCodice.length === 0) return "";
@@ -310,6 +452,7 @@ export default function ModuloIscrizione() {
         stato_certificato: "mancante",
         frequenza: c.frequenza || "2x",
         tipo_pagamento: c.pagamento === "q1" ? "quad1" : c.pagamento === "q2" ? "quad2" : "annuale",
+        importo_dichiarato: prezzoTotale.totale ?? null,
         note: [
           `Codice: ${c.codiceCompleto}`,
           `Frequenza: ${c.frequenza === "2x" ? "bisettimanale" : "monosettimanale"}`,
@@ -317,6 +460,7 @@ export default function ModuloIscrizione() {
           isMinorenne ? `Genitore: ${genitore.nome} ${genitore.cognome} (${genitore.cf})` : null,
           `Luogo firma: ${luogoFirma}`,
           `Data iscrizione: ${new Date().toLocaleDateString("it-IT")}`,
+          prezzoTotale.incompleto ? "ATTENZIONE: quota non calcolabile automaticamente, verificare a mano" : null,
         ].filter(Boolean).join(" | "),
       }));
 
@@ -325,6 +469,40 @@ export default function ModuloIscrizione() {
         .insert(iscrizioniDaInserire);
       // Ignoro solo duplicati (socio già iscritto a questo corso per questa stagione)
       if (errIsc && errIsc.code !== "23505") throw errIsc;
+
+      // 3. Invia l'email di conferma con quota, causale e coordinate di pagamento.
+      // Se questa chiamata fallisce non blocchiamo l'iscrizione (già salvata a DB):
+      // logghiamo soltanto, la segreteria può sempre reinviare manualmente dal gestionale.
+      try {
+        const tuttiRinnovo = corsiConCodice.every((c) => c.pagamento === "q2");
+        const labelPagamento = tuttiRinnovo
+          ? "rinnovo (2ª rata quadrimestrale)"
+          : corsiConCodice.some((c) => c.pagamento === "q1")
+          ? "1ª rata quadrimestrale"
+          : "quota annuale";
+
+        await fetch("https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/invia-email-iscrizione", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tipo: "conferma_iscrizione",
+            destinatarioEmail: residenza.email,
+            destinatarioNome: `${anagrafica.nome} ${anagrafica.cognome}`,
+            corsi: corsiConCodice.map((c) => ({
+              nome: c.corso.corso,
+              sede: c.corso.sede,
+              giorniOrari: c.corso.orario,
+              codiceCompleto: c.codiceCompleto,
+            })),
+            quotaTotale: prezzoTotale.totale,
+            causale: causaleCompleta,
+            tipoPagamentoLabel: labelPagamento,
+            richiedeIscrizione: !tuttiRinnovo,
+          }),
+        });
+      } catch (errEmail) {
+        console.error("Errore invio email conferma (iscrizione comunque salvata):", errEmail);
+      }
 
       setInviato(true);
     } catch (err) {
@@ -703,6 +881,14 @@ export default function ModuloIscrizione() {
                   <span className="font-mono text-teal-700">{c.codiceCompleto}</span>
                 </p>
               ))}
+              <div className="border-t pt-2 mt-2 flex justify-between items-center">
+                <span className="text-slate-500">Quota da versare:</span>
+                {prezzoTotale.incompleto ? (
+                  <span className="text-amber-600 font-medium">Da verificare in segreteria</span>
+                ) : (
+                  <span className="font-semibold text-teal-700 text-base">{prezzoTotale.totale}€</span>
+                )}
+              </div>
               <div className="border-t pt-2 mt-2">
                 <p className="text-slate-500 text-xs mb-1">Causale bonifico/bollettino:</p>
                 <p className="font-mono bg-white border border-slate-200 rounded px-3 py-2">{causaleCompleta}</p>
