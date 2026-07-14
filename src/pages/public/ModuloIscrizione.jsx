@@ -35,7 +35,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const PAGAMENTI = [
   { value: "annuale", label: "Quota annuale", nota: "Pagamento in un'unica soluzione, entro l'inizio del corso." },
   { value: "q1", label: "1ª rata quadrimestrale", nota: "Scadenza: fine gennaio." },
-  { value: "q2", label: "2ª rata quadrimestrale", nota: "Scadenza: fine maggio. La 2ª rata costa leggermente più del proporzionale annuale." },
+  { value: "q2", label: "Nuovo tesserato da Gennaio", nota: "Solo per chi NON era già iscritto nel 1° quadrimestre. Quota 1ª rata + 1 mese aggiuntivo (comprende iscrizione)." },
 ];
 
 // ---------------------------------------------------------------------
@@ -99,7 +99,21 @@ function importoCorso(corso, frequenza, pagamento, isolato) {
     else totaleConIscrizione = corso.quota_quad2_badia;
   } else if (pagamento === "annuale") totaleConIscrizione = is1x ? corso.quota_annuale_1x : corso.quota_annuale;
   else if (pagamento === "q1") totaleConIscrizione = is1x ? corso.quota_quad1_1x : corso.quota_quad1;
-  else totaleConIscrizione = is1x ? corso.quota_quad2_1x : corso.quota_quad2; // q2: già senza iscrizione
+  else {
+    // "q2" nel modulo pubblico = NUOVO tesserato da gennaio (chi era già iscritto
+    // nel 1° quadrimestre non passa da qui). Tariffa: 1ª rata + 1 mese aggiuntivo,
+    // iscrizione inclusa (comprensione confermata da Solomon il 14/07/2026).
+    const base = is1x ? corso.quota_quad1_1x : corso.quota_quad1;
+    if (base === null || base === undefined) return { mesi: 5, puro: null, totaleConIscrizione: null };
+    const iscrizioneCorso = Number(corso.quota_adesione || 0);
+    const puro4Mesi = Number(base) - iscrizioneCorso;
+    const meseAggiuntivo = puro4Mesi / 4;
+    return {
+      mesi: 5,
+      puro: puro4Mesi + meseAggiuntivo,
+      totaleConIscrizione: Number(base) + meseAggiuntivo,
+    };
+  }
 
   if (totaleConIscrizione === null || totaleConIscrizione === undefined) {
     return { mesi, puro: null, totaleConIscrizione: null }; // dato mancante
@@ -159,8 +173,9 @@ function calcolaPrezzoTotale(corsiSelezionati) {
   });
 
   // iscrizione unica: 40€, tranne se TUTTI i corsi selezionati sono in 2a rata (rinnovo)
-  const tuttiRinnovo = validi.every((c) => c.pagamento === "q2");
-  const iscrizione = tuttiRinnovo ? 0 : ISCRIZIONE_STANDARD;
+  // Iscrizione sempre dovuta (40€): nel modulo pubblico "q2" rappresenta sempre
+  // un NUOVO tesserato da gennaio, non un rinnovo di chi era già iscritto.
+  const iscrizione = ISCRIZIONE_STANDARD;
 
   const totale = incompleto ? null : totaleAltri + totaleGD + iscrizione;
   return { totale, incompleto, dettaglio, sconto, iscrizione, soloGinnasticaDolce: false };
@@ -322,6 +337,7 @@ export default function ModuloIscrizione() {
             quota_quad1_badia,
             quota_quad2_badia,
             quota_adesione,
+            capienza_max,
             sedi ( nome ),
             istruttori_corsi (
               istruttori ( nome, cognome )
@@ -331,11 +347,24 @@ export default function ModuloIscrizione() {
           .order("codice_corso");
         if (errC) throw errC;
 
+        // Conteggio iscritti per corso in questa stagione (per il limite posti)
+        const { data: iscrizioniStagione, error: errIscr } = await supabase
+          .from("iscrizioni")
+          .select("corso_id")
+          .eq("stagione_id", stagioni.id);
+        if (errIscr) throw errIscr;
+        const conteggioIscritti = {};
+        (iscrizioniStagione || []).forEach((r) => {
+          conteggioIscritti[r.corso_id] = (conteggioIscritti[r.corso_id] || 0) + 1;
+        });
+
         // Trasformo nel formato usato dal form
         const corsiFormattati = corsiDB.map((c) => {
           const nomiIstruttori = c.istruttori_corsi
             .map((ic) => `${ic.istruttori.nome} ${ic.istruttori.cognome}`)
             .join(" / ") || null;
+          const postiOccupati = conteggioIscritti[c.id] || 0;
+          const postiDisponibili = c.capienza_max === null || c.capienza_max === undefined ? null : c.capienza_max - postiOccupati;
           return {
             id: c.id,
             sede: c.sedi.nome,
@@ -356,6 +385,8 @@ export default function ModuloIscrizione() {
             quota_quad1_badia: c.quota_quad1_badia,
             quota_quad2_badia: c.quota_quad2_badia,
             quota_adesione: c.quota_adesione,
+            capienza_max: c.capienza_max,
+            postiDisponibili, // null = nessun limite impostato
           };
         });
 
@@ -426,6 +457,49 @@ export default function ModuloIscrizione() {
     try {
       const cfUpper = anagrafica.cf.toUpperCase();
 
+      // 0. Se qualcuno ha scelto "nuovo tesserato da gennaio" (q2), verifico che
+      // non risulti già iscritto a quel corso in questa stagione: se lo è, non deve
+      // ripetere il modulo (deve solo completare il pagamento con la segreteria).
+      const corsiDaVerificare = corsiConCodice.filter((c) => c.pagamento === "q2").map((c) => c.corso.id);
+      if (corsiDaVerificare.length > 0) {
+        const { data: giaIscritto, error: errCheck } = await supabase
+          .from("iscrizioni")
+          .select("corso_id")
+          .eq("socio_cf", cfUpper)
+          .eq("stagione_id", stagione.id)
+          .in("corso_id", corsiDaVerificare);
+        if (errCheck) throw errCheck;
+        if (giaIscritto && giaIscritto.length > 0) {
+          setErroreInvio(
+            "Risulti già iscritto/a a uno dei corsi selezionati per questa stagione. Non è necessario ripetere il modulo: contatta la segreteria (327 868 1393) per completare il pagamento del 2° quadrimestre."
+          );
+          setInviando(false);
+          return;
+        }
+      }
+
+      // 0.5 Ricontrollo la capienza in tempo reale (nel caso si siano iscritte altre
+      // persone nel frattempo, dato che il controllo mostrato in pagina non è istantaneo)
+      const corsiConLimite = corsiConCodice.filter((c) => c.corso.capienza_max !== null && c.corso.capienza_max !== undefined);
+      if (corsiConLimite.length > 0) {
+        const { data: conteggioAttuale, error: errConteggio } = await supabase
+          .from("iscrizioni")
+          .select("corso_id")
+          .eq("stagione_id", stagione.id)
+          .in("corso_id", corsiConLimite.map((c) => c.corso.id));
+        if (errConteggio) throw errConteggio;
+        for (const c of corsiConLimite) {
+          const occupati = (conteggioAttuale || []).filter((r) => r.corso_id === c.corso.id).length;
+          if (occupati >= c.corso.capienza_max) {
+            setErroreInvio(
+              `Il corso "${c.corso.corso} — ${c.corso.orario}" ha appena raggiunto il numero massimo di iscritti. Contatta la segreteria (327 868 1393) per la disponibilità.`
+            );
+            setInviando(false);
+            return;
+          }
+        }
+      }
+
       // 1. Inserisce il socio — se esiste già (23505 = duplicate key) va bene, proseguiamo
       const { error: errSocio } = await supabase.from("soci").insert({
         cf: cfUpper,
@@ -474,9 +548,8 @@ export default function ModuloIscrizione() {
       // Se questa chiamata fallisce non blocchiamo l'iscrizione (già salvata a DB):
       // logghiamo soltanto, la segreteria può sempre reinviare manualmente dal gestionale.
       try {
-        const tuttiRinnovo = corsiConCodice.every((c) => c.pagamento === "q2");
-        const labelPagamento = tuttiRinnovo
-          ? "rinnovo (2ª rata quadrimestrale)"
+        const labelPagamento = corsiConCodice.some((c) => c.pagamento === "q2")
+          ? "quota (nuovo tesserato da gennaio: 1ª rata + 1 mese)"
           : corsiConCodice.some((c) => c.pagamento === "q1")
           ? "1ª rata quadrimestrale"
           : "quota annuale";
@@ -497,7 +570,7 @@ export default function ModuloIscrizione() {
             quotaTotale: prezzoTotale.totale,
             causale: causaleCompleta,
             tipoPagamentoLabel: labelPagamento,
-            richiedeIscrizione: !tuttiRinnovo,
+            richiedeIscrizione: true,
           }),
         });
       } catch (errEmail) {
@@ -675,14 +748,29 @@ export default function ModuloIscrizione() {
                             onChange={(e) => aggiornaCorso(idx, "corsoId", e.target.value)}
                           >
                             <option value="">Seleziona…</option>
-                            {corsiSede.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.corso} — {c.orario}
-                              </option>
-                            ))}
+                            {corsiSede.map((c) => {
+                              const pieno = c.postiDisponibili !== null && c.postiDisponibili <= 0;
+                              return (
+                                <option key={c.id} value={c.id} disabled={pieno}>
+                                  {c.corso} — {c.orario}{pieno ? " — AL COMPLETO" : ""}
+                                </option>
+                              );
+                            })}
                           </select>
                         </div>
                       </div>
+
+                      {corso && corso.postiDisponibili !== null && corso.postiDisponibili <= 0 && (
+                        <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">
+                          Questo corso ha raggiunto il numero massimo di iscritti. Contatta la segreteria
+                          (327 868 1393) per sapere se si libera un posto o per la lista d'attesa.
+                        </div>
+                      )}
+                      {corso && corso.postiDisponibili !== null && corso.postiDisponibili > 0 && corso.postiDisponibili <= 3 && (
+                        <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-700">
+                          Attenzione: restano solo {corso.postiDisponibili} posti disponibili per questo corso.
+                        </div>
+                      )}
 
                       {corso?.ha_variante_frequenza && (
                         <div className="mt-3">
@@ -698,7 +786,7 @@ export default function ModuloIscrizione() {
                         <div className="mt-3">
                           <label className="text-xs font-medium text-slate-600 block mb-1">Tipo pagamento</label>
                           <div className="flex flex-col gap-1.5">
-                            {PAGAMENTI.map((p) => (
+                            {PAGAMENTI.filter((p) => p.value !== "q2" || new Date().getMonth() <= 7).map((p) => (
                               <label key={p.value} className="flex items-start gap-2 text-sm cursor-pointer">
                                 <input type="radio" className="mt-0.5" checked={sel.pagamento === p.value} onChange={() => aggiornaCorso(idx, "pagamento", p.value)} />
                                 <span>

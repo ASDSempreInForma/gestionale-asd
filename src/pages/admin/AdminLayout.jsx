@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../../supabase.js'
 import GestioneProve from './GestioneProve.jsx'
 import GestioneIstruttori from './GestioneIstruttori.jsx'
+import GestioneCorsi from './GestioneCorsi.jsx'
 import ScannerCertificati from './ScannerCertificati.jsx'
 import ScannerCheckin from './ScannerCheckin.jsx'
 import VistaCorsomobile from './VistaCorsomobile.jsx'
@@ -10,6 +11,7 @@ import AssistenteAi from './AssistenteAi.jsx'
 const VOCI = [
   { id: 'prove',         icon: '📋', label: 'Gestione prove' },
   { id: 'istruttori',   icon: '👨‍🏫', label: 'Istruttori' },
+  { id: 'gestione-corsi', icon: '🎯', label: 'Gestione corsi' },
   { id: 'corsi',        icon: '📱', label: 'Vista corso' },
   { id: 'certificati',  icon: '📷', label: 'Scanner certificati' },
   { id: 'checkin',      icon: '✅', label: 'Check-in' },
@@ -114,6 +116,7 @@ export default function AdminLayout({ user, onLogout }) {
         marginTop: window.innerWidth < 768 ? 52 : 0, minHeight: '100vh' }}>
         {pagina === 'prove'       && <GestioneProve />}
         {pagina === 'istruttori'  && <GestioneIstruttori />}
+        {pagina === 'gestione-corsi' && <GestioneCorsi />}
         {pagina === 'corsi'       && <VistaCorsomobile />}
         {pagina === 'certificati' && <ScannerCertificati />}
         {pagina === 'checkin'     && <ScannerCheckin />}
