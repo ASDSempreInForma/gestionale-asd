@@ -376,7 +376,8 @@ export default function ModuloIscrizione() {
         const { data: iscrizioniStagione, error: errIscr } = await supabase
           .from("iscrizioni")
           .select("corso_id, frequenza, giorno_scelto")
-          .eq("stagione_id", stagioni.id);
+          .eq("stagione_id", stagioni.id)
+          .neq("stato_pagamento", "annullata");
         if (errIscr) throw errIscr;
 
         // Trasformo nel formato usato dal form
@@ -521,6 +522,7 @@ export default function ModuloIscrizione() {
           .select("corso_id")
           .eq("socio_cf", cfUpper)
           .eq("stagione_id", stagione.id)
+          .neq("stato_pagamento", "annullata")
           .in("corso_id", corsiDaVerificare);
         if (errCheck) throw errCheck;
         if (giaIscritto && giaIscritto.length > 0) {
@@ -555,6 +557,7 @@ export default function ModuloIscrizione() {
           .from("iscrizioni")
           .select("corso_id, frequenza, giorno_scelto")
           .eq("stagione_id", stagione.id)
+          .neq("stato_pagamento", "annullata")
           .in("corso_id", corsiDaRicontrollare.map((c) => c.corso.id));
         if (errConteggio) throw errConteggio;
 
