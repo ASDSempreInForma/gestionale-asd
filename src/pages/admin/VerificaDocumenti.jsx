@@ -5,6 +5,28 @@ const G = "#2D6A4F", GL = "#D8F3DC"
 const BD = "#E8E4DC", TX = "#1A1A1A", SUB = "#6B7280"
 const BUCKET = 'documenti-soci'
 
+const FUNCTION_URL_EMAIL = 'https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/invia-email-iscrizione'
+const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVic3VxZHhmbHlneGh1cHRubnVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNTU1OTcsImV4cCI6MjA5NzYzMTU5N30.KXgue3EKXZdZZ5vvkmHcEzO5OvFEAQWyuvMtLm2RtV0'
+
+async function inviaEmailDocumento({ tipo, tipoDocumento, socio, motivo }) {
+  if (!socio?.email) return // niente email registrata, non blocchiamo il resto
+  try {
+    await fetch(FUNCTION_URL_EMAIL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
+      body: JSON.stringify({
+        tipo,
+        destinatarioEmail: socio.email,
+        destinatarioNome: socio.nome,
+        tipoDocumento,
+        motivo,
+      }),
+    })
+  } catch (e) {
+    console.error('Invio email non riuscito:', e)
+  }
+}
+
 function fmtData(d) {
   if (!d) return '—'
   const [y, m, day] = d.split('-')
@@ -107,7 +129,13 @@ function RigaIscritto({ row, onAggiorna }) {
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
               <button onClick={() => apriDocumento(row.ricevuta_url)} style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>👁️ Apri file</button>
-              <button onClick={() => aggiornaIscrizione({ stato_pagamento: 'confermato' })} style={{ background: '#DCFCE7', color: '#166534', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer', fontWeight: 600 }}>✓ Conferma</button>
+              <button
+                onClick={() => {
+                  aggiornaIscrizione({ stato_pagamento: 'confermato' })
+                  inviaEmailDocumento({ tipo: 'documento_confermato', tipoDocumento: 'ricevuta', socio })
+                }}
+                style={{ background: '#DCFCE7', color: '#166534', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer', fontWeight: 600 }}
+              >✓ Conferma</button>
               <button onClick={() => setModaleRifiuto('pagamento')} style={{ background: '#FEE2E2', color: '#991B1B', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>✕ Rifiuta</button>
             </div>
           </div>
@@ -121,7 +149,13 @@ function RigaIscritto({ row, onAggiorna }) {
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
               <button onClick={() => apriDocumento(row.certificato_url)} style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>👁️ Apri file</button>
-              <button onClick={() => aggiornaIscrizione({ stato_certificato: 'valido' })} style={{ background: '#DCFCE7', color: '#166534', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer', fontWeight: 600 }}>✓ Conferma</button>
+              <button
+                onClick={() => {
+                  aggiornaIscrizione({ stato_certificato: 'valido' })
+                  inviaEmailDocumento({ tipo: 'documento_confermato', tipoDocumento: 'certificato', socio })
+                }}
+                style={{ background: '#DCFCE7', color: '#166534', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer', fontWeight: 600 }}
+              >✓ Conferma</button>
               <button onClick={() => setModaleRifiuto('certificato')} style={{ background: '#FEE2E2', color: '#991B1B', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>✕ Rifiuta</button>
             </div>
           </div>
@@ -136,6 +170,12 @@ function RigaIscritto({ row, onAggiorna }) {
               ? { stato_pagamento: 'rifiutato', note: motivo }
               : { stato_certificato: 'rifiutato', note: motivo }
             aggiornaIscrizione(payload)
+            inviaEmailDocumento({
+              tipo: 'documento_rifiutato',
+              tipoDocumento: modaleRifiuto === 'pagamento' ? 'ricevuta' : 'certificato',
+              socio,
+              motivo,
+            })
             setModaleRifiuto(null)
           }}
         />
@@ -154,7 +194,7 @@ export default function VerificaDocumenti() {
       .select(`
         id, tipo_pagamento, stato_pagamento, importo_dichiarato, data_pagamento, ricevuta_url,
         stato_certificato, data_scadenza_certificato, certificato_url,
-        soci ( cf, nome, cognome, numero_tessera ),
+        soci ( cf, nome, cognome, email, numero_tessera ),
         corsi ( disciplina, giorni_orari, sedi ( nome ) )
       `)
       .or('stato_pagamento.eq.dichiarato,stato_certificato.eq.dichiarato')

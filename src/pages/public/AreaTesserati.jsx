@@ -308,6 +308,11 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato }) {
           <div>Certificato in scadenza il {fmtData(iscrizione.data_scadenza_certificato)}</div>
         )}
       </div>
+      {(iscrizione.stato_pagamento === "rifiutato" || iscrizione.stato_certificato === "rifiutato") && iscrizione.note && (
+        <div style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "8px 10px", fontSize: 12.5, color: "#991B1B", marginBottom: 10 }}>
+          <b>Motivo del rifiuto:</b> {iscrizione.note}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {["in_attesa", "rifiutato"].includes(iscrizione.stato_pagamento) && (
           <button style={styles.btnSmall} onClick={onApriRicevuta}>📄 Invia ricevuta</button>
