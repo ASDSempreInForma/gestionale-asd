@@ -30,6 +30,10 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("tutti");
   const [saving, setSaving] = useState({});
+  const [annullamento, setAnnullamento] = useState(null); // { iscrizioneId, corsoId, nome } oppure null
+  const [motivoAnnullamento, setMotivoAnnullamento] = useState("Infortunio - certificato medico");
+  const [importoRimborsato, setImportoRimborsato] = useState("");
+  const [annullando, setAnnullando] = useState(false);
 
   // ── Caricamento dati ──────────────────────────────────────────────
   useEffect(() => { caricaDati(); }, []);
@@ -96,6 +100,34 @@ export default function App() {
       }));
     }
     setSaving(p => ({ ...p, [key]: false }));
+  }
+
+  // ── Annulla iscrizione (es. infortunio con certificato medico) ────
+  async function annullaIscrizione() {
+    if (!annullamento) return;
+    setAnnullando(true);
+    const { error } = await supabase
+      .from("iscrizioni")
+      .update({
+        stato_pagamento: "annullata",
+        motivo_annullamento: motivoAnnullamento,
+        importo_rimborsato: importoRimborsato === "" ? null : Number(importoRimborsato),
+        data_annullamento: new Date().toISOString(),
+      })
+      .eq("id", annullamento.iscrizioneId);
+    if (!error) {
+      // Rimuovo l'iscrizione dalla lista corrente (libera subito il posto)
+      setIscritti(prev => ({
+        ...prev,
+        [annullamento.corsoId]: prev[annullamento.corsoId].filter(i => i.id !== annullamento.iscrizioneId),
+      }));
+      setAnnullamento(null);
+      setMotivoAnnullamento("Infortunio - certificato medico");
+      setImportoRimborsato("");
+    } else {
+      alert("Errore durante l'annullamento. Riprova.");
+    }
+    setAnnullando(false);
   }
 
   // ── Helpers display ───────────────────────────────────────────────
@@ -226,6 +258,12 @@ export default function App() {
                       {saving[certKey] ? "…" : "✓ Cert."}
                     </button>
                   )}
+                  <button
+                    onClick={() => setAnnullamento({ iscrizioneId: i.id, corsoId: corso.id, nome: `${i.soci?.nome} ${i.soci?.cognome}` })}
+                    style={{ padding: "4px 8px", border: `0.5px solid ${BD}`, borderRadius: 8, fontSize: 10, fontWeight: 500, cursor: "pointer", background: "white", color: GR }}
+                  >
+                    ✕ Annulla
+                  </button>
                 </div>
               </div>
             );
@@ -240,6 +278,56 @@ export default function App() {
           <button onClick={() => window.print()}
             style={{ flex: 2, padding: "10px", border: `0.5px solid ${G}`, borderRadius: 10, fontSize: 12, fontWeight: 500, cursor: "pointer", background: GL, color: G }}>🖨 Stampa presenze</button>
         </div>
+
+        {/* MODALE ANNULLAMENTO ISCRIZIONE */}
+        {annullamento && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 }}>
+            <div style={{ background: "white", borderRadius: 14, padding: 20, width: "100%", maxWidth: 380 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: TX, marginBottom: 4 }}>Annulla iscrizione</div>
+              <div style={{ fontSize: 12, color: GR, marginBottom: 14 }}>{annullamento.nome}</div>
+
+              <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 4 }}>Motivo</label>
+              <select
+                value={motivoAnnullamento}
+                onChange={(e) => setMotivoAnnullamento(e.target.value)}
+                style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13, marginBottom: 12 }}
+              >
+                <option value="Infortunio - certificato medico">Infortunio (certificato medico)</option>
+                <option value="Trasferimento ad altro corso">Trasferimento ad altro corso</option>
+                <option value="Richiesta socio">Richiesta socio</option>
+                <option value="Altro">Altro</option>
+              </select>
+
+              <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 4 }}>
+                Importo rimborsato (€) — esclusi i 40€ di iscrizione, mai rimborsabili
+              </label>
+              <input
+                type="number"
+                min="0"
+                placeholder="0"
+                value={importoRimborsato}
+                onChange={(e) => setImportoRimborsato(e.target.value)}
+                style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}
+              />
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => setAnnullamento(null)}
+                  style={{ flex: 1, padding: "10px", borderRadius: 10, border: `0.5px solid ${BD}`, background: "white", color: GR, fontSize: 13, cursor: "pointer" }}
+                >
+                  Annulla
+                </button>
+                <button
+                  onClick={annullaIscrizione}
+                  disabled={annullando}
+                  style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: R, color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: annullando ? 0.6 : 1 }}
+                >
+                  {annullando ? "…" : "Conferma annullamento"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
