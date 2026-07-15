@@ -509,6 +509,23 @@ export default function AreaTesserati() {
             <div style={{ fontSize: 13, color: "#64748b" }}>
               {socio.numero_tessera ? `Tessera n. ${socio.numero_tessera}` : "Numero tessera non ancora assegnato"}
             </div>
+            {(() => {
+              if (!socio.numero_tessera) return null;
+              const oggi = new Date().toISOString().slice(0, 10);
+              const scaduta = socio.scadenza_tessera && socio.scadenza_tessera < oggi;
+              if (scaduta) {
+                return (
+                  <div style={{ fontSize: 12.5, color: "#991B1B", background: "#FEE2E2", borderRadius: 6, padding: "4px 8px", marginTop: 6, display: "inline-block" }}>
+                    ⚠️ Scaduta il {fmtData(socio.scadenza_tessera)} — verrà rinnovata con la nuova iscrizione
+                  </div>
+                );
+              }
+              return (
+                <div style={{ fontSize: 12.5, color: "#166534" }}>
+                  {socio.scadenza_tessera ? `Valida fino al ${fmtData(socio.scadenza_tessera)}` : ""}
+                </div>
+              );
+            })()}
             <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
               Mostra questo QR all'ingresso in palestra per il check-in.
             </div>
