@@ -41,6 +41,18 @@ const PAGAMENTI = [
 // ---------------------------------------------------------------------
 // MOTORE DI COMPOSIZIONE CODICE CORSO
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// ESTRAZIONE GIORNI SINGOLI da un corso in coppia
+// Formato in DB: "Lunedì/Venerdì 20:10-21:00" -> [{giorno:"Lunedì", orario:"20:10-21:00"}, {giorno:"Venerdì", orario:"20:10-21:00"}]
+// ---------------------------------------------------------------------
+function estraiGiorniSingoli(giorniOrari) {
+  if (!giorniOrari) return [];
+  const match = giorniOrari.match(/^(.+?)\s(\d{1,2}[:.]\d{2}-\d{1,2}[:.]\d{2})$/);
+  if (!match) return [{ giorno: giorniOrari, orario: "" }]; // formato non riconosciuto, fallback
+  const [, giorniParte, orario] = match;
+  return giorniParte.split("/").map((g) => ({ giorno: g.trim(), orario }));
+}
+
 function componiCodice(corso, frequenza, pagamento) {
   if (!corso) return "";
   let codice =
@@ -338,6 +350,8 @@ export default function ModuloIscrizione() {
             quota_quad2_badia,
             quota_adesione,
             capienza_max,
+            capienza_giorno1,
+            capienza_giorno2,
             sedi ( nome ),
             istruttori_corsi (
               istruttori ( nome, cognome )
@@ -347,24 +361,52 @@ export default function ModuloIscrizione() {
           .order("codice_corso");
         if (errC) throw errC;
 
-        // Conteggio iscritti per corso in questa stagione (per il limite posti)
+        // Conteggio iscritti per corso E per giorno specifico (per il limite posti):
+        // chi fa 2x conta su entrambi i giorni della coppia, chi fa 1x solo sul suo giorno_scelto.
         const { data: iscrizioniStagione, error: errIscr } = await supabase
           .from("iscrizioni")
-          .select("corso_id")
+          .select("corso_id, frequenza, giorno_scelto")
           .eq("stagione_id", stagioni.id);
         if (errIscr) throw errIscr;
-        const conteggioIscritti = {};
-        (iscrizioniStagione || []).forEach((r) => {
-          conteggioIscritti[r.corso_id] = (conteggioIscritti[r.corso_id] || 0) + 1;
-        });
 
         // Trasformo nel formato usato dal form
         const corsiFormattati = corsiDB.map((c) => {
           const nomiIstruttori = c.istruttori_corsi
             .map((ic) => `${ic.istruttori.nome} ${ic.istruttori.cognome}`)
             .join(" / ") || null;
-          const postiOccupati = conteggioIscritti[c.id] || 0;
-          const postiDisponibili = c.capienza_max === null || c.capienza_max === undefined ? null : c.capienza_max - postiOccupati;
+
+          const giorniSingoli = estraiGiorniSingoli(c.giorni_orari); // 1 o 2 elementi {giorno, orario}
+          const iscrizioniCorso = (iscrizioniStagione || []).filter((r) => r.corso_id === c.id);
+
+          let posti; // array parallelo a giorniSingoli: {giorno, capienza, occupati, disponibili}
+          if (giorniSingoli.length === 2) {
+            const capienze = [c.capienza_giorno1, c.capienza_giorno2];
+            posti = giorniSingoli.map((g, i) => {
+              const occupati = iscrizioniCorso.filter(
+                (r) => r.frequenza === "2x" || (r.frequenza === "1x" && r.giorno_scelto === g.giorno)
+              ).length;
+              const capienza = capienze[i];
+              const disponibili = capienza === null || capienza === undefined ? null : capienza - occupati;
+              return { giorno: g.giorno, orario: g.orario, capienza, occupati, disponibili };
+            });
+          } else {
+            // corso a giorno singolo: tutta l'iscrizione conta sull'unico giorno, uso capienza_max
+            const occupati = iscrizioniCorso.length;
+            const capienza = c.capienza_max;
+            const disponibili = capienza === null || capienza === undefined ? null : capienza - occupati;
+            posti = [{ giorno: giorniSingoli[0]?.giorno || "", orario: giorniSingoli[0]?.orario || "", capienza, occupati, disponibili }];
+          }
+
+          // Per compatibilità con il resto del form: "postiDisponibili" = il minimo tra i giorni
+          // (rilevante soprattutto per il 2x, che richiede posto in ENTRAMBI i giorni)
+          const disponibiliValidi = posti.map((p) => p.disponibili).filter((d) => d !== null);
+          const postiDisponibili = disponibiliValidi.length === 0 ? null : Math.min(...disponibiliValidi);
+          // Il corso è del tutto inselezionabile solo se OGNI giorno con un limite impostato è pieno
+          // (se anche un solo giorno non ha limite, il corso resta sempre selezionabile)
+          const tuttiPostiEsauriti = posti.every(
+            (p) => p.capienza !== null && p.capienza !== undefined && p.disponibili <= 0
+          );
+
           return {
             id: c.id,
             sede: c.sedi.nome,
@@ -386,7 +428,9 @@ export default function ModuloIscrizione() {
             quota_quad2_badia: c.quota_quad2_badia,
             quota_adesione: c.quota_adesione,
             capienza_max: c.capienza_max,
-            postiDisponibili, // null = nessun limite impostato
+            posti, // dettaglio per giorno: [{giorno, orario, capienza, occupati, disponibili}]
+            postiDisponibili, // null = nessun limite impostato ovunque; altrimenti il minimo tra i giorni
+            tuttiPostiEsauriti,
           };
         });
 
@@ -407,7 +451,7 @@ export default function ModuloIscrizione() {
   const sedi = useMemo(() => [...new Set(corsi.map((c) => c.sede))].sort(), [corsi]);
 
   const aggiungiCorso = () =>
-    setCorsiScelti((p) => [...p, { sede: "", corsoId: "", frequenza: "2x", pagamento: "annuale" }]);
+    setCorsiScelti((p) => [...p, { sede: "", corsoId: "", frequenza: "2x", pagamento: "annuale", giornoScelto: null }]);
   const rimuoviCorso = (idx) => setCorsiScelti((p) => p.filter((_, i) => i !== idx));
   const aggiornaCorso = (idx, campo, valore) =>
     setCorsiScelti((p) => p.map((c, i) => (i === idx ? { ...c, [campo]: valore } : c)));
@@ -478,24 +522,52 @@ export default function ModuloIscrizione() {
         }
       }
 
-      // 0.5 Ricontrollo la capienza in tempo reale (nel caso si siano iscritte altre
-      // persone nel frattempo, dato che il controllo mostrato in pagina non è istantaneo)
-      const corsiConLimite = corsiConCodice.filter((c) => c.corso.capienza_max !== null && c.corso.capienza_max !== undefined);
-      if (corsiConLimite.length > 0) {
+      // 0.4 Se qualcuno ha scelto "1 volta a settimana" su un corso in coppia, deve
+      // aver indicato quale giorno preferisce (serve per il conteggio posti corretto).
+      const senzaGiornoScelto = corsiConCodice.find(
+        (c) => c.frequenza === "1x" && c.corso.ha_variante_frequenza && !c.giornoScelto
+      );
+      if (senzaGiornoScelto) {
+        setErroreInvio(
+          `Per "${senzaGiornoScelto.corso.corso} — ${senzaGiornoScelto.corso.orario}" seleziona quale giorno preferisci frequentare.`
+        );
+        setInviando(false);
+        return;
+      }
+
+      // 0.5 Ricontrollo la capienza in tempo reale, GIORNO PER GIORNO (nel caso si
+      // siano iscritte altre persone nel frattempo, dato che il controllo mostrato
+      // in pagina non è istantaneo). Chi fa 2x occupa un posto in entrambi i giorni
+      // della coppia; chi fa 1x occupa un posto solo nel giorno scelto.
+      const corsiDaRicontrollare = corsiConCodice.filter((c) => c.corso.posti.some((p) => p.capienza !== null && p.capienza !== undefined));
+      if (corsiDaRicontrollare.length > 0) {
         const { data: conteggioAttuale, error: errConteggio } = await supabase
           .from("iscrizioni")
-          .select("corso_id")
+          .select("corso_id, frequenza, giorno_scelto")
           .eq("stagione_id", stagione.id)
-          .in("corso_id", corsiConLimite.map((c) => c.corso.id));
+          .in("corso_id", corsiDaRicontrollare.map((c) => c.corso.id));
         if (errConteggio) throw errConteggio;
-        for (const c of corsiConLimite) {
-          const occupati = (conteggioAttuale || []).filter((r) => r.corso_id === c.corso.id).length;
-          if (occupati >= c.corso.capienza_max) {
-            setErroreInvio(
-              `Il corso "${c.corso.corso} — ${c.corso.orario}" ha appena raggiunto il numero massimo di iscritti. Contatta la segreteria (327 868 1393) per la disponibilità.`
-            );
-            setInviando(false);
-            return;
+
+        for (const c of corsiDaRicontrollare) {
+          const iscrizioniCorso = (conteggioAttuale || []).filter((r) => r.corso_id === c.corso.id);
+          const giorniRichiesti =
+            c.frequenza === "1x" && c.corso.ha_variante_frequenza
+              ? [c.giornoScelto]
+              : c.corso.posti.map((p) => p.giorno);
+
+          for (const giorno of giorniRichiesti) {
+            const postoInfo = c.corso.posti.find((p) => p.giorno === giorno);
+            if (!postoInfo || postoInfo.capienza === null || postoInfo.capienza === undefined) continue;
+            const occupati = iscrizioniCorso.filter(
+              (r) => r.frequenza === "2x" || (r.frequenza === "1x" && r.giorno_scelto === giorno)
+            ).length;
+            if (occupati >= postoInfo.capienza) {
+              setErroreInvio(
+                `Il corso "${c.corso.corso}" (${giorno}) ha appena raggiunto il numero massimo di iscritti. Contatta la segreteria (327 868 1393) per la disponibilità.`
+              );
+              setInviando(false);
+              return;
+            }
           }
         }
       }
@@ -525,11 +597,14 @@ export default function ModuloIscrizione() {
         stato_pagamento: "in_attesa",
         stato_certificato: "mancante",
         frequenza: c.frequenza || "2x",
+        giorno_scelto: c.frequenza === "1x" && c.corso.ha_variante_frequenza ? c.giornoScelto : null,
         tipo_pagamento: c.pagamento === "q1" ? "quad1" : c.pagamento === "q2" ? "quad2" : "annuale",
         importo_dichiarato: prezzoTotale.totale ?? null,
         note: [
           `Codice: ${c.codiceCompleto}`,
-          `Frequenza: ${c.frequenza === "2x" ? "bisettimanale" : "monosettimanale"}`,
+          `Frequenza: ${c.frequenza === "2x" ? "bisettimanale" : "monosettimanale"}${
+            c.frequenza === "1x" && c.corso.ha_variante_frequenza && c.giornoScelto ? ` (${c.giornoScelto})` : ""
+          }`,
           regolamenti.immagini ? "Consenso immagini: sì" : "Consenso immagini: no",
           isMinorenne ? `Genitore: ${genitore.nome} ${genitore.cognome} (${genitore.cf})` : null,
           `Luogo firma: ${luogoFirma}`,
@@ -749,7 +824,7 @@ export default function ModuloIscrizione() {
                           >
                             <option value="">Seleziona…</option>
                             {corsiSede.map((c) => {
-                              const pieno = c.postiDisponibili !== null && c.postiDisponibili <= 0;
+                              const pieno = c.tuttiPostiEsauriti;
                               return (
                                 <option key={c.id} value={c.id} disabled={pieno}>
                                   {c.corso} — {c.orario}{pieno ? " — AL COMPLETO" : ""}
@@ -760,15 +835,44 @@ export default function ModuloIscrizione() {
                         </div>
                       </div>
 
-                      {corso && corso.postiDisponibili !== null && corso.postiDisponibili <= 0 && (
-                        <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">
-                          Questo corso ha raggiunto il numero massimo di iscritti. Contatta la segreteria
-                          (327 868 1393) per sapere se si libera un posto o per la lista d'attesa.
+                      {corso && corso.posti && corso.posti.length === 2 && (
+                        <div className="mt-2 flex gap-2">
+                          {corso.posti.map((p) => {
+                            const pieno = p.disponibili !== null && p.disponibili <= 0;
+                            const quasi = p.disponibili !== null && p.disponibili > 0 && p.disponibili <= 3;
+                            return (
+                              <div
+                                key={p.giorno}
+                                className={`flex-1 text-xs px-2 py-1.5 rounded-lg border ${
+                                  pieno
+                                    ? "bg-red-50 border-red-200 text-red-700"
+                                    : quasi
+                                    ? "bg-amber-50 border-amber-200 text-amber-700"
+                                    : "bg-slate-50 border-slate-200 text-slate-500"
+                                }`}
+                              >
+                                <div className="font-medium">{p.giorno}</div>
+                                <div>{p.disponibili === null ? "nessun limite" : pieno ? "AL COMPLETO" : `${p.disponibili} posti liberi`}</div>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
-                      {corso && corso.postiDisponibili !== null && corso.postiDisponibili > 0 && corso.postiDisponibili <= 3 && (
-                        <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-700">
-                          Attenzione: restano solo {corso.postiDisponibili} posti disponibili per questo corso.
+                      {corso && corso.posti && corso.posti.length === 1 && corso.posti[0].disponibili !== null && (
+                        <div
+                          className={`mt-2 text-sm px-3 py-2 rounded-lg border ${
+                            corso.posti[0].disponibili <= 0
+                              ? "bg-red-50 border-red-200 text-red-700"
+                              : corso.posti[0].disponibili <= 3
+                              ? "bg-amber-50 border-amber-200 text-amber-700"
+                              : "bg-slate-50 border-slate-200 text-slate-500"
+                          }`}
+                        >
+                          {corso.posti[0].disponibili <= 0
+                            ? "Corso al completo. Contatta la segreteria (327 868 1393) per la lista d'attesa."
+                            : corso.posti[0].disponibili <= 3
+                            ? `Attenzione: restano solo ${corso.posti[0].disponibili} posti disponibili.`
+                            : null}
                         </div>
                       )}
 
@@ -776,8 +880,33 @@ export default function ModuloIscrizione() {
                         <div className="mt-3">
                           <label className="text-xs font-medium text-slate-600 block mb-1">Frequenza</label>
                           <div className="flex gap-2">
-                            <RadioPill active={sel.frequenza === "2x"} onClick={() => aggiornaCorso(idx, "frequenza", "2x")} label="2 volte a settimana" />
+                            <RadioPill
+                              active={sel.frequenza === "2x"}
+                              disabled={corso.posti.some((p) => p.disponibili !== null && p.disponibili <= 0)}
+                              onClick={() => aggiornaCorso(idx, "frequenza", "2x")}
+                              label="2 volte a settimana"
+                            />
                             <RadioPill active={sel.frequenza === "1x"} onClick={() => aggiornaCorso(idx, "frequenza", "1x")} label="1 volta a settimana" />
+                          </div>
+                        </div>
+                      )}
+
+                      {corso?.ha_variante_frequenza && sel.frequenza === "1x" && (
+                        <div className="mt-2">
+                          <label className="text-xs font-medium text-slate-600 block mb-1">Quale giorno preferisci?</label>
+                          <div className="flex gap-2">
+                            {corso.posti.map((p) => {
+                              const pieno = p.disponibili !== null && p.disponibili <= 0;
+                              return (
+                                <RadioPill
+                                  key={p.giorno}
+                                  active={sel.giornoScelto === p.giorno}
+                                  disabled={pieno}
+                                  onClick={() => aggiornaCorso(idx, "giornoScelto", p.giorno)}
+                                  label={`${p.giorno}${pieno ? " (completo)" : ""}`}
+                                />
+                              );
+                            })}
                           </div>
                         </div>
                       )}
@@ -1050,13 +1179,18 @@ function Campo({ label, value, onChange, type = "text", className = "", maxLengt
   );
 }
 
-function RadioPill({ active, onClick, label }) {
+function RadioPill({ active, onClick, label, disabled }) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       className={`px-3 py-1.5 rounded-full text-xs font-medium border ${
-        active ? "bg-teal-600 text-white border-teal-600" : "bg-white text-slate-600 border-slate-300"
+        disabled
+          ? "bg-slate-100 text-slate-350 border-slate-200 cursor-not-allowed opacity-60"
+          : active
+          ? "bg-teal-600 text-white border-teal-600"
+          : "bg-white text-slate-600 border-slate-300"
       }`}
     >
       {label}
