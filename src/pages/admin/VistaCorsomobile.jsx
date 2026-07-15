@@ -20,6 +20,373 @@ function initials(nome, cognome) {
   return `${(cognome||"")[0]||""}${(nome||"")[0]||""}`.toUpperCase();
 }
 
+// "Lunedì/Venerdì 20:10-21:00" -> [{giorno:"Lunedì"}, {giorno:"Venerdì"}]
+function estraiGiorniSingoli(giorniOrari) {
+  if (!giorniOrari) return [];
+  const match = giorniOrari.match(/^(.+?)\s(\d{1,2}[:.]\d{2}-\d{1,2}[:.]\d{2})$/);
+  if (!match) return [{ giorno: giorniOrari }];
+  const [, giorniParte] = match;
+  return giorniParte.split("/").map((g) => ({ giorno: g.trim() }));
+}
+
+function ModaleAggiungiIscritto({ corso, stagioneId, iscrittiCorso, onClose, onSalvato }) {
+  const [passo, setPasso] = useState("cerca"); // cerca | nuovo_socio | dettagli_iscrizione
+  const [cf, setCf] = useState("");
+  const [cercando, setCercando] = useState(false);
+  const [socioTrovato, setSocioTrovato] = useState(null); // dati socio esistente
+  const [errore, setErrore] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  const [datiSocio, setDatiSocio] = useState({
+    nome: "", cognome: "", data_nascita: "", comune_nascita: "", provincia_nascita: "",
+    indirizzo: "", cap: "", comune_residenza: "", provincia_residenza: "",
+    telefono: "", email: "", sesso: "F", numero_tessera: "",
+    minorenne: false, nome_genitore: "", cognome_genitore: "", cf_genitore: "",
+  });
+
+  const giorniSingoli = estraiGiorniSingoli(corso.giorni_orari);
+  const bisettimanale = giorniSingoli.length === 2 && corso.ha_variante_frequenza !== false;
+
+  const [frequenza, setFrequenza] = useState(bisettimanale ? "2x" : "1x");
+  const [giornoScelto, setGiornoScelto] = useState(giorniSingoli[0]?.giorno || "");
+  const [tipoPagamento, setTipoPagamento] = useState("annuale");
+  const [statoPagamento, setStatoPagamento] = useState("confermato");
+  const [importo, setImporto] = useState("");
+  const [statoCertificato, setStatoCertificato] = useState("mancante");
+  const [scadenzaCertificato, setScadenzaCertificato] = useState("");
+
+  // Calcolo posti disponibili per il giorno scelto (solo informativo, non blocca l'admin)
+  function postiInfo() {
+    if (!bisettimanale) {
+      const occ = iscrittiCorso.length;
+      return corso.capienza_max != null ? `${occ}/${corso.capienza_max} occupati` : `${occ} iscritti, nessun limite`;
+    }
+    if (frequenza === "2x") {
+      return giorniSingoli.map((g, i) => {
+        const cap = i === 0 ? corso.capienza_giorno1 : corso.capienza_giorno2;
+        const occ = iscrittiCorso.filter(r => r.frequenza === "2x" || (r.frequenza === "1x" && r.giorno_scelto === g.giorno)).length;
+        return `${g.giorno}: ${occ}${cap != null ? "/" + cap : ""}`;
+      }).join(" · ");
+    }
+    const i = giorniSingoli.findIndex(g => g.giorno === giornoScelto);
+    const cap = i === 0 ? corso.capienza_giorno1 : corso.capienza_giorno2;
+    const occ = iscrittiCorso.filter(r => r.frequenza === "2x" || (r.frequenza === "1x" && r.giorno_scelto === giornoScelto)).length;
+    return `${giornoScelto}: ${occ}${cap != null ? "/" + cap : ""} occupati`;
+  }
+
+  async function cercaSocio() {
+    const cfPulito = cf.trim().toUpperCase();
+    if (cfPulito.length < 6) { setErrore("Inserisci un codice fiscale valido."); return; }
+    setCercando(true);
+    setErrore("");
+    const { data, error } = await supabase.from("soci").select("*").eq("cf", cfPulito).maybeSingle();
+    setCercando(false);
+    if (error) { setErrore("Errore nella ricerca: " + error.message); return; }
+    if (data) {
+      // Già iscritto a questo corso in questa stagione?
+      if (iscrittiCorso.some(i => i.soci?.cf === cfPulito)) {
+        setErrore("Questo socio risulta già iscritto a questo corso.");
+        return;
+      }
+      setSocioTrovato(data);
+      setDatiSocio(d => ({ ...d, numero_tessera: data.numero_tessera || "" }));
+      setPasso("dettagli_iscrizione");
+    } else {
+      setDatiSocio(d => ({ ...d }));
+      setPasso("nuovo_socio");
+    }
+  }
+
+  function validaNuovoSocio() {
+    if (!datiSocio.nome.trim() || !datiSocio.cognome.trim()) return "Nome e cognome sono obbligatori.";
+    if (datiSocio.minorenne && (!datiSocio.nome_genitore.trim() || !datiSocio.cognome_genitore.trim())) {
+      return "Per un minorenne servono nome e cognome del genitore/tutore.";
+    }
+    return "";
+  }
+
+  async function salva() {
+    setErrore("");
+    const cfPulito = cf.trim().toUpperCase();
+
+    if (passo === "nuovo_socio") {
+      const err = validaNuovoSocio();
+      if (err) { setErrore(err); return; }
+    }
+
+    setSalvando(true);
+    try {
+      // 1. Se è un nuovo socio, lo creo prima
+      if (!socioTrovato) {
+        const { error: errSocio } = await supabase.from("soci").insert({
+          cf: cfPulito,
+          nome: datiSocio.nome.trim(),
+          cognome: datiSocio.cognome.trim(),
+          data_nascita: datiSocio.data_nascita || null,
+          comune_nascita: datiSocio.comune_nascita || null,
+          provincia_nascita: datiSocio.provincia_nascita || null,
+          indirizzo: datiSocio.indirizzo || null,
+          cap: datiSocio.cap || null,
+          comune_residenza: datiSocio.comune_residenza || null,
+          provincia_residenza: datiSocio.provincia_residenza || null,
+          telefono: datiSocio.telefono || null,
+          email: datiSocio.email || null,
+          sesso: datiSocio.sesso || null,
+          nome_genitore: datiSocio.minorenne ? datiSocio.nome_genitore : null,
+          cognome_genitore: datiSocio.minorenne ? datiSocio.cognome_genitore : null,
+          cf_genitore: datiSocio.minorenne ? datiSocio.cf_genitore || null : null,
+          numero_tessera: datiSocio.numero_tessera || null,
+        });
+        if (errSocio) throw errSocio;
+      } else if (datiSocio.numero_tessera && datiSocio.numero_tessera !== socioTrovato.numero_tessera) {
+        // Aggiorno il numero tessera se inserito/modificato per un socio esistente
+        await supabase.from("soci").update({ numero_tessera: datiSocio.numero_tessera }).eq("cf", cfPulito);
+      }
+
+      // 2. Creo l'iscrizione
+      const { error: errIsc } = await supabase.from("iscrizioni").insert({
+        socio_cf: cfPulito,
+        corso_id: corso.id,
+        stagione_id: stagioneId,
+        frequenza,
+        giorno_scelto: bisettimanale && frequenza === "1x" ? giornoScelto : null,
+        tipo_pagamento: tipoPagamento,
+        stato_pagamento: statoPagamento,
+        importo_dichiarato: importo === "" ? null : Number(importo),
+        stato_certificato: statoCertificato,
+        data_scadenza_certificato: statoCertificato === "valido" ? (scadenzaCertificato || null) : null,
+        presa_visione_regolamenti: true,
+        note: "Iscrizione inserita manualmente dalla segreteria (modulo cartaceo)",
+      });
+      if (errIsc) throw errIsc;
+
+      onSalvato();
+    } catch (err) {
+      setErrore("Errore nel salvataggio: " + (err.message || String(err)));
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 16 }} onClick={onClose}>
+      <div style={{ background: "white", borderRadius: 14, padding: 20, width: "100%", maxWidth: 420, maxHeight: "88vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: TX, marginBottom: 4 }}>+ Aggiungi iscritto</div>
+        <div style={{ fontSize: 12, color: GR, marginBottom: 14 }}>{corso.disciplina} — {corso.giorni_orari}</div>
+
+        {passo === "cerca" && (
+          <>
+            <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 4 }}>Codice Fiscale</label>
+            <input value={cf} onChange={e => setCf(e.target.value.toUpperCase())} maxLength={16}
+              placeholder="RSSMRA80A01B157X"
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13, marginBottom: 6, boxSizing: "border-box" }} />
+            <div style={{ fontSize: 11, color: GR, marginBottom: 14 }}>
+              Se la persona è già nel database (anche di un altro corso/stagione), i dati anagrafici si compilano da soli.
+            </div>
+            {errore && <div style={{ color: R, fontSize: 12, marginBottom: 10 }}>{errore}</div>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={onClose} style={{ flex: 1, padding: "10px", borderRadius: 10, border: `0.5px solid ${BD}`, background: "white", color: GR, fontSize: 13, cursor: "pointer" }}>Annulla</button>
+              <button onClick={cercaSocio} disabled={cercando} style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: G, color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: cercando ? 0.6 : 1 }}>
+                {cercando ? "Cerco…" : "Cerca →"}
+              </button>
+            </div>
+          </>
+        )}
+
+        {passo === "nuovo_socio" && (
+          <>
+            <div style={{ fontSize: 12, color: W, background: WL, borderRadius: 8, padding: 8, marginBottom: 12 }}>
+              Nessun socio trovato con CF {cf} — inserisco i dati di un nuovo tesserato.
+            </div>
+            {[["nome","Nome"],["cognome","Cognome"]].map(([k,l]) => (
+              <div key={k} style={{ marginBottom: 8 }}>
+                <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>{l}</label>
+                <input value={datiSocio[k]} onChange={e => setDatiSocio(d => ({ ...d, [k]: e.target.value }))}
+                  style={{ width: "100%", padding: "7px 9px", borderRadius: 7, border: `0.5px solid ${BD}`, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Data di nascita</label>
+                <input type="date" value={datiSocio.data_nascita} onChange={e => setDatiSocio(d => ({ ...d, data_nascita: e.target.value }))}
+                  style={{ width: "100%", padding: "7px 9px", borderRadius: 7, border: `0.5px solid ${BD}`, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+              <div style={{ width: 90 }}>
+                <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Sesso</label>
+                <select value={datiSocio.sesso} onChange={e => setDatiSocio(d => ({ ...d, sesso: e.target.value }))}
+                  style={{ width: "100%", padding: "7px 9px", borderRadius: 7, border: `0.5px solid ${BD}`, fontSize: 13 }}>
+                  <option value="F">F</option>
+                  <option value="M">M</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Comune di nascita</label>
+                <input value={datiSocio.comune_nascita} onChange={e => setDatiSocio(d => ({ ...d, comune_nascita: e.target.value }))}
+                  style={{ width: "100%", padding: "7px 9px", borderRadius: 7, border: `0.5px solid ${BD}`, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+              <div style={{ width: 70 }}>
+                <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Prov.</label>
+                <input value={datiSocio.provincia_nascita} onChange={e => setDatiSocio(d => ({ ...d, provincia_nascita: e.target.value.toUpperCase() }))} maxLength={2}
+                  style={{ width: "100%", padding: "7px 9px", borderRadius: 7, border: `0.5px solid ${BD}`, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Indirizzo di residenza</label>
+              <input value={datiSocio.indirizzo} onChange={e => setDatiSocio(d => ({ ...d, indirizzo: e.target.value }))}
+                style={{ width: "100%", padding: "7px 9px", borderRadius: 7, border: `0.5px solid ${BD}`, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Comune di residenza</label>
+                <input value={datiSocio.comune_residenza} onChange={e => setDatiSocio(d => ({ ...d, comune_residenza: e.target.value }))}
+                  style={{ width: "100%", padding: "7px 9px", borderRadius: 7, border: `0.5px solid ${BD}`, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+              <div style={{ width: 70 }}>
+                <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Prov.</label>
+                <input value={datiSocio.provincia_residenza} onChange={e => setDatiSocio(d => ({ ...d, provincia_residenza: e.target.value.toUpperCase() }))} maxLength={2}
+                  style={{ width: "100%", padding: "7px 9px", borderRadius: 7, border: `0.5px solid ${BD}`, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+              <div style={{ width: 80 }}>
+                <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>CAP</label>
+                <input value={datiSocio.cap} onChange={e => setDatiSocio(d => ({ ...d, cap: e.target.value }))}
+                  style={{ width: "100%", padding: "7px 9px", borderRadius: 7, border: `0.5px solid ${BD}`, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Telefono</label>
+                <input value={datiSocio.telefono} onChange={e => setDatiSocio(d => ({ ...d, telefono: e.target.value }))}
+                  style={{ width: "100%", padding: "7px 9px", borderRadius: 7, border: `0.5px solid ${BD}`, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Email (facoltativa)</label>
+                <input value={datiSocio.email} onChange={e => setDatiSocio(d => ({ ...d, email: e.target.value }))}
+                  style={{ width: "100%", padding: "7px 9px", borderRadius: 7, border: `0.5px solid ${BD}`, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+            </div>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 12 }}>
+              <input type="checkbox" checked={datiSocio.minorenne} onChange={e => setDatiSocio(d => ({ ...d, minorenne: e.target.checked }))} />
+              È minorenne (serve un genitore/tutore firmatario)
+            </label>
+            {datiSocio.minorenne && (
+              <div style={{ background: "#F8FAFC", borderRadius: 8, padding: 10, marginBottom: 10 }}>
+                <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                  <input placeholder="Nome genitore" value={datiSocio.nome_genitore} onChange={e => setDatiSocio(d => ({ ...d, nome_genitore: e.target.value }))}
+                    style={{ flex: 1, padding: "7px 9px", borderRadius: 7, border: `0.5px solid ${BD}`, fontSize: 13, boxSizing: "border-box" }} />
+                  <input placeholder="Cognome genitore" value={datiSocio.cognome_genitore} onChange={e => setDatiSocio(d => ({ ...d, cognome_genitore: e.target.value }))}
+                    style={{ flex: 1, padding: "7px 9px", borderRadius: 7, border: `0.5px solid ${BD}`, fontSize: 13, boxSizing: "border-box" }} />
+                </div>
+                <input placeholder="CF genitore (facoltativo)" value={datiSocio.cf_genitore} onChange={e => setDatiSocio(d => ({ ...d, cf_genitore: e.target.value.toUpperCase() }))}
+                  style={{ width: "100%", padding: "7px 9px", borderRadius: 7, border: `0.5px solid ${BD}`, fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+            )}
+
+            {errore && <div style={{ color: R, fontSize: 12, marginBottom: 10 }}>{errore}</div>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setPasso("cerca")} style={{ flex: 1, padding: "10px", borderRadius: 10, border: `0.5px solid ${BD}`, background: "white", color: GR, fontSize: 13, cursor: "pointer" }}>← Indietro</button>
+              <button onClick={() => { const e = validaNuovoSocio(); if (e) { setErrore(e); return; } setErrore(""); setPasso("dettagli_iscrizione"); }}
+                style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: G, color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                Continua →
+              </button>
+            </div>
+          </>
+        )}
+
+        {passo === "dettagli_iscrizione" && (
+          <>
+            {socioTrovato && (
+              <div style={{ fontSize: 13, fontWeight: 600, background: GL, color: G, borderRadius: 8, padding: 10, marginBottom: 12 }}>
+                ✓ Socio trovato: {socioTrovato.cognome} {socioTrovato.nome}
+              </div>
+            )}
+
+            {bisettimanale && (
+              <>
+                <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Frequenza</label>
+                <select value={frequenza} onChange={e => { setFrequenza(e.target.value); if (e.target.value === "1x" && !giornoScelto) setGiornoScelto(giorniSingoli[0].giorno); }}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13, marginBottom: 8 }}>
+                  <option value="2x">2 volte/settimana ({giorniSingoli.map(g=>g.giorno).join(" + ")})</option>
+                  <option value="1x">1 volta/settimana</option>
+                </select>
+                {frequenza === "1x" && (
+                  <>
+                    <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Giorno scelto</label>
+                    <select value={giornoScelto} onChange={e => setGiornoScelto(e.target.value)}
+                      style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13, marginBottom: 8 }}>
+                      {giorniSingoli.map(g => <option key={g.giorno} value={g.giorno}>{g.giorno}</option>)}
+                    </select>
+                  </>
+                )}
+              </>
+            )}
+            <div style={{ fontSize: 11, color: GR, marginBottom: 12 }}>📊 Posti: {postiInfo()}</div>
+
+            <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Numero tessera (se già assegnato)</label>
+            <input value={datiSocio.numero_tessera} onChange={e => setDatiSocio(d => ({ ...d, numero_tessera: e.target.value }))}
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13, marginBottom: 10, boxSizing: "border-box" }} />
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Tipo pagamento</label>
+                <select value={tipoPagamento} onChange={e => setTipoPagamento(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13 }}>
+                  <option value="annuale">Annuale</option>
+                  <option value="quad1">1° quadrimestre</option>
+                  <option value="quad2">2° quadrimestre</option>
+                  <option value="quadrimestrale">Quadrimestrale (generico)</option>
+                  <option value="rinnovo_gratuito">Rinnovo (già pagato)</option>
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Stato pagamento</label>
+                <select value={statoPagamento} onChange={e => setStatoPagamento(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13 }}>
+                  <option value="confermato">✓ Confermato (già pagato)</option>
+                  <option value="in_attesa">In attesa</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Importo versato (€, facoltativo)</label>
+              <input type="number" value={importo} onChange={e => setImporto(e.target.value)}
+                style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Certificato medico</label>
+                <select value={statoCertificato} onChange={e => setStatoCertificato(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13 }}>
+                  <option value="mancante">Mancante</option>
+                  <option value="valido">✓ Valido (in mio possesso)</option>
+                </select>
+              </div>
+              {statoCertificato === "valido" && (
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 3 }}>Scadenza</label>
+                  <input type="date" value={scadenzaCertificato} onChange={e => setScadenzaCertificato(e.target.value)}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13, boxSizing: "border-box" }} />
+                </div>
+              )}
+            </div>
+
+            {errore && <div style={{ color: R, fontSize: 12, marginBottom: 10 }}>{errore}</div>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setPasso(socioTrovato ? "cerca" : "nuovo_socio")} style={{ flex: 1, padding: "10px", borderRadius: 10, border: `0.5px solid ${BD}`, background: "white", color: GR, fontSize: 13, cursor: "pointer" }}>← Indietro</button>
+              <button onClick={salva} disabled={salvando} style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: G, color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: salvando ? 0.6 : 1 }}>
+                {salvando ? "Salvo…" : "✓ Aggiungi iscritto"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [corsi, setCorsi] = useState([]);
   const [iscritti, setIscritti] = useState({}); // { corso_id: [iscrizione...] }
@@ -34,6 +401,7 @@ export default function App() {
   const [motivoAnnullamento, setMotivoAnnullamento] = useState("Infortunio - certificato medico");
   const [importoRimborsato, setImportoRimborsato] = useState("");
   const [annullando, setAnnullando] = useState(false);
+  const [modaleAggiungi, setModaleAggiungi] = useState(false);
 
   // ── Caricamento dati ──────────────────────────────────────────────
   useEffect(() => { caricaDati(); }, []);
@@ -48,7 +416,7 @@ export default function App() {
 
       const { data: corsiDB, error: errC } = await supabase
         .from("corsi")
-        .select("id, codice_corso, disciplina, giorni_orari, sedi(nome)")
+        .select("id, codice_corso, disciplina, giorni_orari, ha_variante_frequenza, capienza_max, capienza_giorno1, capienza_giorno2, sedi(nome)")
         .eq("stagione_id", stag.id)
         .order("codice_corso");
       if (errC) throw errC;
@@ -58,7 +426,7 @@ export default function App() {
       const { data: iscDB, error: errI } = await supabase
         .from("iscrizioni")
         .select(`
-          id, stato_pagamento, stato_certificato, corso_id,
+          id, stato_pagamento, stato_certificato, corso_id, frequenza, giorno_scelto,
           soci ( cf, nome, cognome )
         `)
         .eq("stagione_id", stag.id)
@@ -196,6 +564,10 @@ export default function App() {
             <div style={{ fontSize: 11, color: GR }}>📍 {corso.sedi.nome} · 🕐 {corso.giorni_orari}</div>
           </div>
           <button onClick={caricaDati} style={{ fontSize: 18, background: "none", border: "none", cursor: "pointer" }}>↻</button>
+          <button onClick={() => setModaleAggiungi(true)}
+            style={{ fontSize: 11, fontWeight: 600, background: GL, color: G, border: "none", borderRadius: 8, padding: "6px 10px", cursor: "pointer", whiteSpace: "nowrap" }}>
+            + Aggiungi
+          </button>
         </div>
 
         {/* STATS */}
@@ -327,6 +699,16 @@ export default function App() {
               </div>
             </div>
           </div>
+        )}
+
+        {modaleAggiungi && (
+          <ModaleAggiungiIscritto
+            corso={corso}
+            stagioneId={stagione?.id}
+            iscrittiCorso={corsoIscritti}
+            onClose={() => setModaleAggiungi(false)}
+            onSalvato={() => { setModaleAggiungi(false); caricaDati(); }}
+          />
         )}
       </div>
     );
