@@ -313,6 +313,16 @@ export default function ModuloIscrizione() {
   const eta = calcolaEta(anagrafica.dataNascita);
   const isMinorenne = eta !== null && eta < 18;
 
+  // "q2" (nuovo tesserato da gennaio) va mostrato solo da gennaio della STAGIONE
+  // ATTIVA in poi — non del calendario assoluto (altrimenti test/uso fuori
+  // stagione mostrerebbero l'opzione nel periodo sbagliato).
+  const mostraQ2 = useMemo(() => {
+    if (!stagione?.data_fine) return false;
+    const annoGennaio = new Date(stagione.data_fine).getFullYear(); // es. stagione 2025-26 -> data_fine 2026-08-31 -> 2026
+    const sogliaGennaio = new Date(annoGennaio, 0, 1);
+    return new Date() >= sogliaGennaio;
+  }, [stagione]);
+
   // ------------------------------------------------------------------
   // CARICAMENTO CORSI DA SUPABASE
   // ------------------------------------------------------------------
@@ -322,7 +332,7 @@ export default function ModuloIscrizione() {
         // Stagione attiva
         const { data: stagioni, error: errS } = await supabase
           .from("stagioni")
-          .select("id, nome")
+          .select("id, nome, data_inizio, data_fine")
           .eq("attiva", true)
           .single();
         if (errS) throw errS;
@@ -835,44 +845,23 @@ export default function ModuloIscrizione() {
                         </div>
                       </div>
 
-                      {corso && corso.posti && corso.posti.length === 2 && (
+                      {corso && corso.posti && corso.posti.length === 2 && corso.posti.some((p) => p.disponibili !== null && p.disponibili <= 0) && (
                         <div className="mt-2 flex gap-2">
                           {corso.posti.map((p) => {
                             const pieno = p.disponibili !== null && p.disponibili <= 0;
-                            const quasi = p.disponibili !== null && p.disponibili > 0 && p.disponibili <= 3;
+                            if (!pieno) return null;
                             return (
-                              <div
-                                key={p.giorno}
-                                className={`flex-1 text-xs px-2 py-1.5 rounded-lg border ${
-                                  pieno
-                                    ? "bg-red-50 border-red-200 text-red-700"
-                                    : quasi
-                                    ? "bg-amber-50 border-amber-200 text-amber-700"
-                                    : "bg-slate-50 border-slate-200 text-slate-500"
-                                }`}
-                              >
+                              <div key={p.giorno} className="flex-1 text-xs px-2 py-1.5 rounded-lg border bg-red-50 border-red-200 text-red-700">
                                 <div className="font-medium">{p.giorno}</div>
-                                <div>{p.disponibili === null ? "nessun limite" : pieno ? "AL COMPLETO" : `${p.disponibili} posti liberi`}</div>
+                                <div>AL COMPLETO</div>
                               </div>
                             );
                           })}
                         </div>
                       )}
-                      {corso && corso.posti && corso.posti.length === 1 && corso.posti[0].disponibili !== null && (
-                        <div
-                          className={`mt-2 text-sm px-3 py-2 rounded-lg border ${
-                            corso.posti[0].disponibili <= 0
-                              ? "bg-red-50 border-red-200 text-red-700"
-                              : corso.posti[0].disponibili <= 3
-                              ? "bg-amber-50 border-amber-200 text-amber-700"
-                              : "bg-slate-50 border-slate-200 text-slate-500"
-                          }`}
-                        >
-                          {corso.posti[0].disponibili <= 0
-                            ? "Corso al completo. Contatta la segreteria (327 868 1393) per la lista d'attesa."
-                            : corso.posti[0].disponibili <= 3
-                            ? `Attenzione: restano solo ${corso.posti[0].disponibili} posti disponibili.`
-                            : null}
+                      {corso && corso.posti && corso.posti.length === 1 && corso.posti[0].disponibili !== null && corso.posti[0].disponibili <= 0 && (
+                        <div className="mt-2 text-sm px-3 py-2 rounded-lg border bg-red-50 border-red-200 text-red-700">
+                          Corso al completo. Contatta la segreteria (327 868 1393) per la lista d'attesa.
                         </div>
                       )}
 
@@ -915,7 +904,7 @@ export default function ModuloIscrizione() {
                         <div className="mt-3">
                           <label className="text-xs font-medium text-slate-600 block mb-1">Tipo pagamento</label>
                           <div className="flex flex-col gap-1.5">
-                            {PAGAMENTI.filter((p) => p.value !== "q2" || new Date().getMonth() <= 7).map((p) => (
+                            {PAGAMENTI.filter((p) => p.value !== "q2" || mostraQ2).map((p) => (
                               <label key={p.value} className="flex items-start gap-2 text-sm cursor-pointer">
                                 <input type="radio" className="mt-0.5" checked={sel.pagamento === p.value} onChange={() => aggiornaCorso(idx, "pagamento", p.value)} />
                                 <span>
