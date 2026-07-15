@@ -493,6 +493,28 @@ export default function AreaTesserati() {
           </a>
         </div>
 
+        <div style={{ ...styles.card, marginBottom: 24, display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+          <img
+            src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(socio.cf)}`}
+            alt="QR tessera"
+            width={140}
+            height={140}
+            style={{ borderRadius: 8, border: "1px solid #e2e8f0" }}
+          />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 16 }}>🎫 La tua tessera</div>
+            <div style={{ fontSize: 13, color: "#64748b", margin: "4px 0" }}>
+              {socio.nome} {socio.cognome}
+            </div>
+            <div style={{ fontSize: 13, color: "#64748b" }}>
+              {socio.numero_tessera ? `Tessera n. ${socio.numero_tessera}` : "Numero tessera non ancora assegnato"}
+            </div>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
+              Mostra questo QR all'ingresso in palestra per il check-in.
+            </div>
+          </div>
+        </div>
+
         <h3>La tua stagione in corso {stagioneAttivaNome ? `— ${stagioneAttivaNome}` : ""}</h3>
         {iscrizioniAttive.length === 0 && (
           <p style={{ color: "#64748b" }}>Non risultano ancora iscrizioni per la stagione in corso.</p>
