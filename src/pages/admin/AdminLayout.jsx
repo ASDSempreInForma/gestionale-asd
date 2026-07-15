@@ -8,8 +8,10 @@ import ScannerCertificati from './ScannerCertificati.jsx'
 import ScannerCheckin from './ScannerCheckin.jsx'
 import VistaCorsomobile from './VistaCorsomobile.jsx'
 import AssistenteAi from './AssistenteAi.jsx'
+import VerificaDocumenti from './VerificaDocumenti.jsx'
 
 const VOCI = [
+  { id: 'verifica-documenti', icon: '📥', label: 'Verifica documenti' },
   { id: 'prove',         icon: '📋', label: 'Gestione prove' },
   { id: 'istruttori',   icon: '👨‍🏫', label: 'Istruttori' },
   { id: 'gestione-corsi', icon: '🎯', label: 'Gestione corsi' },
@@ -116,6 +118,7 @@ export default function AdminLayout({ user, onLogout }) {
       {/* Contenuto principale */}
       <div style={{ flex: 1, marginLeft: window.innerWidth >= 768 ? 220 : 0,
         marginTop: window.innerWidth < 768 ? 52 : 0, minHeight: '100vh' }}>
+        {pagina === 'verifica-documenti' && <VerificaDocumenti />}
         {pagina === 'prove'       && <GestioneProve />}
         {pagina === 'istruttori'  && <GestioneIstruttori />}
         {pagina === 'gestione-corsi' && <GestioneCorsi />}
