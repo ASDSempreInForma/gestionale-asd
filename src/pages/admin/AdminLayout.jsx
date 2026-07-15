@@ -10,9 +10,11 @@ import VistaCorsomobile from './VistaCorsomobile.jsx'
 import AssistenteAi from './AssistenteAi.jsx'
 import VerificaDocumenti from './VerificaDocumenti.jsx'
 import ImportTessere from './ImportTessere.jsx'
+import AnagraficaSoci from './AnagraficaSoci.jsx'
 
 const VOCI = [
   { id: 'verifica-documenti', icon: '📥', label: 'Verifica documenti' },
+  { id: 'anagrafica-soci', icon: '👤', label: 'Anagrafica soci' },
   { id: 'import-tessere', icon: '🎫', label: 'Import tessere' },
   { id: 'prove',         icon: '📋', label: 'Gestione prove' },
   { id: 'istruttori',   icon: '👨‍🏫', label: 'Istruttori' },
@@ -121,6 +123,7 @@ export default function AdminLayout({ user, onLogout }) {
       <div style={{ flex: 1, marginLeft: window.innerWidth >= 768 ? 220 : 0,
         marginTop: window.innerWidth < 768 ? 52 : 0, minHeight: '100vh' }}>
         {pagina === 'verifica-documenti' && <VerificaDocumenti />}
+        {pagina === 'anagrafica-soci' && <AnagraficaSoci />}
         {pagina === 'import-tessere' && <ImportTessere />}
         {pagina === 'prove'       && <GestioneProve />}
         {pagina === 'istruttori'  && <GestioneIstruttori />}
