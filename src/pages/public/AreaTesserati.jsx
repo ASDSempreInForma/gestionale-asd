@@ -475,7 +475,7 @@ export default function AreaTesserati() {
 
         <div style={styles.quickRow}>
           <a href="/iscriviti" style={styles.quickBtn}>📝 Nuova iscrizione</a>
-          <a href="/prova-corso" style={styles.quickBtn}>🎯 Prova un corso</a>
+          <a href="/prova" style={styles.quickBtn}>🎯 Prova un corso</a>
           <a
             href={`https://wa.me/${WHATSAPP_NUM}?text=${encodeURIComponent(
               `Ciao, sono ${socio.nome} ${socio.cognome} (tessera ${socio.numero_tessera || "n/d"}), avrei bisogno di...`

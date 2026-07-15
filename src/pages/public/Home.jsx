@@ -43,6 +43,23 @@ function IconaProva() {
   )
 }
 
+function IconaAreaTesserati() {
+  return (
+    <div style={{
+      width: "100%", height: 120, background: "linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%)",
+      borderRadius: "10px 10px 0 0", display: "flex", alignItems: "center", justifyContent: "center"
+    }}>
+      <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+        <circle cx="26" cy="20" r="10" fill="#92400E" opacity=".85"/>
+        <path d="M10 50c0-9 7-15 16-15s16 6 16 15" fill="#92400E" opacity=".3"/>
+        <circle cx="47" cy="40" r="12" fill="white" opacity=".9"/>
+        <path d="M47 34v6l4 4" stroke="#92400E" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+        <circle cx="47" cy="40" r="8" fill="none" stroke="#92400E" strokeWidth="2.2"/>
+      </svg>
+    </div>
+  )
+}
+
 export default function Home() {
   return (
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", background: "#F8F7F4", minHeight: "100vh" }}>
@@ -105,6 +122,24 @@ export default function Home() {
                 </div>
                 <div style={{ display: "inline-flex", background: "#DBEAFE", color: "#1E3A5F", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600 }}>
                   Richiedi la prova →
+                </div>
+              </div>
+            </div>
+          </Link>
+
+          <Link to="/area-tesserati" style={{ textDecoration: "none" }}>
+            <div style={{
+              background: "white", border: `1px solid ${BD}`, borderRadius: 12,
+              overflow: "hidden", cursor: "pointer", boxShadow: "0 1px 4px rgba(0,0,0,.06)"
+            }}>
+              <IconaAreaTesserati />
+              <div style={{ padding: "16px 18px 20px" }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: TX, marginBottom: 5 }}>Area Tesserati</div>
+                <div style={{ fontSize: 13, color: SUB, lineHeight: 1.6, marginBottom: 14 }}>
+                  Sei già socio? Accedi con codice fiscale ed email per vedere le tue scadenze, caricare documenti o rinnovare.
+                </div>
+                <div style={{ display: "inline-flex", background: "#FEF3C7", color: "#92400E", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600 }}>
+                  Accedi all'area →
                 </div>
               </div>
             </div>

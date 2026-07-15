@@ -4,6 +4,7 @@ import { supabase } from './supabase.js'
 import Home from './pages/public/Home.jsx'
 import ModuloIscrizione from './pages/public/ModuloIscrizione.jsx'
 import LiberatoriaProva from './pages/public/LiberatoriaProva.jsx'
+import AreaTesserati from './pages/public/AreaTesserati.jsx'
 import Login from './pages/admin/Login.jsx'
 import AdminLayout from './pages/admin/AdminLayout.jsx'
 
@@ -37,6 +38,7 @@ export default function App() {
       <Route path="/" element={<Home />} />
       <Route path="/iscriviti" element={<ModuloIscrizione />} />
       <Route path="/prova" element={<LiberatoriaProva />} />
+      <Route path="/area-tesserati" element={<AreaTesserati />} />
 
       {/* Area admin */}
       <Route path="/admin" element={
