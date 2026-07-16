@@ -493,7 +493,15 @@ export default function AreaTesserati() {
           </a>
         </div>
 
-        <div style={{ ...styles.card, marginBottom: 24, display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+        <style>{`
+          @media print {
+            body * { visibility: hidden; }
+            #tessera-stampabile, #tessera-stampabile * { visibility: visible; }
+            #tessera-stampabile { position: fixed; top: 20px; left: 20px; }
+          }
+        `}</style>
+
+        <div id="tessera-stampabile" style={{ ...styles.card, marginBottom: 12, display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
           <img
             src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(socio.cf)}`}
             alt="QR tessera"
@@ -502,12 +510,13 @@ export default function AreaTesserati() {
             style={{ borderRadius: 8, border: "1px solid #e2e8f0" }}
           />
           <div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>La tua tessera</div>
+            <div style={{ fontWeight: 700, fontSize: 16 }}>A.S.D. Sempre In Forma — Tessera socio</div>
             <div style={{ fontSize: 13, color: "#64748b", margin: "4px 0" }}>
-              {socio.nome} {socio.cognome}
+              {socio.nome} {socio.cognome}{socio.data_nascita ? ` · nato/a il ${fmtData(socio.data_nascita)}` : ""}
             </div>
             <div style={{ fontSize: 13, color: "#64748b" }}>
               {socio.numero_tessera ? `Tessera n. ${socio.numero_tessera}` : "Numero tessera non ancora assegnato"}
+              {socio.ente_tessera ? ` (${socio.ente_tessera})` : ""}
             </div>
             {(() => {
               if (!socio.numero_tessera) return null;
@@ -531,6 +540,15 @@ export default function AreaTesserati() {
             </div>
           </div>
         </div>
+        <button
+          onClick={() => window.print()}
+          style={{ ...styles.btnSecondary, marginBottom: 24 }}
+        >
+          🖨️ Salva/stampa la tessera in PDF
+        </button>
+        <p style={{ fontSize: 11.5, color: "#94a3b8", marginTop: -18, marginBottom: 24 }}>
+          È una tessera digitale personale dell'associazione, non sostituisce l'eventuale tessera ufficiale {socio.ente_tessera || "dell'ente assicurativo"}.
+        </p>
 
         <h3>La tua stagione in corso {stagioneAttivaNome ? `— ${stagioneAttivaNome}` : ""}</h3>
         {iscrizioniAttive.length === 0 && (
