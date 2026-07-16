@@ -340,8 +340,17 @@ export default function AreaTesserati() {
   const [modaleRicevuta, setModaleRicevuta] = useState(null); // iscrizione o null
   const [modaleCertificato, setModaleCertificato] = useState(null);
   const [modaleRinnovo, setModaleRinnovo] = useState(null);
+  const [scaricandoTessera, setScaricandoTessera] = useState(false);
 
   const callFnWithAuth = (payload) => callFn({ ...payload, cf: sessione.cf, email: sessione.email });
+
+  const scaricaTesseraUfficiale = async () => {
+    setScaricandoTessera(true);
+    const r = await callFnWithAuth({ action: "url_tessera_ufficiale" });
+    setScaricandoTessera(false);
+    if (r.ok) window.open(r.url, "_blank");
+    else alert(r.error || "Impossibile scaricare la tessera in questo momento.");
+  };
 
   // Ripristina la sessione salvata sul dispositivo
   useEffect(() => {
@@ -493,62 +502,43 @@ export default function AreaTesserati() {
           </a>
         </div>
 
-        <style>{`
-          @media print {
-            body * { visibility: hidden; }
-            #tessera-stampabile, #tessera-stampabile * { visibility: visible; }
-            #tessera-stampabile { position: fixed; top: 20px; left: 20px; }
-          }
-        `}</style>
-
         <div id="tessera-stampabile" style={{ ...styles.card, marginBottom: 12, display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
           <img
             src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(socio.cf)}`}
-            alt="QR tessera"
+            alt="QR check-in"
             width={140}
             height={140}
             style={{ borderRadius: 8, border: "1px solid #e2e8f0" }}
           />
           <div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>A.S.D. Sempre In Forma — Tessera socio</div>
+            <div style={{ fontWeight: 700, fontSize: 16 }}>Check-in in palestra</div>
             <div style={{ fontSize: 13, color: "#64748b", margin: "4px 0" }}>
-              {socio.nome} {socio.cognome}{socio.data_nascita ? ` · nato/a il ${fmtData(socio.data_nascita)}` : ""}
+              {socio.nome} {socio.cognome}
             </div>
-            <div style={{ fontSize: 13, color: "#64748b" }}>
-              {socio.numero_tessera ? `Tessera n. ${socio.numero_tessera}` : "Numero tessera non ancora assegnato"}
-              {socio.ente_tessera ? ` (${socio.ente_tessera})` : ""}
-            </div>
-            {(() => {
-              if (!socio.numero_tessera) return null;
-              const oggi = new Date().toISOString().slice(0, 10);
-              const scaduta = socio.scadenza_tessera && socio.scadenza_tessera < oggi;
-              if (scaduta) {
-                return (
-                  <div style={{ fontSize: 12.5, color: "#991B1B", background: "#FEE2E2", borderRadius: 6, padding: "4px 8px", marginTop: 6, display: "inline-block" }}>
-                    ⚠️ Scaduta il {fmtData(socio.scadenza_tessera)} — verrà rinnovata con la nuova iscrizione
-                  </div>
-                );
-              }
-              return (
-                <div style={{ fontSize: 12.5, color: "#166534" }}>
-                  {socio.scadenza_tessera ? `Valida fino al ${fmtData(socio.scadenza_tessera)}` : ""}
-                </div>
-              );
-            })()}
             <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
               Mostra questo QR all'ingresso in palestra.
             </div>
           </div>
         </div>
-        <button
-          onClick={() => window.print()}
-          style={{ ...styles.btnSecondary, marginBottom: 24 }}
-        >
-          🖨️ Salva/stampa la tessera in PDF
-        </button>
-        <p style={{ fontSize: 11.5, color: "#94a3b8", marginTop: -18, marginBottom: 24 }}>
-          È una tessera digitale personale dell'associazione, non sostituisce l'eventuale tessera ufficiale {socio.ente_tessera || "dell'ente assicurativo"}.
-        </p>
+
+        <div style={{ ...styles.card, marginBottom: 24 }}>
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>La tua tessera ufficiale</div>
+          {socio.numero_tessera && (
+            <div style={{ fontSize: 13, color: "#64748b", marginBottom: 10 }}>
+              Tessera n. {socio.numero_tessera}{socio.ente_tessera ? ` (${socio.ente_tessera})` : ""}
+            </div>
+          )}
+          {socio.tessera_ufficiale_disponibile ? (
+            <button onClick={scaricaTesseraUfficiale} disabled={scaricandoTessera} style={styles.btnPrimary}>
+              {scaricandoTessera ? "Preparo il file..." : "📄 Scarica la tua tessera (PDF)"}
+            </button>
+          ) : (
+            <p style={{ fontSize: 13, color: "#64748b", margin: 0 }}>
+              La tua tessera ufficiale non è ancora disponibile qui — appena la segreteria la carica,
+              potrai scaricarla direttamente da questa pagina.
+            </p>
+          )}
+        </div>
 
         <h3>La tua stagione in corso {stagioneAttivaNome ? `— ${stagioneAttivaNome}` : ""}</h3>
         {iscrizioniAttive.length === 0 && (

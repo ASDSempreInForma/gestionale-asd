@@ -49,6 +49,8 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
   const [salvandoBlocco, setSalvandoBlocco] = useState(false)
   const [tessera, setTessera] = useState(socio.numero_tessera || '')
   const [salvandoTessera, setSalvandoTessera] = useState(false)
+  const [caricandoPdf, setCaricandoPdf] = useState(false)
+  const [erroreePdf, setErrorePdf] = useState('')
 
   useState(() => {
     supabase
@@ -81,6 +83,26 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
     const { error } = await supabase.from('soci').update({ numero_tessera: tessera || null }).eq('cf', socio.cf)
     setSalvandoTessera(false)
     if (error) alert('Errore: ' + error.message)
+    else onAggiornato()
+  }
+
+  const caricaPdfUfficiale = async (file) => {
+    if (!file) return
+    setCaricandoPdf(true)
+    setErrorePdf('')
+    const path = `${socio.cf}/tessera_ufficiale.pdf`
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, {
+      contentType: 'application/pdf',
+      upsert: true,
+    })
+    if (upErr) {
+      setErrorePdf('Errore caricamento: ' + upErr.message)
+      setCaricandoPdf(false)
+      return
+    }
+    const { error: dbErr } = await supabase.from('soci').update({ tessera_ufficiale_url: path }).eq('cf', socio.cf)
+    setCaricandoPdf(false)
+    if (dbErr) setErrorePdf('File caricato ma errore nel salvataggio: ' + dbErr.message)
     else onAggiornato()
   }
 
@@ -118,6 +140,24 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
               {socio.ente_tessera} · scade {fmtData(socio.scadenza_tessera)}
             </div>
           )}
+        </div>
+
+        <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>📄 Tessera ufficiale (PDF da ASI/Libertas)</div>
+          {socio.tessera_ufficiale_url ? (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12.5, color: G }}>✓ Caricata — visibile nell'area privata del socio</span>
+              <button onClick={() => apriDocumento(socio.tessera_ufficiale_url)} style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 12, cursor: 'pointer' }}>👁️ Apri</button>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12.5, color: SUB, marginBottom: 8 }}>Non ancora caricata.</div>
+          )}
+          <div style={{ marginTop: 8 }}>
+            <input type="file" accept="application/pdf" onChange={e => caricaPdfUfficiale(e.target.files[0])} style={{ fontSize: 12.5 }} />
+            {caricandoPdf && <span style={{ fontSize: 12, color: SUB, marginLeft: 8 }}>Carico...</span>}
+          </div>
+          {erroreePdf && <div style={{ color: R, fontSize: 12, marginTop: 6 }}>{erroreePdf}</div>}
+          <div style={{ fontSize: 11, color: SUB, marginTop: 6 }}>Caricare il nuovo PDF sovrascrive quello dell'anno precedente.</div>
         </div>
 
         <div style={{ background: blocco ? RL : '#F8FAFC', borderRadius: 10, padding: 12, marginBottom: 16 }}>
