@@ -502,7 +502,7 @@ export default function AreaTesserati() {
             style={{ borderRadius: 8, border: "1px solid #e2e8f0" }}
           />
           <div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>🎫 La tua tessera</div>
+            <div style={{ fontWeight: 700, fontSize: 16 }}>La tua tessera</div>
             <div style={{ fontSize: 13, color: "#64748b", margin: "4px 0" }}>
               {socio.nome} {socio.cognome}
             </div>
@@ -527,7 +527,7 @@ export default function AreaTesserati() {
               );
             })()}
             <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
-              Mostra questo QR all'ingresso in palestra per il check-in.
+              Mostra questo QR all'ingresso in palestra.
             </div>
           </div>
         </div>
