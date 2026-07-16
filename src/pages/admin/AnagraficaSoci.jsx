@@ -143,7 +143,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
         </div>
 
         <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 12, marginBottom: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>📄 Tessera ufficiale (PDF da ASI/Libertas)</div>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>📄 Tessera (PDF da ASI/Libertas)</div>
           {socio.tessera_ufficiale_url ? (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12.5, color: G }}>✓ Caricata — visibile nell'area privata del socio</span>

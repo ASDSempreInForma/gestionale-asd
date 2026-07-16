@@ -521,24 +521,19 @@ export default function AreaTesserati() {
           </div>
         </div>
 
-        <div style={{ ...styles.card, marginBottom: 24 }}>
-          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>La tua tessera ufficiale</div>
-          {socio.numero_tessera && (
-            <div style={{ fontSize: 13, color: "#64748b", marginBottom: 10 }}>
-              Tessera n. {socio.numero_tessera}{socio.ente_tessera ? ` (${socio.ente_tessera})` : ""}
-            </div>
-          )}
-          {socio.tessera_ufficiale_disponibile ? (
+        {socio.tessera_ufficiale_disponibile && (
+          <div style={{ ...styles.card, marginBottom: 24 }}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>La tua tessera</div>
+            {socio.numero_tessera && (
+              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 10 }}>
+                Tessera n. {socio.numero_tessera}{socio.ente_tessera ? ` (${socio.ente_tessera})` : ""}
+              </div>
+            )}
             <button onClick={scaricaTesseraUfficiale} disabled={scaricandoTessera} style={styles.btnPrimary}>
               {scaricandoTessera ? "Preparo il file..." : "📄 Scarica la tua tessera (PDF)"}
             </button>
-          ) : (
-            <p style={{ fontSize: 13, color: "#64748b", margin: 0 }}>
-              La tua tessera ufficiale non è ancora disponibile qui — appena la segreteria la carica,
-              potrai scaricarla direttamente da questa pagina.
-            </p>
-          )}
-        </div>
+          </div>
+        )}
 
         <h3>La tua stagione in corso {stagioneAttivaNome ? `— ${stagioneAttivaNome}` : ""}</h3>
         {iscrizioniAttive.length === 0 && (
