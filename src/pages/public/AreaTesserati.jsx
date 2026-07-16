@@ -14,16 +14,20 @@ const LS_EMAIL = "areaTesserati_email";
 const WHATSAPP_NUM = "393278681393";
 
 async function callFn(payload) {
-  const res = await fetch(FUNCTION_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: ANON_KEY,
-      Authorization: `Bearer ${ANON_KEY}`,
-    },
-    body: JSON.stringify(payload),
-  });
-  return res.json();
+  try {
+    const res = await fetch(FUNCTION_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: ANON_KEY,
+        Authorization: `Bearer ${ANON_KEY}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: "Problema di connessione. Controlla la rete e riprova.", networkError: true };
+  }
 }
 
 function fileToBase64(file) {
@@ -39,6 +43,16 @@ function fmtData(d) {
   if (!d) return "—";
   const [y, m, day] = d.split("-");
   return `${day}/${m}/${y}`;
+}
+
+// La stagione va da settembre a fine agosto (data_fine), ma:
+// - chi paga solo il 1° quadrimestre deve rinnovare/pagare la 2ª rata entro il 31 gennaio
+// - chi ha pagato l'annuale, il 2° quadrimestre o un rinnovo copre fino a fine corso (31 maggio)
+function fineCorso(dataFineStagione, tipoPagamento) {
+  if (!dataFineStagione) return null;
+  const anno = dataFineStagione.slice(0, 4);
+  const soloPrimoQuadrimestre = tipoPagamento === "quad1" || tipoPagamento === "quadrimestrale";
+  return soloPrimoQuadrimestre ? `${anno}-01-31` : `${anno}-05-31`;
 }
 
 // ─── Badge di stato ─────────────────────────────────────────────────────────
@@ -303,7 +317,12 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato }) {
         <BadgeCertificato stato={iscrizione.stato_certificato} />
       </div>
       <div style={{ fontSize: 13, color: "#475569", marginBottom: 10 }}>
-        {iscrizione.tipo_pagamento && <div>Tipo pagamento: {iscrizione.tipo_pagamento}</div>}
+        {iscrizione.tipo_pagamento && (
+          <div>
+            Tipo pagamento: {iscrizione.tipo_pagamento}
+            {iscrizione.stagioni?.data_fine && ` · termine corso il ${fmtData(fineCorso(iscrizione.stagioni.data_fine, iscrizione.tipo_pagamento))}`}
+          </div>
+        )}
         {iscrizione.data_scadenza_certificato && (
           <div>Certificato in scadenza il {fmtData(iscrizione.data_scadenza_certificato)}</div>
         )}
@@ -335,6 +354,7 @@ export default function AreaTesserati() {
   const [sessione, setSessione] = useState(null); // { cf, email }
   const [dati, setDati] = useState(null); // { socio, iscrizioni }
   const [loadingDati, setLoadingDati] = useState(false);
+  const [erroreDati, setErroreDati] = useState("");
   const [messaggio, setMessaggio] = useState("");
 
   const [modaleRicevuta, setModaleRicevuta] = useState(null); // iscrizione o null
@@ -368,13 +388,22 @@ export default function AreaTesserati() {
     setLoadingDati(true);
     const r = await callFn({ action: "get_dati", cf: sessione.cf, email: sessione.email });
     setLoadingDati(false);
-    if (r.ok) setDati(r);
-    else {
+    if (r.ok) {
+      setDati(r);
+      setErroreDati("");
+    } else if (r.networkError) {
+      // Problema temporaneo di connessione: NON disconnettere, mostra solo un avviso con "riprova"
+      setErroreDati(r.error);
+    } else if (r.error && r.error.includes("Sessione non valida")) {
+      // Il server ha verificato CF+email e non corrispondono più davvero: qui sì, disconnetti
       setDati(null);
       setSessione(null);
       localStorage.removeItem(LS_CF);
       localStorage.removeItem(LS_EMAIL);
-      setLoginErrore(r.error || "Sessione scaduta, effettua di nuovo il login.");
+      setLoginErrore(r.error);
+    } else {
+      // Altro tipo di errore imprevisto: non disconnettere, mostra solo l'avviso
+      setErroreDati(r.error || "Si è verificato un problema. Riprova.");
     }
   };
 
@@ -442,8 +471,19 @@ export default function AreaTesserati() {
     );
   }
 
-  if (loadingDati || !dati) {
+  if (loadingDati || (!dati && !erroreDati)) {
     return <div style={styles.page}><p>Caricamento dati in corso...</p></div>;
+  }
+
+  if (!dati && erroreDati) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.loginBox}>
+          <p style={{ color: "#991B1B" }}>{erroreDati}</p>
+          <button onClick={caricaDati} style={{ ...styles.btnPrimary, width: "100%" }}>Riprova</button>
+        </div>
+      </div>
+    );
   }
 
   const { socio, iscrizioni } = dati;
