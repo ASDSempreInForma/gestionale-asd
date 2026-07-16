@@ -354,23 +354,43 @@ const SUGGERIMENTI_CHATBOT = [
   "C'è ancora posto al Pilates?",
 ];
 
+const FUNCTION_URL_AI = "https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/genera-testo-ai";
+const FUNCTION_URL_EMAIL = "https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/invia-email-iscrizione";
+const ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVic3VxZHhmbHlneGh1cHRubnVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNTU1OTcsImV4cCI6MjA5NzYzMTU5N30.KXgue3EKXZdZZ5vvkmHcEzO5OvFEAQWyuvMtLm2RtV0";
+
 async function chiediAClaude(systemPrompt, userPrompt) {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  const response = await fetch(FUNCTION_URL_AI, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1000,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
-    }),
+    headers: {
+      "Content-Type": "application/json",
+      apikey: ANON_KEY,
+      Authorization: `Bearer ${ANON_KEY}`,
+    },
+    body: JSON.stringify({ systemPrompt, userPrompt }),
   });
   const data = await response.json();
-  const testo = (data.content || [])
-    .filter((b) => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
-  return testo || "Non sono riuscito a generare una risposta, riprova.";
+  if (!data.ok) throw new Error(data.error || "Errore nella generazione della risposta.");
+  return data.testo;
+}
+
+async function inviaEmailComunicazione({ destinatarioEmail, destinatarioNome, oggetto, corpoTesto }) {
+  const response = await fetch(FUNCTION_URL_EMAIL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: ANON_KEY,
+      Authorization: `Bearer ${ANON_KEY}`,
+    },
+    body: JSON.stringify({
+      tipo: "comunicazione_libera",
+      destinatarioEmail,
+      destinatarioNome,
+      oggetto,
+      corpoTesto,
+    }),
+  });
+  return response.json();
 }
 
 function Spinner() {
@@ -391,6 +411,12 @@ function TabAssistenteRisposte() {
   const [caricamento, setCaricamento] = useState(false);
   const [cronologia, setCronologia] = useState([]);
   const [copiato, setCopiato] = useState(false);
+  const [destinatarioEmail, setDestinatarioEmail] = useState("");
+  const [destinatarioNome, setDestinatarioNome] = useState("");
+  const [destinatarioTelefono, setDestinatarioTelefono] = useState("");
+  const [oggettoEmail, setOggettoEmail] = useState("A.S.D. Sempre In Forma");
+  const [inviandoEmail, setInviandoEmail] = useState(false);
+  const [esitoInvio, setEsitoInvio] = useState("");
 
   const generaRisposta = async (testoMessaggio, canaleScelto) => {
     const msg = testoMessaggio ?? messaggio;
@@ -425,6 +451,27 @@ function TabAssistenteRisposte() {
     navigator.clipboard?.writeText(risposta);
     setCopiato(true);
     setTimeout(() => setCopiato(false), 1500);
+  };
+
+  const inviaEmailOra = async () => {
+    if (!destinatarioEmail.trim() || !risposta.trim()) return;
+    setInviandoEmail(true);
+    setEsitoInvio("");
+    const esito = await inviaEmailComunicazione({
+      destinatarioEmail: destinatarioEmail.trim(),
+      destinatarioNome: destinatarioNome.trim(),
+      oggetto: oggettoEmail.trim() || "A.S.D. Sempre In Forma",
+      corpoTesto: risposta,
+    });
+    setInviandoEmail(false);
+    setEsitoInvio(esito.success ? "✓ Email inviata." : "Errore: " + (esito.error || "invio non riuscito."));
+  };
+
+  const apriWhatsApp = () => {
+    const numero = destinatarioTelefono.replace(/[^0-9]/g, "");
+    if (!numero || !risposta.trim()) return;
+    const link = `https://wa.me/${numero}?text=${encodeURIComponent(risposta)}`;
+    window.open(link, "_blank");
   };
 
   return (
@@ -520,6 +567,65 @@ function TabAssistenteRisposte() {
             className="w-full rounded-lg border border-slate-300 p-3 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
           />
         </div>
+
+        {risposta && (
+          <div className="space-y-3 rounded-lg border border-slate-200 p-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Invia direttamente</p>
+
+            {canale === "email" ? (
+              <>
+                <div className="flex gap-2">
+                  <input
+                    value={destinatarioNome}
+                    onChange={(e) => setDestinatarioNome(e.target.value)}
+                    placeholder="Nome destinatario"
+                    className="flex-1 rounded-lg border border-slate-300 p-2 text-sm"
+                  />
+                  <input
+                    value={destinatarioEmail}
+                    onChange={(e) => setDestinatarioEmail(e.target.value)}
+                    placeholder="email@destinatario.it"
+                    type="email"
+                    className="flex-1 rounded-lg border border-slate-300 p-2 text-sm"
+                  />
+                </div>
+                <input
+                  value={oggettoEmail}
+                  onChange={(e) => setOggettoEmail(e.target.value)}
+                  placeholder="Oggetto email"
+                  className="w-full rounded-lg border border-slate-300 p-2 text-sm"
+                />
+                <button
+                  onClick={inviaEmailOra}
+                  disabled={inviandoEmail || !destinatarioEmail.trim()}
+                  className="w-full rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {inviandoEmail ? "Invio in corso..." : "📧 Invia email ora"}
+                </button>
+              </>
+            ) : (
+              <>
+                <input
+                  value={destinatarioTelefono}
+                  onChange={(e) => setDestinatarioTelefono(e.target.value)}
+                  placeholder="Numero WhatsApp (es. 3401234567)"
+                  className="w-full rounded-lg border border-slate-300 p-2 text-sm"
+                />
+                <button
+                  onClick={apriWhatsApp}
+                  disabled={!destinatarioTelefono.trim()}
+                  className="w-full rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  💬 Apri WhatsApp con il messaggio pronto
+                </button>
+                <p className="text-xs text-slate-500">
+                  Si apre WhatsApp con il testo già scritto: dovrai solo premere Invia.
+                </p>
+              </>
+            )}
+            {esitoInvio && <p className="text-xs text-slate-600">{esitoInvio}</p>}
+          </div>
+        )}
         {caricamento && (
           <div className="mt-2">
             <Spinner />
