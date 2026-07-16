@@ -69,6 +69,56 @@ function validaCodiceFiscale(cf) {
   return carattereControllo === v[15];
 }
 
+// ---------------------------------------------------------------------
+// CONTROLLO INCROCIATO: il CF corrisponde davvero a nome/cognome/data
+// nascita/sesso inseriti? Il solo carattere di controllo (sopra) verifica
+// solo che il CF sia "ben formato", non che appartenga alla persona giusta.
+// NOTA: non validiamo il codice del comune di nascita (richiederebbe
+// l'intera tabella catastale Belfiore): resta un controllo parziale ma
+// utile a intercettare la maggior parte degli errori/incongruenze.
+// ---------------------------------------------------------------------
+function isVocale(c) {
+  return "AEIOU".includes(c);
+}
+function soleConsonanti(str) {
+  return (str || "").toUpperCase().normalize("NFD").replace(/[^A-Z]/g, "").split("").filter((c) => !isVocale(c)).join("");
+}
+function soleVocali(str) {
+  return (str || "").toUpperCase().normalize("NFD").replace(/[^A-Z]/g, "").split("").filter(isVocale).join("");
+}
+function codiceCognomeCF(cognome) {
+  const cons = soleConsonanti(cognome);
+  const vow = soleVocali(cognome);
+  return (cons + vow + "XXX").slice(0, 3);
+}
+function codiceNomeCF(nome) {
+  const cons = soleConsonanti(nome);
+  if (cons.length >= 4) return cons[0] + cons[2] + cons[3];
+  const vow = soleVocali(nome);
+  return (cons + vow + "XXX").slice(0, 3);
+}
+const CF_MESI = ["A", "B", "C", "D", "E", "H", "L", "M", "P", "R", "S", "T"];
+
+function cfCorrispondeAnagrafica({ cf, nome, cognome, dataNascita, sesso }) {
+  if (!cf || cf.trim().length !== 16 || !nome || !cognome || !dataNascita) return true; // dati insufficienti: non blocchiamo
+  const v = cf.trim().toUpperCase();
+  const d = new Date(dataNascita + "T00:00:00");
+  if (isNaN(d.getTime())) return true;
+
+  const cognomeAtteso = codiceCognomeCF(cognome);
+  const nomeAtteso = codiceNomeCF(nome);
+  const annoAtteso = String(d.getFullYear()).slice(-2);
+  const meseAtteso = CF_MESI[d.getMonth()];
+  const giornoAtteso = String(d.getDate() + (sesso === "F" ? 40 : 0)).padStart(2, "0");
+
+  if (v.slice(0, 3) !== cognomeAtteso) return false;
+  if (v.slice(3, 6) !== nomeAtteso) return false;
+  if (v.slice(6, 8) !== annoAtteso) return false;
+  if (v[8] !== meseAtteso) return false;
+  if (v.slice(9, 11) !== giornoAtteso) return false;
+  return true;
+}
+
 
 // ---------------------------------------------------------------------
 // ESTRAZIONE GIORNI SINGOLI da un corso in coppia
@@ -785,6 +835,14 @@ export default function ModuloIscrizione() {
                   Il codice fiscale inserito non risulta valido — controlla di averlo scritto correttamente.
                 </p>
               )}
+              {anagrafica.cf.length === 16 &&
+                validaCodiceFiscale(anagrafica.cf) &&
+                !cfCorrispondeAnagrafica(anagrafica) && (
+                  <p className="col-span-2 text-xs text-amber-600 -mt-2">
+                    Attenzione: il codice fiscale non sembra corrispondere a nome, cognome, data di nascita o
+                    sesso inseriti. Controlla di averlo copiato correttamente prima di proseguire.
+                  </p>
+                )}
             </div>
             {isMinorenne && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
