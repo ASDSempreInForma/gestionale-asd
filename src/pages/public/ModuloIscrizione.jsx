@@ -39,8 +39,37 @@ const PAGAMENTI = [
 ];
 
 // ---------------------------------------------------------------------
-// MOTORE DI COMPOSIZIONE CODICE CORSO
+// VALIDAZIONE CODICE FISCALE (carattere di controllo finale)
+// Blocca la maggior parte degli errori di battitura prima dell'invio.
 // ---------------------------------------------------------------------
+const CF_DISPARI = {
+  0: 1, 1: 0, 2: 5, 3: 7, 4: 9, 5: 13, 6: 15, 7: 17, 8: 19, 9: 21,
+  A: 1, B: 0, C: 5, D: 7, E: 9, F: 13, G: 15, H: 17, I: 19, J: 21,
+  K: 2, L: 4, M: 18, N: 20, O: 11, P: 3, Q: 6, R: 8, S: 12, T: 14,
+  U: 16, V: 10, W: 22, X: 25, Y: 24, Z: 23,
+};
+const CF_PARI = {
+  0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9,
+  A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8, J: 9,
+  K: 10, L: 11, M: 12, N: 13, O: 14, P: 15, Q: 16, R: 17, S: 18, T: 19,
+  U: 20, V: 21, W: 22, X: 23, Y: 24, Z: 25,
+};
+const CF_RESTO = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+function validaCodiceFiscale(cf) {
+  if (!cf) return false;
+  const v = cf.trim().toUpperCase();
+  if (!/^[A-Z0-9]{16}$/.test(v)) return false;
+  let somma = 0;
+  for (let i = 0; i < 15; i++) {
+    const carattere = v[i];
+    somma += i % 2 === 0 ? CF_DISPARI[carattere] : CF_PARI[carattere];
+  }
+  const carattereControllo = CF_RESTO[somma % 26];
+  return carattereControllo === v[15];
+}
+
+
 // ---------------------------------------------------------------------
 // ESTRAZIONE GIORNI SINGOLI da un corso in coppia
 // Formato in DB: "Lunedì/Venerdì 20:10-21:00" -> [{giorno:"Lunedì", orario:"20:10-21:00"}, {giorno:"Venerdì", orario:"20:10-21:00"}]
@@ -495,7 +524,7 @@ export default function ModuloIscrizione() {
   // ------------------------------------------------------------------
   const totaleSteps = 5;
   const puoiProseguire = () => {
-    if (step === 1) return anagrafica.nome && anagrafica.cognome && anagrafica.dataNascita && anagrafica.cf;
+    if (step === 1) return anagrafica.nome && anagrafica.cognome && anagrafica.dataNascita && anagrafica.cf && validaCodiceFiscale(anagrafica.cf);
     if (step === 2) return residenza.indirizzo && residenza.comune && residenza.email;
     if (step === 3) return corsiConCodice.length > 0;
     if (step === 4) return regolamenti.statuto && regolamenti.privacy;
@@ -585,22 +614,29 @@ export default function ModuloIscrizione() {
         }
       }
 
-      // 1. Inserisce il socio — se esiste già (23505 = duplicate key) va bene, proseguiamo
-      const { error: errSocio } = await supabase.from("soci").insert({
-        cf: cfUpper,
-        nome: anagrafica.nome,
-        cognome: anagrafica.cognome,
-        data_nascita: anagrafica.dataNascita || null,
-        comune_nascita: anagrafica.luogoNascita || null,
-        indirizzo: residenza.indirizzo || null,
-        cap: residenza.cap || null,
-        comune_residenza: residenza.comune || null,
-        telefono: residenza.telefono || null,
-        email: residenza.email || null,
-        sesso: anagrafica.sesso || null,
+      // 1. Registra/aggiorna il socio tramite la funzione sicura dedicata — aggiorna
+      // davvero i dati anagrafici (email inclusa) se il socio esiste già, senza mai
+      // poter toccare tessera o blocchi admin (quei campi restano protetti lato server).
+      const rispostaSocio = await fetch("https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/registra-socio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cf: cfUpper,
+          nome: anagrafica.nome,
+          cognome: anagrafica.cognome,
+          data_nascita: anagrafica.dataNascita || null,
+          comune_nascita: anagrafica.luogoNascita || null,
+          provincia_nascita: anagrafica.provinciaNascita || null,
+          indirizzo: residenza.indirizzo || null,
+          cap: residenza.cap || null,
+          comune_residenza: residenza.comune || null,
+          telefono: residenza.telefono || null,
+          email: residenza.email || null,
+          sesso: anagrafica.sesso || null,
+        }),
       });
-      // Ignoro solo l'errore di chiave duplicata (socio già esistente)
-      if (errSocio && errSocio.code !== "23505") throw errSocio;
+      const esitoSocio = await rispostaSocio.json();
+      if (!esitoSocio.ok) throw new Error(esitoSocio.error || "Errore nella registrazione dei dati anagrafici.");
 
       // 2. Inserisce le iscrizioni — se già esiste per questa stagione, la ignora
       const iscrizioniDaInserire = corsiConCodice.map((c) => ({
@@ -744,6 +780,11 @@ export default function ModuloIscrizione() {
                 </select>
               </div>
               <Campo label="Codice Fiscale *" value={anagrafica.cf} onChange={(v) => setAnagrafica({ ...anagrafica, cf: v.toUpperCase() })} className="col-span-2" maxLength={16} />
+              {anagrafica.cf.length === 16 && !validaCodiceFiscale(anagrafica.cf) && (
+                <p className="col-span-2 text-xs text-red-600 -mt-2">
+                  Il codice fiscale inserito non risulta valido — controlla di averlo scritto correttamente.
+                </p>
+              )}
             </div>
             {isMinorenne && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
