@@ -441,26 +441,38 @@ export default function AreaTesserati() {
         <div style={styles.loginBox}>
           <h2 style={{ marginTop: 0 }}>Area Tesserati</h2>
           <p style={{ color: "#64748b", fontSize: 14 }}>A.S.D. Sempre In Forma</p>
-          <label style={styles.label}>Codice Fiscale</label>
-          <input
-            style={styles.input}
-            value={cf}
-            onChange={(e) => setCf(e.target.value.toUpperCase())}
-            placeholder="RSSMRA80A01B157X"
-            maxLength={16}
-          />
-          <label style={styles.label}>Email</label>
-          <input
-            style={styles.input}
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="nome.cognome@email.it"
-            type="email"
-          />
-          {loginErrore && <p style={styles.errore}>{loginErrore}</p>}
-          <button onClick={login} disabled={loadingLogin} style={{ ...styles.btnPrimary, width: "100%", marginTop: 12 }}>
-            {loadingLogin ? "Verifica in corso..." : "Accedi"}
-          </button>
+          <form
+            autoComplete="on"
+            onSubmit={(e) => {
+              e.preventDefault();
+              login();
+            }}
+          >
+            <label style={styles.label}>Codice Fiscale</label>
+            <input
+              style={styles.input}
+              value={cf}
+              onChange={(e) => setCf(e.target.value.toUpperCase())}
+              placeholder="RSSMRA80A01B157X"
+              maxLength={16}
+              name="username"
+              autoComplete="username"
+            />
+            <label style={styles.label}>Email</label>
+            <input
+              style={styles.input}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="nome.cognome@email.it"
+              type="email"
+              name="email"
+              autoComplete="email"
+            />
+            {loginErrore && <p style={styles.errore}>{loginErrore}</p>}
+            <button type="submit" disabled={loadingLogin} style={{ ...styles.btnPrimary, width: "100%", marginTop: 12 }}>
+              {loadingLogin ? "Verifica in corso..." : "Accedi"}
+            </button>
+          </form>
           <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 16 }}>
             Usa lo stesso codice fiscale e la stessa email indicati al momento dell'iscrizione.
             Problemi ad accedere? Scrivi alla segreteria su{" "}
