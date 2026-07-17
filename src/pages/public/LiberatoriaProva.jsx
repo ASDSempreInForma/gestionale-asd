@@ -244,6 +244,22 @@ export default function LiberatoriaProva() {
       });
 
       if (error) throw error;
+
+      // Invia l'email di conferma ricezione richiesta (non blocca l'esito se fallisce)
+      try {
+        await fetch(`${SUPABASE_URL}/functions/v1/invia-email-iscrizione`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+          body: JSON.stringify({
+            tipo: "benvenuto_prova",
+            destinatarioEmail: d.email,
+            destinatarioNome: d.nome,
+          }),
+        });
+      } catch (_) {
+        // Non blocchiamo l'invio della richiesta se l'email fallisce: la persona la vede comunque confermata a schermo
+      }
+
       setInviato(true);
     } catch (err) {
       console.error(err);
@@ -296,8 +312,8 @@ export default function LiberatoriaProva() {
         <div style={{ background: AL, border: `1px solid ${A}33`, borderRadius: 12, padding: "12px 16px", fontSize: 12, color: AD, textAlign: "left", lineHeight: 1.8, marginBottom: 20 }}>
           <strong>Cosa succede ora:</strong><br />
           📧 Riceverai una email di conferma a <strong>{d.email}</strong><br />
-          🎽 Potrai assistere alla prima lezione disponibile del corso<br />
-          ⏱ Dopo la prova hai <strong>3 giorni</strong> per finalizzare l'iscrizione<br />
+          🎽 Potrai partecipare alla prima lezione disponibile del corso<br />
+          ⏱ Dopo la prova hai <strong>2 giorni</strong> per finalizzare l'iscrizione<br />
           📞 Per info: <strong>WhatsApp 327 868 1393</strong>
         </div>
         <button

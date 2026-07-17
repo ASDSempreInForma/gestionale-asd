@@ -176,7 +176,8 @@ export default function GestioneProve() {
   // ── Non presentata: annulla con nota dedicata, la persona deve ricompilare il modulo ──
   async function segnaNonPresentata(p) {
     if (!window.confirm(`Segnare ${p.nome} ${p.cognome} come non presentata alla prova?\n\nDovrà ricompilare il modulo per fissare una nuova data.`)) return;
-    await aggiornaStato(p.id, "annullata", { note: "Non presentata alla lezione di prova — deve ricompilare il modulo per una nuova data." });
+    const notaAggiornata = `${p.note ? p.note + " | " : ""}Non presentata alla lezione di prova — deve ricompilare il modulo per una nuova data.`;
+    await aggiornaStato(p.id, "annullata", { note: notaAggiornata });
   }
 
   // ── Avvisa: posti in esaurimento, 24 ore per iscriversi direttamente ──
@@ -421,7 +422,18 @@ export default function GestioneProve() {
                           </div>
                           <div style={{ fontSize:11, color:SUB, marginTop:1 }}>
                             📍 {corso?.nome || p.dati_extra?.corso_nome || "—"} — {corso?.sede || p.dati_extra?.corso_sede || "—"}
+                            {corso?.orario && ` · 🕐 ${corso.orario}`}
                           </div>
+                          {p.dati_extra?.orario_prova_preferito && (
+                            <div style={{ fontSize:11, color:AD, marginTop:1 }}>
+                              💬 Orario preferito per la prova: "{p.dati_extra.orario_prova_preferito}"
+                            </div>
+                          )}
+                          {p.dati_extra?.orario_frequenza_preferito && (
+                            <div style={{ fontSize:11, color:AD, marginTop:1 }}>
+                              💬 Per l'iscrizione vorrebbe: "{p.dati_extra.orario_frequenza_preferito}"
+                            </div>
+                          )}
                           {p.data_richiesta && (
                             <div style={{ fontSize:11, color:SUB }}>
                               Richiesta: {new Date(p.data_richiesta).toLocaleDateString("it-IT")}
