@@ -51,6 +51,15 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
   const [salvandoTessera, setSalvandoTessera] = useState(false)
   const [caricandoPdf, setCaricandoPdf] = useState(false)
   const [erroreePdf, setErrorePdf] = useState('')
+  const [modificaAnagrafica, setModificaAnagrafica] = useState(false)
+  const [anagrafica, setAnagrafica] = useState({
+    telefono: socio.telefono || '',
+    email: socio.email || '',
+    indirizzo: socio.indirizzo || '',
+    comune_residenza: socio.comune_residenza || '',
+    cap: socio.cap || '',
+  })
+  const [salvandoAnagrafica, setSalvandoAnagrafica] = useState(false)
 
   useState(() => {
     supabase
@@ -86,6 +95,21 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
     else onAggiornato()
   }
 
+  const salvaAnagrafica = async () => {
+    setSalvandoAnagrafica(true)
+    const { error } = await supabase.from('soci').update({
+      telefono: anagrafica.telefono.trim() || null,
+      email: anagrafica.email.trim().toLowerCase() || null,
+      indirizzo: anagrafica.indirizzo.trim() || null,
+      comune_residenza: anagrafica.comune_residenza.trim() || null,
+      cap: anagrafica.cap.trim() || null,
+    }).eq('cf', socio.cf)
+    setSalvandoAnagrafica(false)
+    if (error) { alert('Errore: ' + error.message); return }
+    setModificaAnagrafica(false)
+    onAggiornato()
+  }
+
   const caricaPdfUfficiale = async (file) => {
     if (!file) return
     setCaricandoPdf(true)
@@ -117,11 +141,52 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
           <button onClick={onChiudi} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: SUB }}>✕</button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 13, color: SUB, margin: '14px 0', background: '#F8FAFC', borderRadius: 10, padding: 12 }}>
-          <div>📅 Nato il {fmtData(socio.data_nascita)}{socio.comune_nascita ? ` a ${socio.comune_nascita}${socio.provincia_nascita ? ' (' + socio.provincia_nascita + ')' : ''}` : ''}</div>
-          <div>📍 {socio.indirizzo || '—'}{socio.comune_residenza ? `, ${socio.comune_residenza}` : ''} {socio.cap || ''}</div>
-          <div>📞 {socio.telefono || '—'}</div>
-          <div>📧 {socio.email || <span style={{ color: R }}>nessuna email</span>}</div>
+        <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 12, margin: '14px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: modificaAnagrafica ? 10 : 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: SUB, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+              📅 Nato il {fmtData(socio.data_nascita)}{socio.comune_nascita ? ` a ${socio.comune_nascita}${socio.provincia_nascita ? ' (' + socio.provincia_nascita + ')' : ''}` : ''}
+            </div>
+            {!modificaAnagrafica && (
+              <button onClick={() => setModificaAnagrafica(true)} style={{ background: 'none', border: 'none', color: G, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                ✎ Modifica
+              </button>
+            )}
+          </div>
+
+          {!modificaAnagrafica ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 13, color: SUB, marginTop: 8 }}>
+              <div>📍 {socio.indirizzo || '—'}{socio.comune_residenza ? `, ${socio.comune_residenza}` : ''} {socio.cap || ''}</div>
+              <div>📞 {socio.telefono || '—'}</div>
+              <div style={{ gridColumn: 'span 2' }}>📧 {socio.email || <span style={{ color: R }}>nessuna email</span>}</div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+                <input placeholder="Indirizzo" value={anagrafica.indirizzo} onChange={e => setAnagrafica(a => ({ ...a, indirizzo: e.target.value }))}
+                  style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
+                <input placeholder="Comune" value={anagrafica.comune_residenza} onChange={e => setAnagrafica(a => ({ ...a, comune_residenza: e.target.value }))}
+                  style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
+                <input placeholder="CAP" value={anagrafica.cap} onChange={e => setAnagrafica(a => ({ ...a, cap: e.target.value }))}
+                  style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+                <input placeholder="Telefono" value={anagrafica.telefono} onChange={e => setAnagrafica(a => ({ ...a, telefono: e.target.value }))}
+                  style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
+                <input placeholder="Email" type="email" value={anagrafica.email} onChange={e => setAnagrafica(a => ({ ...a, email: e.target.value }))}
+                  style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => { setModificaAnagrafica(false); setAnagrafica({ telefono: socio.telefono || '', email: socio.email || '', indirizzo: socio.indirizzo || '', comune_residenza: socio.comune_residenza || '', cap: socio.cap || '' }) }}
+                  style={{ background: 'white', border: `1px solid ${BD}`, borderRadius: 7, padding: '7px 12px', fontSize: 12.5, cursor: 'pointer', color: SUB }}>
+                  Annulla
+                </button>
+                <button onClick={salvaAnagrafica} disabled={salvandoAnagrafica}
+                  style={{ background: G, color: 'white', border: 'none', borderRadius: 7, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+                  {salvandoAnagrafica ? 'Salvo...' : 'Salva'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 14 }}>
