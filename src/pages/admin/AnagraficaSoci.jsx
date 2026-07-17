@@ -445,11 +445,138 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
   )
 }
 
+function ModaleNuovoSocio({ onClose, onCreato }) {
+  const [dati, setDati] = useState({
+    cf: '', nome: '', cognome: '', data_nascita: '', sesso: 'F',
+    comune_nascita: '', provincia_nascita: '', indirizzo: '', comune_residenza: '',
+    provincia_residenza: '', cap: '', telefono: '', email: '',
+    minorenne: false, nome_genitore: '', cognome_genitore: '', cf_genitore: '',
+  })
+  const [errore, setErrore] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  const set = (campo) => (e) => setDati(d => ({ ...d, [campo]: e.target.value }))
+
+  const salva = async () => {
+    setErrore('')
+    const cf = dati.cf.trim().toUpperCase()
+    if (cf.length !== 16) { setErrore('Il codice fiscale deve avere 16 caratteri.'); return }
+    if (!dati.nome.trim() || !dati.cognome.trim()) { setErrore('Nome e cognome sono obbligatori.'); return }
+    if (dati.minorenne && (!dati.nome_genitore.trim() || !dati.cognome_genitore.trim())) {
+      setErrore('Per un minorenne servono nome e cognome del genitore/tutore.'); return
+    }
+
+    setSalvando(true)
+    const { data: esistente } = await supabase.from('soci').select('cf').eq('cf', cf).maybeSingle()
+    if (esistente) {
+      setSalvando(false)
+      setErrore('Esiste già un socio con questo codice fiscale — cercalo invece di crearne uno nuovo.')
+      return
+    }
+
+    const { data: nuovo, error } = await supabase.from('soci').insert({
+      cf,
+      nome: dati.nome.trim(),
+      cognome: dati.cognome.trim(),
+      data_nascita: dati.data_nascita || null,
+      sesso: dati.sesso || null,
+      comune_nascita: dati.comune_nascita || null,
+      provincia_nascita: dati.provincia_nascita || null,
+      indirizzo: dati.indirizzo || null,
+      comune_residenza: dati.comune_residenza || null,
+      provincia_residenza: dati.provincia_residenza || null,
+      cap: dati.cap || null,
+      telefono: dati.telefono || null,
+      email: dati.email.trim().toLowerCase() || null,
+      nome_genitore: dati.minorenne ? dati.nome_genitore.trim() : null,
+      cognome_genitore: dati.minorenne ? dati.cognome_genitore.trim() : null,
+      cf_genitore: dati.minorenne ? (dati.cf_genitore.trim().toUpperCase() || null) : null,
+    }).select().single()
+    setSalvando(false)
+    if (error) { setErrore('Errore: ' + error.message); return }
+    onCreato(nuovo)
+  }
+
+  const campo = (placeholder, chiave, extra = {}) => (
+    <input placeholder={placeholder} value={dati[chiave]} onChange={set(chiave)}
+      style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box', width: '100%' }} {...extra} />
+  )
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 200, padding: '4vh 16px', overflowY: 'auto' }} onClick={onClose}>
+      <div style={{ background: 'white', borderRadius: 14, padding: 24, width: '100%', maxWidth: 520 }} onClick={e => e.stopPropagation()}>
+        <h3 style={{ marginTop: 0 }}>Nuovo socio</h3>
+        <p style={{ fontSize: 12.5, color: SUB, marginTop: -6, marginBottom: 14 }}>
+          Crea la scheda anagrafica — per iscriverlo subito a un corso puoi farlo dopo, dal suo profilo.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+          {campo('Nome *', 'nome')}
+          {campo('Cognome *', 'cognome')}
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          {campo('Codice Fiscale *', 'cf', { maxLength: 16, style: { textTransform: 'uppercase' } })}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, marginBottom: 8 }}>
+          <div>
+            <label style={{ fontSize: 11, color: SUB }}>Data di nascita</label>
+            {campo('', 'data_nascita', { type: 'date' })}
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: SUB }}>Sesso</label>
+            <select value={dati.sesso} onChange={set('sesso')} style={{ width: '100%', padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13 }}>
+              <option value="F">F</option>
+              <option value="M">M</option>
+            </select>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, marginBottom: 8 }}>
+          {campo('Comune di nascita', 'comune_nascita')}
+          {campo('Prov.', 'provincia_nascita', { maxLength: 2, style: { textTransform: 'uppercase' } })}
+        </div>
+        <div style={{ marginBottom: 8 }}>{campo('Indirizzo di residenza', 'indirizzo')}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+          {campo('Comune di residenza', 'comune_residenza')}
+          {campo('Prov.', 'provincia_residenza', { maxLength: 2, style: { textTransform: 'uppercase' } })}
+          {campo('CAP', 'cap')}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+          {campo('Telefono', 'telefono')}
+          {campo('Email', 'email', { type: 'email' })}
+        </div>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12.5 }}>
+          <input type="checkbox" checked={dati.minorenne} onChange={e => setDati(d => ({ ...d, minorenne: e.target.checked }))} />
+          È minorenne (serve un genitore/tutore)
+        </label>
+        {dati.minorenne && (
+          <div style={{ background: '#FEF3C7', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+              {campo('Nome genitore', 'nome_genitore')}
+              {campo('Cognome genitore', 'cognome_genitore')}
+            </div>
+            {campo('CF genitore (facoltativo)', 'cf_genitore', { maxLength: 16, style: { textTransform: 'uppercase' } })}
+          </div>
+        )}
+
+        {errore && <p style={{ color: R, fontSize: 12, marginBottom: 10 }}>{errore}</p>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${BD}`, background: 'white', color: SUB, fontSize: 13, cursor: 'pointer' }}>Annulla</button>
+          <button onClick={salva} disabled={salvando} style={{ flex: 1, padding: '10px', borderRadius: 10, border: 'none', background: G, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: salvando ? 0.6 : 1 }}>
+            {salvando ? 'Salvo…' : '✓ Crea socio'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function AnagraficaSoci() {
   const [query, setQuery] = useState('')
   const [risultati, setRisultati] = useState([])
   const [cercando, setCercando] = useState(false)
   const [selezionato, setSelezionato] = useState(null)
+  const [modaleNuovoSocio, setModaleNuovoSocio] = useState(false)
 
   const cerca = async (q) => {
     setQuery(q)
@@ -479,12 +606,18 @@ export default function AnagraficaSoci() {
         Cerca un socio per nome, cognome o codice fiscale per vedere tessera, dati e storico iscrizioni.
       </p>
 
-      <input
-        value={query}
-        onChange={e => cerca(e.target.value)}
-        placeholder="🔍 Cerca per nome, cognome o CF..."
-        style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${BD}`, fontSize: 14, marginBottom: 16, boxSizing: 'border-box' }}
-      />
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input
+          value={query}
+          onChange={e => cerca(e.target.value)}
+          placeholder="🔍 Cerca per nome, cognome o CF..."
+          style={{ flex: 1, padding: '10px 12px', borderRadius: 8, border: `1px solid ${BD}`, fontSize: 14, boxSizing: 'border-box' }}
+        />
+        <button onClick={() => setModaleNuovoSocio(true)}
+          style={{ background: G, color: 'white', border: 'none', borderRadius: 8, padding: '0 16px', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          + Nuovo socio
+        </button>
+      </div>
 
       {cercando && <p style={{ color: SUB, fontSize: 13 }}>Cerco...</p>}
 
@@ -515,6 +648,13 @@ export default function AnagraficaSoci() {
           socio={selezionato}
           onChiudi={() => setSelezionato(null)}
           onAggiornato={ricaricaSelezionato}
+        />
+      )}
+
+      {modaleNuovoSocio && (
+        <ModaleNuovoSocio
+          onClose={() => setModaleNuovoSocio(false)}
+          onCreato={(nuovo) => { setModaleNuovoSocio(false); setSelezionato(nuovo) }}
         />
       )}
     </div>
