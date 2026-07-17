@@ -42,6 +42,161 @@ function BadgeCertificato({ stato }) {
   return <span style={{ background: s.bg, color: s.col, borderRadius: 20, padding: '2px 9px', fontSize: 11.5, fontWeight: 600 }}>{s.label}</span>
 }
 
+// "Lunedì/Venerdì 20:10-21:00" -> [{giorno:"Lunedì"},{giorno:"Venerdì"}]
+function estraiGiorniSingoli(giorniOrari) {
+  if (!giorniOrari) return []
+  const match = giorniOrari.match(/^(.+?)\s(\d{1,2}[:.]\d{2}-\d{1,2}[:.]\d{2})$/)
+  if (!match) return [{ giorno: giorniOrari }]
+  return match[1].split('/').map(g => ({ giorno: g.trim() }))
+}
+
+function ModaleNuovaIscrizione({ socio, corsiEsclusi, onClose, onSalvato }) {
+  const [corsi, setCorsi] = useState(null)
+  const [corsoId, setCorsoId] = useState('')
+  const [frequenza, setFrequenza] = useState('2x')
+  const [giornoScelto, setGiornoScelto] = useState('')
+  const [tipoPagamento, setTipoPagamento] = useState('annuale')
+  const [statoPagamento, setStatoPagamento] = useState('confermato')
+  const [importo, setImporto] = useState('')
+  const [statoCertificato, setStatoCertificato] = useState('mancante')
+  const [scadenzaCertificato, setScadenzaCertificato] = useState('')
+  const [errore, setErrore] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  useState(() => {
+    supabase.from('stagioni').select('id').eq('attiva', true).maybeSingle().then(({ data: stagione }) => {
+      if (!stagione) { setErrore('Nessuna stagione attiva.'); setCorsi([]); return }
+      supabase.from('corsi')
+        .select('id, codice_corso, disciplina, giorni_orari, ha_variante_frequenza, capienza_max, capienza_giorno1, capienza_giorno2, sedi(nome)')
+        .eq('stagione_id', stagione.id)
+        .order('codice_corso')
+        .then(({ data }) => setCorsi((data || []).filter(c => !corsiEsclusi.includes(c.id))))
+    })
+  }, [])
+
+  const corso = corsi?.find(c => c.id === corsoId)
+  const giorniSingoli = corso ? estraiGiorniSingoli(corso.giorni_orari) : []
+  const bisettimanale = giorniSingoli.length === 2 && corso?.ha_variante_frequenza !== false
+
+  const salva = async () => {
+    if (!corsoId) { setErrore('Seleziona un corso.'); return }
+    setErrore('')
+    setSalvando(true)
+    const { data: stagione } = await supabase.from('stagioni').select('id').eq('attiva', true).maybeSingle()
+    const { error } = await supabase.from('iscrizioni').insert({
+      socio_cf: socio.cf,
+      corso_id: corsoId,
+      stagione_id: stagione?.id,
+      frequenza: bisettimanale ? frequenza : '1x',
+      giorno_scelto: bisettimanale && frequenza === '1x' ? giornoScelto : null,
+      tipo_pagamento: tipoPagamento,
+      stato_pagamento: statoPagamento,
+      importo_dichiarato: importo === '' ? null : Number(importo),
+      stato_certificato: statoCertificato,
+      data_scadenza_certificato: statoCertificato === 'valido' ? (scadenzaCertificato || null) : null,
+      presa_visione_regolamenti: true,
+      note: 'Iscrizione aggiunta manualmente dalla segreteria (Anagrafica Soci)',
+    })
+    setSalvando(false)
+    if (error) { setErrore('Errore: ' + error.message); return }
+    onSalvato()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }} onClick={onClose}>
+      <div style={{ background: 'white', borderRadius: 14, padding: 22, width: '100%', maxWidth: 420, maxHeight: '88vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <h3 style={{ marginTop: 0 }}>Nuova iscrizione per {socio.nome} {socio.cognome}</h3>
+
+        {!corsi && <p style={{ color: SUB, fontSize: 13 }}>Caricamento corsi...</p>}
+        {corsi && (
+          <>
+            <label style={{ fontSize: 11, color: SUB, display: 'block', marginBottom: 3 }}>Corso</label>
+            <select value={corsoId} onChange={e => { setCorsoId(e.target.value); setGiornoScelto('') }}
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13, marginBottom: 10 }}>
+              <option value="">Seleziona un corso…</option>
+              {corsi.map(c => (
+                <option key={c.id} value={c.id}>{c.disciplina} — {c.giorni_orari} ({c.sedi?.nome})</option>
+              ))}
+            </select>
+
+            {corso && bisettimanale && (
+              <>
+                <label style={{ fontSize: 11, color: SUB, display: 'block', marginBottom: 3 }}>Frequenza</label>
+                <select value={frequenza} onChange={e => setFrequenza(e.target.value)}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13, marginBottom: 8 }}>
+                  <option value="2x">2 volte/settimana ({giorniSingoli.map(g => g.giorno).join(' + ')})</option>
+                  <option value="1x">1 volta/settimana</option>
+                </select>
+                {frequenza === '1x' && (
+                  <select value={giornoScelto} onChange={e => setGiornoScelto(e.target.value)}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13, marginBottom: 8 }}>
+                    <option value="">Scegli il giorno…</option>
+                    {giorniSingoli.map(g => <option key={g.giorno} value={g.giorno}>{g.giorno}</option>)}
+                  </select>
+                )}
+              </>
+            )}
+
+            {corso && (
+              <>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 11, color: SUB, display: 'block', marginBottom: 3 }}>Tipo pagamento</label>
+                    <select value={tipoPagamento} onChange={e => setTipoPagamento(e.target.value)}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13 }}>
+                      <option value="annuale">Annuale</option>
+                      <option value="quad1">1° quadrimestre</option>
+                      <option value="quad2">2° quadrimestre</option>
+                      <option value="rinnovo_gratuito">Rinnovo (già pagato)</option>
+                    </select>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 11, color: SUB, display: 'block', marginBottom: 3 }}>Stato pagamento</label>
+                    <select value={statoPagamento} onChange={e => setStatoPagamento(e.target.value)}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13 }}>
+                      <option value="confermato">✓ Confermato</option>
+                      <option value="in_attesa">In attesa</option>
+                    </select>
+                  </div>
+                </div>
+                <label style={{ fontSize: 11, color: SUB, display: 'block', marginBottom: 3 }}>Importo versato (€, facoltativo)</label>
+                <input type="number" value={importo} onChange={e => setImporto(e.target.value)}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13, marginBottom: 10, boxSizing: 'border-box' }} />
+
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 11, color: SUB, display: 'block', marginBottom: 3 }}>Certificato medico</label>
+                    <select value={statoCertificato} onChange={e => setStatoCertificato(e.target.value)}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13 }}>
+                      <option value="mancante">Mancante</option>
+                      <option value="valido">✓ Valido</option>
+                    </select>
+                  </div>
+                  {statoCertificato === 'valido' && (
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 11, color: SUB, display: 'block', marginBottom: 3 }}>Scadenza</label>
+                      <input type="date" value={scadenzaCertificato} onChange={e => setScadenzaCertificato(e.target.value)}
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {errore && <p style={{ color: R, fontSize: 12, marginBottom: 10 }}>{errore}</p>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${BD}`, background: 'white', color: SUB, fontSize: 13, cursor: 'pointer' }}>Annulla</button>
+          <button onClick={salva} disabled={salvando || !corsoId} style={{ flex: 1, padding: '10px', borderRadius: 10, border: 'none', background: G, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: (!corsoId || salvando) ? 0.6 : 1 }}>
+            {salvando ? 'Salvo…' : '✓ Iscrivi'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
   const [iscrizioni, setIscrizioni] = useState(null)
   const [blocco, setBlocco] = useState(socio.is_admin_blocked)
@@ -60,12 +215,13 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
     cap: socio.cap || '',
   })
   const [salvandoAnagrafica, setSalvandoAnagrafica] = useState(false)
+  const [modaleNuovaIscrizione, setModaleNuovaIscrizione] = useState(false)
 
   useState(() => {
     supabase
       .from('iscrizioni')
       .select(`
-        id, tipo_pagamento, stato_pagamento, importo_dichiarato, ricevuta_url,
+        id, corso_id, tipo_pagamento, stato_pagamento, importo_dichiarato, ricevuta_url,
         stato_certificato, data_scadenza_certificato, certificato_url,
         data_iscrizione, note,
         corsi ( disciplina, giorni_orari, sedi ( nome ) ),
@@ -245,7 +401,13 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
           </button>
         </div>
 
-        <h3 style={{ fontSize: 14, marginBottom: 8 }}>Iscrizioni</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <h3 style={{ fontSize: 14, margin: 0 }}>Iscrizioni</h3>
+          <button onClick={() => setModaleNuovaIscrizione(true)}
+            style={{ background: GL, color: G, border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+            + Nuova iscrizione
+          </button>
+        </div>
         {!iscrizioni && <p style={{ color: SUB, fontSize: 13 }}>Caricamento...</p>}
         {iscrizioni && iscrizioni.length === 0 && <p style={{ color: SUB, fontSize: 13 }}>Nessuna iscrizione trovata.</p>}
         {iscrizioni && iscrizioni.map(i => (
@@ -268,6 +430,17 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
           </div>
         ))}
       </div>
+
+      {modaleNuovaIscrizione && (
+        <ModaleNuovaIscrizione
+          socio={socio}
+          corsiEsclusi={(iscrizioni || [])
+            .filter(i => i.stagioni?.attiva && i.stato_pagamento !== 'annullata')
+            .map(i => i.corso_id)}
+          onClose={() => setModaleNuovaIscrizione(false)}
+          onSalvato={() => { setModaleNuovaIscrizione(false); onAggiornato() }}
+        />
+      )}
     </div>
   )
 }
