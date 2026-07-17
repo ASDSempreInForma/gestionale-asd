@@ -27,62 +27,47 @@ const C = {
 };
 
 const FESTIVITA_INIT = [
-  {dal:"2025-11-01",al:"2025-11-01",desc:"Ognissanti"},
-  {dal:"2025-12-08",al:"2025-12-08",desc:"Immacolata"},
-  {dal:"2025-12-22",al:"2026-01-07",desc:"Sospensione Natale/Capodanno"},
-  {dal:"2026-01-06",al:"2026-01-06",desc:"Epifania"},
-  {dal:"2026-04-04",al:"2026-04-13",desc:"Sospensione Pasqua"},
-  {dal:"2026-04-25",al:"2026-04-25",desc:"Liberazione"},
-  {dal:"2026-05-01",al:"2026-05-01",desc:"Festa del Lavoro"},
+  {dal:"2026-11-01",al:"2026-11-01",desc:"Ognissanti"},
+  {dal:"2026-12-08",al:"2026-12-08",desc:"Immacolata"},
+  {dal:"2026-12-22",al:"2027-01-07",desc:"Sospensione Natale/Capodanno"},
+  {dal:"2027-01-06",al:"2027-01-06",desc:"Epifania"},
+  {dal:"2027-03-25",al:"2027-04-03",desc:"Sospensione Pasqua"},
+  {dal:"2027-04-25",al:"2027-04-25",desc:"Liberazione"},
+  {dal:"2027-05-01",al:"2027-05-01",desc:"Festa del Lavoro"},
 ];
+// Date indicative — verifica/correggi le sospensioni dalla schermata Calendario appena confermate.
 
 const MESI_STAGIONE = [
-  {anno:2025,mese:9, label:"Set. 2025", labelFull:"Settembre 2025",  tipo:"extra",    opzionale:true,  minAdesioni:12},
-  {anno:2025,mese:10,label:"Ott. 2025", labelFull:"Ottobre 2025",    tipo:"standard", opzionale:false, minAdesioni:0},
-  {anno:2025,mese:11,label:"Nov. 2025", labelFull:"Novembre 2025",   tipo:"standard", opzionale:false, minAdesioni:0},
-  {anno:2025,mese:12,label:"Dic. 2025", labelFull:"Dicembre 2025",   tipo:"standard", opzionale:false, minAdesioni:0},
-  {anno:2026,mese:1, label:"Gen. 2026", labelFull:"Gennaio 2026",    tipo:"standard", opzionale:false, minAdesioni:0},
-  {anno:2026,mese:2, label:"Feb. 2026", labelFull:"Febbraio 2026",   tipo:"standard", opzionale:false, minAdesioni:0},
-  {anno:2026,mese:3, label:"Mar. 2026", labelFull:"Marzo 2026",      tipo:"standard", opzionale:false, minAdesioni:0},
-  {anno:2026,mese:4, label:"Apr. 2026", labelFull:"Aprile 2026",     tipo:"standard", opzionale:false, minAdesioni:0},
-  {anno:2026,mese:5, label:"Mag. 2026", labelFull:"Maggio 2026",     tipo:"standard", opzionale:false, minAdesioni:0},
-  {anno:2026,mese:6, label:"Giu. 2026", labelFull:"Giugno 2026",     tipo:"recupero", opzionale:true,  minAdesioni:12},
+  {anno:2026,mese:9, label:"Set. 2026", labelFull:"Settembre 2026",  tipo:"extra",    opzionale:true,  minAdesioni:12},
+  {anno:2026,mese:10,label:"Ott. 2026", labelFull:"Ottobre 2026",    tipo:"standard", opzionale:false, minAdesioni:0},
+  {anno:2026,mese:11,label:"Nov. 2026", labelFull:"Novembre 2026",   tipo:"standard", opzionale:false, minAdesioni:0},
+  {anno:2026,mese:12,label:"Dic. 2026", labelFull:"Dicembre 2026",   tipo:"standard", opzionale:false, minAdesioni:0},
+  {anno:2027,mese:1, label:"Gen. 2027", labelFull:"Gennaio 2027",    tipo:"standard", opzionale:false, minAdesioni:0},
+  {anno:2027,mese:2, label:"Feb. 2027", labelFull:"Febbraio 2027",   tipo:"standard", opzionale:false, minAdesioni:0},
+  {anno:2027,mese:3, label:"Mar. 2027", labelFull:"Marzo 2027",      tipo:"standard", opzionale:false, minAdesioni:0},
+  {anno:2027,mese:4, label:"Apr. 2027", labelFull:"Aprile 2027",     tipo:"standard", opzionale:false, minAdesioni:0},
+  {anno:2027,mese:5, label:"Mag. 2027", labelFull:"Maggio 2027",     tipo:"standard", opzionale:false, minAdesioni:0},
+  {anno:2027,mese:6, label:"Giu. 2027", labelFull:"Giugno 2027",     tipo:"recupero", opzionale:true,  minAdesioni:12},
 ];
 
 const COLORI_DISPONIBILI = ["#2D6A4F","#1E3A5F","#7C3AED","#B45309","#0F766E","#BE185D","#C2410C"];
+
+const GIORNI_MAP = {
+  "domenica":0,"lunedì":1,"lunedi":1,"martedì":2,"martedi":2,"mercoledì":3,"mercoledi":3,
+  "giovedì":4,"giovedi":4,"venerdì":5,"venerdi":5,"sabato":6,
+};
+// "Lunedì/Venerdì 20:10-21:00" -> [1,5]   ·   "Martedì 17:00-18:00" -> [2]
+function giorniSettimanaDaOrario(giorniOrari){
+  if(!giorniOrari) return [];
+  const match=giorniOrari.match(/^(.+?)\s\d{1,2}[:.]\d{2}-\d{1,2}[:.]\d{2}$/);
+  const giorniParte=match?match[1]:giorniOrari;
+  return giorniParte.split("/").map(g=>GIORNI_MAP[g.trim().toLowerCase()]).filter(n=>n!==undefined);
+}
 
 function dateInRange(dataStr, dal, al){ return dataStr >= dal && dataStr <= al; }
 function isDateSospesa(dataStr, sospensioni){ return sospensioni.some(s => dateInRange(dataStr, s.dal, s.al)); }
 function fmtData(d){ return new Date(d).toLocaleDateString("it-IT",{weekday:"short",day:"2-digit",month:"short"}); }
 function fmtEuro(n){ return "€"+Number(n).toFixed(2).replace(".",","); }
-
-function genLezioni(anno, mese, istruttori) {
-  const lezioni=[];
-  const daysInMonth=new Date(anno,mese,0).getDate();
-  let id=Date.now();
-  istruttori.forEach(t=>{
-    // Giorni lezione estratti dal campo giorni_orari dei corsi assegnati
-    // Fallback: martedì e giovedì (2,4)
-    const giorniLezione = t.giorniLezione || [2,4];
-    for(let g=1;g<=daysInMonth;g++){
-      const d=new Date(anno,mese-1,g);
-      const dow=d.getDay();
-      const dataStr=`${anno}-${String(mese).padStart(2,'0')}-${String(g).padStart(2,'0')}`;
-      if(giorniLezione.includes(dow)){
-        t.corsi_nomi.forEach((corso,ci)=>{
-          const giorniCorso=giorniLezione.filter((_,i)=>i%Math.max(t.corsi_nomi.length,1)===ci%Math.max(t.corsi_nomi.length,1));
-          if(giorniCorso.includes(dow)){
-            lezioni.push({
-              id:`L${id++}`, istruttoreId:t.id,
-              corso, data:dataStr, stato:"fatta", sostitutoId:null, isRecupero:false,
-            });
-          }
-        });
-      }
-    }
-  });
-  return lezioni;
-}
 
 function StatoBadge({stato,small}){
   const conf={
@@ -105,7 +90,7 @@ export default function GestioneIstruttori(){
   const [meseSelIdx,setMeseSelIdx]=useState(2);
   const [lezioni,setLezioni]=useState([]);
   const [mesiGenerati,setMesiGenerati]=useState(new Set());
-  const [mesiAttivi,setMesiAttivi]=useState({"2025-9":false,"2026-6":false});
+  const [mesiAttivi,setMesiAttivi]=useState({"2026-9":false,"2027-6":false});
   const [filterInstr,setFilterInstr]=useState("tutti");
   const [newPeriodo,setNewPeriodo]=useState({dal:"",al:"",desc:""});
   const [focusedInstr,setFocusedInstr]=useState(null);
@@ -113,6 +98,8 @@ export default function GestioneIstruttori(){
   const [newInstr,setNewInstr]=useState({nome:"",cognome:"",email:"",telefono:"",compenso:"",colore:COLORI_DISPONIBILI[0]});
   const [loading,setLoading]=useState(true);
   const [saving,setSaving]=useState({});
+  const [corsiInfoMap,setCorsiInfoMap]=useState({});
+  const [sincronizzando,setSincronizzando]=useState(false);
 
   // ── Caricamento da Supabase ──────────────────────────────────────
   useEffect(()=>{ caricaDati(); },[]);
@@ -170,18 +157,92 @@ export default function GestioneIstruttori(){
       });
       setIstruttori(formatted);
 
-      // Genera lezioni per mese corrente (Nov 2025)
-      const pfxInit="2025-11";
-      if(formatted.length>0){
-        const lez=genLezioni(2025,11,formatted);
+      // Mappa corso_id -> {nome, giorni_orari, istruttore assegnato}, usata per generare/sincronizzare le lezioni reali
+      const corsiInfoObj={};
+      formatted.forEach(t=>{
+        t.corsi_ids.forEach((cid,i)=>{
+          const corsoDB=(corsiDB||[]).find(c=>c.id===cid);
+          corsiInfoObj[cid]={
+            nome:t.corsi_nomi[i],
+            giorniOrari:corsoDB?.giorni_orari,
+            istruttoreId:t.id,
+          };
+        });
+      });
+      setCorsiInfoMap(corsiInfoObj);
+
+      // Sincronizza (legge/crea se mancanti) le lezioni reali del mese iniziale (Nov 2025)
+      if(formatted.length>0 && Object.keys(corsiInfoObj).length>0){
+        const lez=await sincronizzaMese(2026,11,corsiInfoObj);
         setLezioni(lez);
-        setMesiGenerati(new Set([pfxInit]));
+        setMesiGenerati(new Set(["2026-11"]));
       }
     }catch(err){
       console.error("Errore caricamento istruttori:",err);
     }finally{
       setLoading(false);
     }
+  }
+
+  // ── Sincronizza le lezioni di un mese con la tabella reale "lezioni" ──
+  // Per ogni corso assegnato calcola le date attese in base al giorno della
+  // settimana (dal campo giorni_orari), le confronta con quelle già presenti
+  // nel database e crea SOLO quelle mancanti (stato "fatta", o "sospesa" se
+  // cadono in un periodo di sospensione). Non tocca mai righe già esistenti,
+  // quindi non sovrascrive un check-in già fatto da un istruttore.
+  async function sincronizzaMese(anno, mese, corsiInfo){
+    const corsoIds=Object.keys(corsiInfo);
+    if(corsoIds.length===0) return [];
+
+    const ultimoGiornoNum=new Date(anno,mese,0).getDate();
+    const primoGiorno=`${anno}-${String(mese).padStart(2,'0')}-01`;
+    const ultimoGiorno=`${anno}-${String(mese).padStart(2,'0')}-${String(ultimoGiornoNum).padStart(2,'0')}`;
+
+    const dateAttese=[];
+    corsoIds.forEach(corsoId=>{
+      const giorni=giorniSettimanaDaOrario(corsiInfo[corsoId].giorniOrari);
+      for(let g=1; g<=ultimoGiornoNum; g++){
+        const d=new Date(anno,mese-1,g);
+        if(giorni.includes(d.getDay())){
+          const dataStr=`${anno}-${String(mese).padStart(2,'0')}-${String(g).padStart(2,'0')}`;
+          const sosp=sospensioni.find(s=>dateInRange(dataStr,s.dal,s.al));
+          dateAttese.push({corsoId,data:dataStr,sospesaDesc:sosp?.desc||null});
+        }
+      }
+    });
+
+    const {data:esistenti}=await supabase.from("lezioni").select("*")
+      .in("corso_id",corsoIds).gte("data",primoGiorno).lte("data",ultimoGiorno);
+    const setEsistenti=new Set((esistenti||[]).map(l=>`${l.corso_id}_${l.data}`));
+
+    const daInserire=dateAttese
+      .filter(d=>!setEsistenti.has(`${d.corsoId}_${d.data}`))
+      .map(d=>({
+        corso_id:d.corsoId,
+        istruttore_id:corsiInfo[d.corsoId].istruttoreId,
+        data:d.data,
+        stato:d.sospesaDesc?"sospesa":"fatta",
+        motivo_sospensione:d.sospesaDesc,
+      }));
+
+    let nuoveRighe=[];
+    if(daInserire.length>0){
+      const {data:inserite,error}=await supabase.from("lezioni").insert(daInserire).select();
+      if(error) console.error("Errore creazione lezioni:",error);
+      else nuoveRighe=inserite||[];
+    }
+
+    return [...(esistenti||[]),...nuoveRighe].map(l=>({
+      id:l.id,
+      istruttoreId:l.istruttore_id,
+      sostitutoId:l.istruttore_sostituto_id,
+      corso:corsiInfo[l.corso_id]?.nome||"Corso",
+      corsoId:l.corso_id,
+      data:l.data,
+      stato:l.stato,
+      isRecupero:l.stato==="recupero",
+      motivoSospensione:l.motivo_sospensione,
+    }));
   }
 
   // ── Aggiorna compenso su Supabase ───────────────────────────────
@@ -263,16 +324,16 @@ export default function GestioneIstruttori(){
     }
   }
 
-  // ── Genera lezioni per mese ─────────────────────────────────────
-  function ensureMonth(idx){
+  // ── Cambia/sincronizza mese ──────────────────────────────────────
+  async function ensureMonth(idx){
     const m=MESI_STAGIONE[idx];
-    const pfx=`${m.anno}-${String(m.mese).padStart(2,'0')}`;
-    if(!mesiGenerati.has(pfx)){
-      const nuove=genLezioni(m.anno,m.mese,istruttori);
-      setLezioni(prev=>[...prev,...nuove]);
-      setMesiGenerati(prev=>new Set([...prev,pfx]));
-    }
     setMeseSelIdx(idx);
+    const pfx=`${m.anno}-${String(m.mese).padStart(2,'0')}`;
+    setSincronizzando(true);
+    const nuove=await sincronizzaMese(m.anno,m.mese,corsiInfoMap);
+    setLezioni(prev=>[...prev.filter(l=>!l.data.startsWith(pfx)),...nuove]);
+    setMesiGenerati(prev=>new Set([...prev,pfx]));
+    setSincronizzando(false);
   }
 
   function attivaMe(idx){
@@ -285,8 +346,11 @@ export default function GestioneIstruttori(){
   const meseSel=MESI_STAGIONE[meseSelIdx];
   const mesePfx=`${meseSel.anno}-${String(meseSel.mese).padStart(2,'0')}`;
 
-  function setStatoLezione(id, stato, sostitutoId=null){
+  async function setStatoLezione(id, stato, sostitutoId=null){
     setLezioni(prev=>prev.map(l=>l.id===id?{...l,stato,sostitutoId,isRecupero:stato==="recupero"}:l));
+    const {error}=await supabase.from("lezioni")
+      .update({stato, istruttore_sostituto_id:sostitutoId}).eq("id",id);
+    if(error) alert("Errore nel salvataggio: "+error.message);
   }
 
   const lezMese=lezioni.filter(l=>l.data.startsWith(mesePfx));
@@ -488,6 +552,9 @@ export default function GestioneIstruttori(){
         </div>
 
         {/* Avviso mesi opzionali */}
+        {sincronizzando&&(
+          <div style={{fontSize:11,color:C.textSub,marginBottom:8}}>⏳ Sincronizzo le lezioni con il database…</div>
+        )}
         {meseSel.opzionale&&(
           <div style={{background:C.amberL,border:`1px solid ${C.amber}33`,borderRadius:9,
             padding:"8px 12px",marginBottom:12,fontSize:11,color:C.amber}}>
@@ -681,7 +748,7 @@ export default function GestioneIstruttori(){
         display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div>
           <div style={{fontSize:15,fontWeight:700,color:C.text}}>👨‍🏫 Gestione Istruttori</div>
-          <div style={{fontSize:11,color:C.textSub}}>A.S.D. Sempre In Forma · Stagione 2025/26</div>
+          <div style={{fontSize:11,color:C.textSub}}>A.S.D. Sempre In Forma · Stagione 2026/27</div>
         </div>
         <div style={{background:C.greenL,border:`1px solid ${C.green}33`,borderRadius:8,padding:"4px 11px",
           fontSize:11,fontWeight:600,color:C.greenD}}>{istruttori.length} istruttori</div>
