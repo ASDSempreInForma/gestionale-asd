@@ -34,13 +34,46 @@ function BadgeCertificato({ stato }) {
   return <span style={{ background: s.bg, color: s.col, borderRadius: 20, padding: "2px 9px", fontSize: 11.5, fontWeight: 600 }}>{s.label}</span>;
 }
 
-function CardCorso({ corso, callFnWithAuth, onAggiornato }) {
+const GIORNI_IT = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
+function oggiLungo() {
+  const d = new Date();
+  return `${GIORNI_IT[d.getDay()]} ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+function fmtData(d) {
+  if (!d) return null;
+  const [y, m, day] = d.split("-");
+  return `${day}/${m}/${y}`;
+}
+
+async function inviaNotaEmail({ istruttore, corso, testo }) {
+  const res = await fetch("https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/invia-email-iscrizione", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: ANON_KEY,
+      Authorization: `Bearer ${ANON_KEY}`,
+    },
+    body: JSON.stringify({
+      tipo: "comunicazione_libera",
+      destinatarioEmail: "info@asdsempreinforma.it",
+      destinatarioNome: "Segreteria",
+      oggetto: `Nota da ${istruttore.cognome} ${istruttore.nome} — ${corso.disciplina} (${corso.sede})`,
+      corpoTesto: `Nota inviata da ${istruttore.cognome} ${istruttore.nome}, istruttore del corso ${corso.disciplina} — ${corso.giorni_orari} (${corso.sede}):\n\n${testo}`,
+    }),
+  });
+  return res.json();
+}
+
+function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
   const [aperto, setAperto] = useState(false);
   const [presenti, setPresenti] = useState(new Set());
   const [salvando, setSalvando] = useState(false);
   const [messaggio, setMessaggio] = useState("");
   const [modaleSospesa, setModaleSospesa] = useState(false);
   const [motivoSospesa, setMotivoSospesa] = useState("");
+  const [nota, setNota] = useState("");
+  const [inviandoNota, setInviandoNota] = useState(false);
+  const [esitoNota, setEsitoNota] = useState("");
 
   const toggle = (cf) => {
     setPresenti((prev) => {
@@ -70,6 +103,18 @@ function CardCorso({ corso, callFnWithAuth, onAggiornato }) {
     else setMessaggio(r.error || "Errore.");
   };
 
+  const inviaNota = async () => {
+    if (!nota.trim()) return;
+    setInviandoNota(true);
+    setEsitoNota("");
+    const r = await inviaNotaEmail({ istruttore, corso, testo: nota });
+    setInviandoNota(false);
+    if (r.success) {
+      setEsitoNota("✓ Inviata alla segreteria.");
+      setNota("");
+    } else setEsitoNota("Errore nell'invio, riprova.");
+  };
+
   const giaSegnata = corso.lezioneOggi?.stato;
 
   return (
@@ -95,11 +140,21 @@ function CardCorso({ corso, callFnWithAuth, onAggiornato }) {
 
       {aperto && (
         <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 8 }}>
+            Check-in per la lezione di <b>oggi, {oggiLungo()}</b>
+          </div>
           {corso.iscritti.length === 0 && <p style={{ color: "#64748b", fontSize: 13 }}>Nessun iscritto trovato.</p>}
           {corso.iscritti.map((i) => (
             <label key={i.cf} style={styles.rigaIscritto}>
               <input type="checkbox" checked={presenti.has(i.cf)} onChange={() => toggle(i.cf)} />
-              <span style={{ flex: 1 }}>{i.cognome} {i.nome}</span>
+              <span style={{ flex: 1 }}>
+                <div>{i.cognome} {i.nome}</div>
+                <div style={{ fontSize: 11.5, color: "#94a3b8" }}>
+                  {i.data_nascita && `nato/a il ${fmtData(i.data_nascita)}`}
+                  {i.data_nascita && i.telefono && " · "}
+                  {i.telefono}
+                </div>
+              </span>
               <BadgeCertificato stato={i.stato_certificato} />
             </label>
           ))}
@@ -111,6 +166,23 @@ function CardCorso({ corso, callFnWithAuth, onAggiornato }) {
           {messaggio && <p style={{ fontSize: 12.5, color: "#475569", marginTop: 8 }}>{messaggio}</p>}
         </div>
       )}
+
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #f1f5f9" }}>
+        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 6 }}>✉️ Scrivi una nota alla segreteria per questo corso</div>
+        <textarea
+          value={nota}
+          onChange={(e) => setNota(e.target.value)}
+          rows={2}
+          placeholder="Es. manca il tappetino, oggi eravamo in tanti, ecc."
+          style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 13, boxSizing: "border-box", fontFamily: "inherit" }}
+        />
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
+          <button onClick={inviaNota} disabled={inviandoNota || !nota.trim()} style={styles.btnSecondary}>
+            {inviandoNota ? "Invio..." : "Invia nota"}
+          </button>
+          {esitoNota && <span style={{ fontSize: 12, color: "#64748b" }}>{esitoNota}</span>}
+        </div>
+      </div>
 
       {modaleSospesa && (
         <div style={styles.overlay} onClick={() => setModaleSospesa(false)}>
@@ -261,7 +333,7 @@ export default function AreaIstruttori() {
         )}
 
         {corsi.map((c) => (
-          <CardCorso key={c.id} corso={c} callFnWithAuth={callFnWithAuth} onAggiornato={caricaDati} />
+          <CardCorso key={c.id} corso={c} istruttore={istruttore} callFnWithAuth={callFnWithAuth} onAggiornato={caricaDati} />
         ))}
       </div>
     </div>

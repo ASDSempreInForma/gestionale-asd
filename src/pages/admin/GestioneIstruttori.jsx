@@ -215,8 +215,16 @@ export default function GestioneIstruttori(){
       .in("corso_id",corsoIds).gte("data",primoGiorno).lte("data",ultimoGiorno);
     const setEsistenti=new Set((esistenti||[]).map(l=>`${l.corso_id}_${l.data}`));
 
+    const oggiStr=new Date().toISOString().slice(0,10);
+
     const daInserire=dateAttese
       .filter(d=>!setEsistenti.has(`${d.corsoId}_${d.data}`))
+      // Le sospensioni (festività) si segnano sempre, in qualunque data.
+      // Le lezioni "fatta" invece si pre-creano SOLO per le date già passate
+      // (assunzione ragionevole per i compensi); oggi e le date future restano
+      // senza riga finché non è l'istruttore stesso a confermare il check-in,
+      // altrimenti risulterebbero "già segnate" ancora prima che la lezione si tenga.
+      .filter(d=>d.sospesaDesc || d.data<oggiStr)
       .map(d=>({
         corso_id:d.corsoId,
         istruttore_id:corsiInfo[d.corsoId].istruttoreId,
