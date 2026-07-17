@@ -2,13 +2,16 @@ import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 // ============================================================
-// BASE DI CONOSCENZA — aggiornata il 20/06/2026 leggendo le email
+// BASE DI CONOSCENZA — aggiornata il 17/07/2026 leggendo le email
 // reali arrivate su info@asdsempreinforma.it (Aruba, inoltrate su
 // Microsoft 365). Contiene solo fatti verificati nelle email reali
 // o nelle sessioni precedenti con Solomon. Quando un dato preciso
 // (es. prezzo esatto di un corso) non è qui dentro, l'assistente
 // deve invitare a controllare il listino o contattare la segreteria
 // invece di inventare cifre.
+// Aggiornamento 17/07/2026: aggiunte FAQ su validità ECG/certificati
+// fatti altrove e tempistica di assegnazione della tessera socio,
+// oltre a esempi realistici aggiuntivi nel tab Assistente risposte.
 // ============================================================
 const KNOWLEDGE_BASE = `
 Sei l'assistente della segreteria di A.S.D. Sempre In Forma, associazione sportiva
@@ -118,6 +121,27 @@ CERTIFICATO MEDICO
   - In entrambi i casi la tessera/segnalazione viene fatta solo su richiesta
     esplicita del socio, non automaticamente a tutti.
 - Senza certificato valido non si può essere riconfermati alla stagione successiva.
+- "Ho già un ECG/certificato fatto altrove (es. per lavoro, per un'altra
+  associazione, dal cardiologo): va bene o devo rifarlo?" — domanda ricorrente.
+  L'assistente NON deve rispondere sì o no di propria iniziativa: la validità di
+  un certificato dipende dal tipo esatto di certificazione richiesta (idoneità
+  sportiva non agonistica, non un generico ECG o certificato di buona salute) e
+  dalla data di rilascio. Risposta corretta: spiegare che serve nello specifico
+  un certificato di idoneità allo sport NON agonistico, e che serve inviarlo (o
+  descriverlo) alla segreteria per una verifica puntuale prima di dare
+  conferma — mai assumere che vada bene solo perché è un ECG o è recente.
+
+TESSERA SOCIO (Libertas o ASI)
+- "Aspetto che mi mandiate la tessera" / "quando arriva la tessera?" — la tessera
+  viene assegnata SOLO dopo che la segreteria ha verificato il documento di
+  pagamento e il certificato medico caricati/inviati dal socio (non è automatica
+  al momento dell'iscrizione). L'assistente deve spiegare questo ordine — prima
+  verifica documenti, poi assegnazione tessera — e invitare a pazientare se i
+  documenti sono stati inviati da poco, oppure a inviarli se non ancora fatto.
+- Non serve altro documento oltre al certificato medico e alla ricevuta di
+  pagamento per ottenere la tessera: se il socio chiede "mi serve altro?", la
+  risposta di norma è no, ma è sempre bene confermare che entrambi i documenti
+  siano stati ricevuti prima di escluderlo.
 
 LEZIONE DI PROVA
 - Chi vuole provare un corso prima di iscriversi compila la liberatoria online
@@ -193,10 +217,16 @@ Ottobre
   inviata il 29 maggio); a corsi già avviati non è più possibile aggiungerne di nuovi
   nella stessa stagione. Spiega questo invece di promettere.
 
-Novembre
-- "Confermo la ricezione" — la risposta più frequente: quando arriva una ricevuta di
-  pagamento o un certificato medico via email, la segreteria conferma semplicemente
-  di averlo ricevuto. Non serve altro a meno che manchino dati.
+Novembre (ma il pattern vale tutto l'anno, non solo a novembre)
+- "Confermo la ricezione" — la risposta più frequente in assoluto durante l'anno:
+  quando un socio scrive allegando (o annunciando l'invio di) un certificato
+  medico o una ricevuta di pagamento, la risposta standard è breve e conferma
+  solo la ricezione, senza altri dettagli superflui — es. "Confermo la ricezione
+  del certificato medico di [nome]. Grazie!" oppure "Confermo la ricezione della
+  ricevuta di pagamento per il corso di [corso]. Grazie!". Non serve altro a
+  meno che manchino dati (es. il nome dell'iscritto non è chiaro, il corso non è
+  specificato) o l'allegato sia illeggibile: solo in quel caso chiedere di
+  rinviare specificando o allegando meglio.
 
 Dicembre (chiusura natalizia, traffico basso)
 - "Posso recuperare la lezione persa?" — regola di base: le lezioni perse per motivi
@@ -342,6 +372,24 @@ const ESEMPI = [
     canale: "email",
     testo:
       "Buongiorno, mi serve la ricevuta del pagamento e dell'iscrizione al corso per la dichiarazione dei redditi. Potete inviarmela? Grazie",
+  },
+  {
+    titolo: "Validità ECG fatto altrove",
+    canale: "email",
+    testo:
+      "Buongiorno, una informazione: se io dispongo dell'ECG fatto al lavoro a inizio anno, può andare bene o devo rifare tutto?",
+  },
+  {
+    titolo: "Richiesta tessera dopo l'iscrizione",
+    canale: "email",
+    testo:
+      "Buongiorno, aspetto che mi mandiate la tessera. Un'altra cosa: per la visita medica mi serve qualche carta scritta da voi o mi posso presentare e basta?",
+  },
+  {
+    titolo: "Invio certificato medico post-iscrizione",
+    canale: "email",
+    testo:
+      "Buongiorno, le invio il certificato medico per l'iscrizione al corso. Buona giornata",
   },
 ];
 
@@ -760,7 +808,7 @@ export default function AssistenteAI() {
       <div className="mx-auto max-w-4xl">
         <h1 className="text-xl font-semibold text-slate-900">Assistente AI — A.S.D. Sempre In Forma</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Base di conoscenza aggiornata il 20/06/2026 con i dati reali ricavati dalle email della segreteria.
+          Base di conoscenza aggiornata il 17/07/2026 con i dati reali ricavati dalle email della segreteria.
           Disponibilità corsi sincronizzata in tempo reale dal database.
         </p>
 
