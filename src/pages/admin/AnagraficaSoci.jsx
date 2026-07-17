@@ -197,7 +197,7 @@ function ModaleNuovaIscrizione({ socio, corsiEsclusi, onClose, onSalvato }) {
   )
 }
 
-function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
+function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
   const [iscrizioni, setIscrizioni] = useState(null)
   const [blocco, setBlocco] = useState(socio.is_admin_blocked)
   const [motivoBlocco, setMotivoBlocco] = useState(socio.blocco_motivo || '')
@@ -208,6 +208,10 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
   const [erroreePdf, setErrorePdf] = useState('')
   const [modificaAnagrafica, setModificaAnagrafica] = useState(false)
   const [anagrafica, setAnagrafica] = useState({
+    nome: socio.nome || '',
+    cognome: socio.cognome || '',
+    cf: socio.cf || '',
+    data_nascita: socio.data_nascita || '',
     telefono: socio.telefono || '',
     email: socio.email || '',
     indirizzo: socio.indirizzo || '',
@@ -216,6 +220,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
   })
   const [salvandoAnagrafica, setSalvandoAnagrafica] = useState(false)
   const [modaleNuovaIscrizione, setModaleNuovaIscrizione] = useState(false)
+  const [eliminando, setEliminando] = useState(false)
 
   useState(() => {
     supabase
@@ -252,18 +257,49 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
   }
 
   const salvaAnagrafica = async () => {
+    const nuovoCf = anagrafica.cf.trim().toUpperCase()
+    if (nuovoCf.length !== 16) { alert('Il codice fiscale deve avere 16 caratteri.'); return }
     setSalvandoAnagrafica(true)
+
+    // Se il CF è cambiato, lo aggiorno per primo con la funzione dedicata
+    // (sposta anche le iscrizioni collegate, così non si spezza nulla).
+    if (nuovoCf !== socio.cf) {
+      const { error: errCf } = await supabase.rpc('modifica_cf_socio', { vecchio_cf: socio.cf, nuovo_cf: nuovoCf })
+      if (errCf) {
+        setSalvandoAnagrafica(false)
+        alert('Errore nel cambio codice fiscale: ' + errCf.message)
+        return
+      }
+    }
+
     const { error } = await supabase.from('soci').update({
+      nome: anagrafica.nome.trim(),
+      cognome: anagrafica.cognome.trim(),
+      data_nascita: anagrafica.data_nascita || null,
       telefono: anagrafica.telefono.trim() || null,
       email: anagrafica.email.trim().toLowerCase() || null,
       indirizzo: anagrafica.indirizzo.trim() || null,
       comune_residenza: anagrafica.comune_residenza.trim() || null,
       cap: anagrafica.cap.trim() || null,
-    }).eq('cf', socio.cf)
+    }).eq('cf', nuovoCf)
     setSalvandoAnagrafica(false)
     if (error) { alert('Errore: ' + error.message); return }
     setModificaAnagrafica(false)
-    onAggiornato()
+    onAggiornato(nuovoCf !== socio.cf ? nuovoCf : undefined)
+  }
+
+  const eliminaSocio = async () => {
+    if (iscrizioni && iscrizioni.length > 0) {
+      alert(`Questo socio ha ${iscrizioni.length} iscrizion${iscrizioni.length === 1 ? 'e' : 'i'} collegat${iscrizioni.length === 1 ? 'a' : 'e'}: non può essere eliminato per non perdere lo storico. Puoi eventualmente bloccarlo dalle nuove iscrizioni qui sopra.`)
+      return
+    }
+    if (!window.confirm(`Eliminare definitivamente ${socio.nome} ${socio.cognome} (${socio.cf})?\n\nQuesta azione non può essere annullata.`)) return
+    setEliminando(true)
+    const { error } = await supabase.rpc('elimina_socio_senza_storico', { cf_da_eliminare: socio.cf })
+    setEliminando(false)
+    if (error) { alert('Errore: ' + error.message); return }
+    onChiudi()
+    onEliminato?.()
   }
 
   const caricaPdfUfficiale = async (file) => {
@@ -317,6 +353,24 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
             </div>
           ) : (
             <div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                <input placeholder="Nome" value={anagrafica.nome} onChange={e => setAnagrafica(a => ({ ...a, nome: e.target.value }))}
+                  style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
+                <input placeholder="Cognome" value={anagrafica.cognome} onChange={e => setAnagrafica(a => ({ ...a, cognome: e.target.value }))}
+                  style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, marginBottom: 4 }}>
+                <input placeholder="Codice Fiscale" value={anagrafica.cf} maxLength={16}
+                  onChange={e => setAnagrafica(a => ({ ...a, cf: e.target.value.toUpperCase() }))}
+                  style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box', textTransform: 'uppercase' }} />
+                <input type="date" value={anagrafica.data_nascita} onChange={e => setAnagrafica(a => ({ ...a, data_nascita: e.target.value }))}
+                  style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
+              </div>
+              {anagrafica.cf !== socio.cf && (
+                <p style={{ fontSize: 11, color: '#B45309', marginTop: 0, marginBottom: 8 }}>
+                  ⚠️ Stai cambiando il codice fiscale — verranno spostate anche tutte le sue iscrizioni collegate.
+                </p>
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
                 <input placeholder="Indirizzo" value={anagrafica.indirizzo} onChange={e => setAnagrafica(a => ({ ...a, indirizzo: e.target.value }))}
                   style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
@@ -332,7 +386,10 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
                   style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => { setModificaAnagrafica(false); setAnagrafica({ telefono: socio.telefono || '', email: socio.email || '', indirizzo: socio.indirizzo || '', comune_residenza: socio.comune_residenza || '', cap: socio.cap || '' }) }}
+                <button onClick={() => {
+                  setModificaAnagrafica(false)
+                  setAnagrafica({ nome: socio.nome || '', cognome: socio.cognome || '', cf: socio.cf || '', data_nascita: socio.data_nascita || '', telefono: socio.telefono || '', email: socio.email || '', indirizzo: socio.indirizzo || '', comune_residenza: socio.comune_residenza || '', cap: socio.cap || '' })
+                }}
                   style={{ background: 'white', border: `1px solid ${BD}`, borderRadius: 7, padding: '7px 12px', fontSize: 12.5, cursor: 'pointer', color: SUB }}>
                   Annulla
                 </button>
@@ -429,6 +486,16 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato }) {
             {i.note && <div style={{ fontSize: 11.5, color: SUB, marginTop: 6, fontStyle: 'italic' }}>{i.note}</div>}
           </div>
         ))}
+
+        <button onClick={eliminaSocio} disabled={eliminando}
+          style={{ width: '100%', marginTop: 18, padding: '9px', background: RL, border: `1px solid ${R}44`, borderRadius: 9, fontSize: 12.5, fontWeight: 600, color: R, cursor: 'pointer' }}>
+          {eliminando ? 'Elimino…' : '🗑 Elimina socio'}
+        </button>
+        {iscrizioni && iscrizioni.length > 0 && (
+          <p style={{ fontSize: 11, color: SUB, marginTop: 4, textAlign: 'center' }}>
+            Non eliminabile: ha {iscrizioni.length} iscrizion{iscrizioni.length === 1 ? 'e' : 'i'} collegat{iscrizioni.length === 1 ? 'a' : 'e'}. Puoi bloccarlo dalle nuove iscrizioni qui sopra.
+          </p>
+        )}
       </div>
 
       {modaleNuovaIscrizione && (
@@ -593,9 +660,10 @@ export default function AnagraficaSoci() {
     if (!error) setRisultati(data || [])
   }
 
-  const ricaricaSelezionato = async () => {
-    if (!selezionato) return
-    const { data } = await supabase.from('soci').select('*').eq('cf', selezionato.cf).single()
+  const ricaricaSelezionato = async (cfOverride) => {
+    const cf = cfOverride || selezionato?.cf
+    if (!cf) return
+    const { data } = await supabase.from('soci').select('*').eq('cf', cf).single()
     if (data) setSelezionato(data)
   }
 
@@ -648,6 +716,7 @@ export default function AnagraficaSoci() {
           socio={selezionato}
           onChiudi={() => setSelezionato(null)}
           onAggiornato={ricaricaSelezionato}
+          onEliminato={() => { setSelezionato(null); setRisultati(r => r.filter(s => s.cf !== selezionato.cf)) }}
         />
       )}
 
