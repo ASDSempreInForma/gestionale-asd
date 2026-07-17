@@ -15,6 +15,20 @@ const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVic3VxZHhmbHlneGh1cHRubnVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNTU1OTcsImV4cCI6MjA5NzYzMTU5N30.KXgue3EKXZdZZ5vvkmHcEzO5OvFEAQWyuvMtLm2RtV0";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+const FUNCTION_URL_EMAIL = "https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/invia-email-iscrizione";
+async function inviaEmail(payload) {
+  try {
+    const res = await fetch(FUNCTION_URL_EMAIL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+}
+
 const G="#2D6A4F",GL="#D8F3DC",GD="#1B4332";
 const R="#991B1B",RL="#FEE2E2";
 const A="#B45309",AL="#FEF3C7",AD="#92400E";
@@ -59,6 +73,7 @@ export default function GestioneProve() {
 
   // Salvataggio in corso
   const [saving, setSaving] = useState({});
+  const [dataProvaScelta, setDataProvaScelta] = useState({});
 
   // ── Caricamento iniziale ─────────────────────────────────────────────────
   useEffect(() => { caricaDati(); }, []);
@@ -125,19 +140,63 @@ export default function GestioneProve() {
   }
 
   // ── Aggiorna stato prova ─────────────────────────────────────────────────
-  async function aggiornaStato(id, nuovoStato) {
+  async function aggiornaStato(id, nuovoStato, extraCampi = {}) {
     setSaving(p => ({ ...p, [id]: true }));
     const extra = nuovoStato === "effettuata"
-      ? { scadenza_3gg: new Date(Date.now() + 3*24*60*60*1000).toISOString() }
+      ? { scadenza_3gg: new Date(Date.now() + 2*24*60*60*1000).toISOString() }
       : {};
     const { error } = await supabase
-      .from("prove").update({ stato: nuovoStato, ...extra }).eq("id", id);
+      .from("prove").update({ stato: nuovoStato, ...extra, ...extraCampi }).eq("id", id);
     if (!error) {
       setProve(prev => prev.map(p =>
-        p.id === id ? { ...p, stato: nuovoStato, ...extra } : p
+        p.id === id ? { ...p, stato: nuovoStato, ...extra, ...extraCampi } : p
       ));
     }
     setSaving(p => ({ ...p, [id]: false }));
+  }
+
+  // ── Conferma prova: chiede la data, la salva e invia l'email con la data vera ──
+  async function confermaConData(p, dataScelta) {
+    if (!dataScelta) return;
+    const corso = corsi.find(c => c.id === p.corso_id);
+    await aggiornaStato(p.id, "confermata", { data_effettuata: dataScelta });
+    if (p.email) {
+      await inviaEmail({
+        tipo: "conferma_prova",
+        destinatarioEmail: p.email,
+        destinatarioNome: p.nome,
+        corsoNome: corso?.nome,
+        corsoSede: corso?.sede,
+        corsoOrario: corso?.orario,
+        dataProva: dataScelta,
+      });
+    }
+  }
+
+  // ── Non presentata: annulla con nota dedicata, la persona deve ricompilare il modulo ──
+  async function segnaNonPresentata(p) {
+    if (!window.confirm(`Segnare ${p.nome} ${p.cognome} come non presentata alla prova?\n\nDovrà ricompilare il modulo per fissare una nuova data.`)) return;
+    await aggiornaStato(p.id, "annullata", { note: "Non presentata alla lezione di prova — deve ricompilare il modulo per una nuova data." });
+  }
+
+  // ── Avvisa: posti in esaurimento, 24 ore per iscriversi direttamente ──
+  async function avvisaPostiEsaurimento(p) {
+    const corso = corsi.find(c => c.id === p.corso_id);
+    setSaving(s => ({ ...s, [p.id]: true }));
+    const scadenza = new Date(Date.now() + 24*60*60*1000).toISOString();
+    const { error } = await supabase.from("prove").update({ scadenza_preavviso: scadenza }).eq("id", p.id);
+    if (!error) {
+      setProve(prev => prev.map(x => x.id === p.id ? { ...x, scadenza_preavviso: scadenza } : x));
+      if (p.email) {
+        await inviaEmail({
+          tipo: "posti_in_esaurimento",
+          destinatarioEmail: p.email,
+          destinatarioNome: p.nome,
+          corsoNome: corso?.nome,
+        });
+      }
+    }
+    setSaving(s => ({ ...s, [p.id]: false }));
   }
 
   // ── Toggle prove attive su corso ─────────────────────────────────────────
@@ -340,7 +399,11 @@ export default function GestioneProve() {
                   const hScad = p.scadenza_3gg
                     ? (new Date(p.scadenza_3gg) - new Date()) / 36e5
                     : null;
-                  const scadImm = hScad !== null && hScad > 0 && hScad <= 72;
+                  const scadImm = hScad !== null && hScad > 0 && hScad <= 24;
+                  const hPreavviso = p.scadenza_preavviso
+                    ? (new Date(p.scadenza_preavviso) - new Date()) / 36e5
+                    : null;
+                  const preavvisoAttivo = hPreavviso !== null && hPreavviso > 0;
 
                   return (
                     <div key={p.id}
@@ -364,9 +427,19 @@ export default function GestioneProve() {
                               Richiesta: {new Date(p.data_richiesta).toLocaleDateString("it-IT")}
                             </div>
                           )}
+                          {["confermata","effettuata","iscritta"].includes(p.stato) && p.data_effettuata && (
+                            <div style={{ fontSize:11, color:BL, fontWeight:600, marginTop:1 }}>
+                              📅 Prova: {new Date(p.data_effettuata).toLocaleDateString("it-IT")}
+                            </div>
+                          )}
                           {scadImm && (
                             <div style={{ fontSize:11, color:R, fontWeight:600, marginTop:2 }}>
                               ⏱ Scade tra {Math.ceil(hScad)} ore
+                            </div>
+                          )}
+                          {preavvisoAttivo && (
+                            <div style={{ fontSize:11, color:A, fontWeight:600, marginTop:2 }}>
+                              ⚠️ Avviso posti in esaurimento inviato — scade tra {Math.ceil(hPreavviso)} ore
                             </div>
                           )}
                         </div>
@@ -374,14 +447,24 @@ export default function GestioneProve() {
                       </div>
 
                       {/* Azioni */}
-                      <div style={{ marginTop:10, display:"flex", flexWrap:"wrap", gap:6 }}>
+                      <div style={{ marginTop:10, display:"flex", flexWrap:"wrap", gap:6, alignItems:"center" }}>
                         {p.stato === "in_attesa" && (
-                          <BtnAzione label="Conferma prova" color={BL} bg={BLL}
-                            loading={isSaving} onClick={() => aggiornaStato(p.id, "confermata")} />
+                          <>
+                            <input type="date" value={dataProvaScelta[p.id] || ""}
+                              onChange={e => setDataProvaScelta(d => ({ ...d, [p.id]: e.target.value }))}
+                              style={{ padding:"5px 8px", border:`1px solid ${BD}`, borderRadius:7, fontSize:11 }} />
+                            <BtnAzione label="Conferma prova" color={BL} bg={BLL}
+                              loading={isSaving} disabled={!dataProvaScelta[p.id]}
+                              onClick={() => confermaConData(p, dataProvaScelta[p.id])} />
+                          </>
                         )}
                         {p.stato === "confermata" && (
-                          <BtnAzione label="Segna effettuata" color={GD} bg={GL}
-                            loading={isSaving} onClick={() => aggiornaStato(p.id, "effettuata")} />
+                          <>
+                            <BtnAzione label="Segna effettuata" color={GD} bg={GL}
+                              loading={isSaving} onClick={() => aggiornaStato(p.id, "effettuata")} />
+                            <BtnAzione label="Non presentata" color={A} bg={AL}
+                              loading={isSaving} onClick={() => segnaNonPresentata(p)} />
+                          </>
                         )}
                         {p.stato === "effettuata" && (
                           <>
@@ -390,6 +473,10 @@ export default function GestioneProve() {
                             <BtnAzione label="Scaduta" color={SUB} bg="#F3F4F6"
                               loading={isSaving} onClick={() => aggiornaStato(p.id, "scaduta")} />
                           </>
+                        )}
+                        {["in_attesa","confermata"].includes(p.stato) && !preavvisoAttivo && (
+                          <BtnAzione label="⚠️ Posti in esaurimento" color={A} bg={AL}
+                            loading={isSaving} onClick={() => avvisaPostiEsaurimento(p)} />
                         )}
                         {["in_attesa","confermata"].includes(p.stato) && (
                           <BtnAzione label="Annulla" color={R} bg={RL}
@@ -404,6 +491,9 @@ export default function GestioneProve() {
                           </a>
                         )}
                       </div>
+                      {p.note && (
+                        <div style={{ fontSize:11, color:SUB, marginTop:8, fontStyle:"italic" }}>{p.note}</div>
+                      )}
                     </div>
                   );
                 })}
@@ -500,12 +590,12 @@ export default function GestioneProve() {
 }
 
 // ── Helper bottone azione ──────────────────────────────────────────────────
-function BtnAzione({ label, color, bg, loading, onClick }) {
+function BtnAzione({ label, color, bg, loading, disabled, onClick }) {
   return (
-    <button onClick={onClick} disabled={loading}
+    <button onClick={onClick} disabled={loading || disabled}
       style={{ padding:"5px 10px", background:bg, border:`1px solid ${color}44`,
         borderRadius:7, fontSize:11, color, fontWeight:600,
-        cursor:loading?"not-allowed":"pointer", opacity:loading?0.6:1 }}>
+        cursor:(loading||disabled)?"not-allowed":"pointer", opacity:(loading||disabled)?0.6:1 }}>
       {loading ? "…" : label}
     </button>
   );
