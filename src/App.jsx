@@ -5,6 +5,7 @@ import Home from './pages/public/Home.jsx'
 import ModuloIscrizione from './pages/public/ModuloIscrizione.jsx'
 import LiberatoriaProva from './pages/public/LiberatoriaProva.jsx'
 import AreaTesserati from './pages/public/AreaTesserati.jsx'
+import AreaIstruttori from './pages/public/AreaIstruttori.jsx'
 import Login from './pages/admin/Login.jsx'
 import AdminLayout from './pages/admin/AdminLayout.jsx'
 
@@ -39,6 +40,7 @@ export default function App() {
       <Route path="/iscriviti" element={<ModuloIscrizione />} />
       <Route path="/prova" element={<LiberatoriaProva />} />
       <Route path="/area-tesserati" element={<AreaTesserati />} />
+      <Route path="/area-istruttori" element={<AreaIstruttori />} />
 
       {/* Area admin */}
       <Route path="/admin" element={

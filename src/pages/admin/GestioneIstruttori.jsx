@@ -110,7 +110,7 @@ export default function GestioneIstruttori(){
   const [newPeriodo,setNewPeriodo]=useState({dal:"",al:"",desc:""});
   const [focusedInstr,setFocusedInstr]=useState(null);
   const [showAddInstr,setShowAddInstr]=useState(false);
-  const [newInstr,setNewInstr]=useState({nome:"",cognome:"",compenso:"",colore:COLORI_DISPONIBILI[0]});
+  const [newInstr,setNewInstr]=useState({nome:"",cognome:"",email:"",telefono:"",compenso:"",colore:COLORI_DISPONIBILI[0]});
   const [loading,setLoading]=useState(true);
   const [saving,setSaving]=useState({});
 
@@ -134,7 +134,7 @@ export default function GestioneIstruttori(){
       const {data:istrDB}=await supabase
         .from("istruttori")
         .select(`
-          id,nome,cognome,telefono,compenso_lezione_default,attivo,
+          id,nome,cognome,telefono,email,compenso_lezione_default,attivo,
           istruttori_corsi(
             id,
             corsi(id,disciplina,giorni_orari,sedi(nome))
@@ -159,7 +159,7 @@ export default function GestioneIstruttori(){
         });
         return {
           id:t.id,
-          nome:t.nome, cognome:t.cognome, telefono:t.telefono,
+          nome:t.nome, cognome:t.cognome, telefono:t.telefono, email:t.email,
           compenso:t.compenso_lezione_default||0,
           colore:COLORI_DISPONIBILI[idx%COLORI_DISPONIBILI.length],
           corsi_nomi:corsiNomi,
@@ -197,19 +197,49 @@ export default function GestioneIstruttori(){
     if(!newInstr.nome.trim()||!newInstr.cognome.trim()) return;
     const {data,error}=await supabase.from("istruttori").insert({
       nome:newInstr.nome.trim(), cognome:newInstr.cognome.trim(),
+      email:newInstr.email.trim().toLowerCase()||null,
+      telefono:newInstr.telefono.trim()||null,
       compenso_lezione_default:parseFloat(newInstr.compenso)||0,
       attivo:true
     }).select().single();
     if(!error&&data){
       setIstruttori(prev=>[...prev,{
         id:data.id, nome:data.nome, cognome:data.cognome,
+        email:data.email, telefono:data.telefono,
         compenso:data.compenso_lezione_default||0,
         colore:newInstr.colore, corsi_nomi:[], corsi_ids:[],
         istruttori_corsi_ids:[], giorniLezione:[],
       }]);
-      setNewInstr({nome:"",cognome:"",compenso:"",colore:COLORI_DISPONIBILI[0]});
+      setNewInstr({nome:"",cognome:"",email:"",telefono:"",compenso:"",colore:COLORI_DISPONIBILI[0]});
       setShowAddInstr(false);
+    }else if(error){
+      alert("Errore nel salvataggio: "+error.message);
     }
+  }
+
+  // ── Aggiorna email/telefono su Supabase ──────────────────────────
+  async function aggiornaContatto(id, campo, valore){
+    setSaving(p=>({...p,[campo+"_"+id]:true}));
+    const payload = campo==="email" ? {email:valore.trim().toLowerCase()||null} : {telefono:valore.trim()||null};
+    const {error}=await supabase.from("istruttori").update(payload).eq("id",id);
+    setIstruttori(prev=>prev.map(t=>t.id===id?{...t,[campo]:payload[campo]}:t));
+    setSaving(p=>({...p,[campo+"_"+id]:false}));
+    if(error) alert("Errore nel salvataggio: "+error.message);
+  }
+
+  // ── Rimuovi (disattiva) istruttore ────────────────────────────────
+  // Non cancelliamo la riga (resta per lo storico compensi/lezioni passate),
+  // la segnamo solo come non più attiva: sparisce da qui e perde anche
+  // l'accesso all'Area Istruttori (che controlla attivo=true al login).
+  async function rimuoviIstruttore(id, nomeCompleto){
+    if(!window.confirm(`Rimuovere ${nomeCompleto} dagli istruttori attivi?\n\nNon perderà lo storico di lezioni/compensi passati, ma non comparirà più qui né potrà più accedere all'Area Istruttori. Le assegnazioni ai corsi correnti verranno rimosse.`)) return;
+    setSaving(p=>({...p,["rimuovi_"+id]:true}));
+    await supabase.from("istruttori_corsi").delete().eq("istruttore_id",id);
+    const {error}=await supabase.from("istruttori").update({attivo:false}).eq("id",id);
+    setSaving(p=>({...p,["rimuovi_"+id]:false}));
+    if(error){ alert("Errore: "+error.message); return; }
+    setIstruttori(prev=>prev.filter(t=>t.id!==id));
+    if(focusedInstr===id) setFocusedInstr(null);
   }
 
   // ── Assegna/rimuovi corso a istruttore ──────────────────────────
@@ -309,9 +339,13 @@ export default function GestioneIstruttori(){
                 style={{padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,fontFamily:"inherit"}}/>
               <input placeholder="Cognome" value={newInstr.cognome} onChange={e=>setNewInstr(p=>({...p,cognome:e.target.value}))}
                 style={{padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,fontFamily:"inherit"}}/>
+              <input type="email" placeholder="Email (per l'accesso all'area istruttori)" value={newInstr.email} onChange={e=>setNewInstr(p=>({...p,email:e.target.value}))}
+                style={{padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,fontFamily:"inherit",gridColumn:"span 2"}}/>
+              <input type="tel" placeholder="Telefono" value={newInstr.telefono} onChange={e=>setNewInstr(p=>({...p,telefono:e.target.value}))}
+                style={{padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,fontFamily:"inherit"}}/>
               <input type="number" placeholder="Compenso/lez (€)" value={newInstr.compenso} onChange={e=>setNewInstr(p=>({...p,compenso:e.target.value}))}
                 style={{padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,fontFamily:"inherit"}}/>
-              <div style={{display:"flex",gap:5,alignItems:"center"}}>
+              <div style={{display:"flex",gap:5,alignItems:"center",gridColumn:"span 2"}}>
                 {COLORI_DISPONIBILI.map(col=>(
                   <div key={col} onClick={()=>setNewInstr(p=>({...p,colore:col}))}
                     style={{width:22,height:22,borderRadius:"50%",background:col,cursor:"pointer",
@@ -363,6 +397,26 @@ export default function GestioneIstruttori(){
             {focusedInstr===t.id&&(
               <div style={{padding:"12px 15px"}}>
                 <div style={{fontSize:11,fontWeight:700,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>
+                  Contatti (usati anche per l'accesso all'Area Istruttori)
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+                  <div>
+                    <input type="email" placeholder="Email" defaultValue={t.email||""}
+                      onClick={e=>e.stopPropagation()}
+                      onBlur={e=>aggiornaContatto(t.id,"email",e.target.value)}
+                      style={{width:"100%",padding:"7px 9px",border:`1px solid ${C.border}`,borderRadius:7,fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
+                    {saving["email_"+t.id]&&<div style={{fontSize:10,color:C.textSub,marginTop:2}}>Salvo…</div>}
+                  </div>
+                  <div>
+                    <input type="tel" placeholder="Telefono" defaultValue={t.telefono||""}
+                      onClick={e=>e.stopPropagation()}
+                      onBlur={e=>aggiornaContatto(t.id,"telefono",e.target.value)}
+                      style={{width:"100%",padding:"7px 9px",border:`1px solid ${C.border}`,borderRadius:7,fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
+                    {saving["telefono_"+t.id]&&<div style={{fontSize:10,color:C.textSub,marginTop:2}}>Salvo…</div>}
+                  </div>
+                </div>
+
+                <div style={{fontSize:11,fontWeight:700,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>
                   Corsi assegnati
                 </div>
                 {/* Corsi assegnati */}
@@ -391,6 +445,13 @@ export default function GestioneIstruttori(){
                     <div style={{fontSize:16,fontWeight:700,color:C.greenD}}>{fmtEuro(r.totale)}</div>
                   </div>
                 );})()}
+
+                <button onClick={()=>rimuoviIstruttore(t.id,`${t.cognome} ${t.nome}`)}
+                  disabled={saving["rimuovi_"+t.id]}
+                  style={{width:"100%",marginTop:14,padding:"9px",background:C.redL,border:`1px solid ${C.red}44`,
+                    borderRadius:9,fontSize:12,fontWeight:600,color:C.red,cursor:"pointer"}}>
+                  {saving["rimuovi_"+t.id]?"Rimuovo…":"🗑 Rimuovi istruttore"}
+                </button>
               </div>
             )}
           </div>

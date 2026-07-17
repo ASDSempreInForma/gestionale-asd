@@ -60,6 +60,24 @@ function IconaAreaTesserati() {
   )
 }
 
+function IconaAreaIstruttori() {
+  return (
+    <div style={{
+      width: "100%", height: 120, background: "linear-gradient(135deg, #E0E7FF 0%, #C7D2FE 100%)",
+      borderRadius: "10px 10px 0 0", display: "flex", alignItems: "center", justifyContent: "center"
+    }}>
+      <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+        <circle cx="32" cy="18" r="9" fill="#3730A3" opacity=".85"/>
+        <path d="M16 48c0-9 7-15 16-15s16 6 16 15" fill="#3730A3" opacity=".3"/>
+        <rect x="14" y="40" width="36" height="16" rx="3" fill="white" opacity=".9"/>
+        <path d="M20 46l4 4 8-8" stroke="#3730A3" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+        <rect x="38" y="45" width="8" height="2.4" rx="1.2" fill="#3730A3" opacity=".5"/>
+        <rect x="38" y="49" width="8" height="2.4" rx="1.2" fill="#3730A3" opacity=".5"/>
+      </svg>
+    </div>
+  )
+}
+
 export default function Home() {
   return (
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", background: "#F8F7F4", minHeight: "100vh" }}>
@@ -139,6 +157,24 @@ export default function Home() {
                   Sei già socio? Accedi con codice fiscale ed email per vedere le tue scadenze, caricare documenti o rinnovare.
                 </div>
                 <div style={{ display: "inline-flex", background: "#FEF3C7", color: "#92400E", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600 }}>
+                  Accedi all'area →
+                </div>
+              </div>
+            </div>
+          </Link>
+
+          <Link to="/area-istruttori" style={{ textDecoration: "none" }}>
+            <div style={{
+              background: "white", border: `1px solid ${BD}`, borderRadius: 12,
+              overflow: "hidden", cursor: "pointer", boxShadow: "0 1px 4px rgba(0,0,0,.06)"
+            }}>
+              <IconaAreaIstruttori />
+              <div style={{ padding: "16px 18px 20px" }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: TX, marginBottom: 5 }}>Area Istruttori</div>
+                <div style={{ fontSize: 13, color: SUB, lineHeight: 1.6, marginBottom: 14 }}>
+                  Sei un istruttore? Accedi per vedere i tuoi corsi e fare il check-in delle presenze.
+                </div>
+                <div style={{ display: "inline-flex", background: "#E0E7FF", color: "#3730A3", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600 }}>
                   Accedi all'area →
                 </div>
               </div>
