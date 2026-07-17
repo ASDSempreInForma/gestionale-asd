@@ -306,13 +306,13 @@ export default function LiberatoriaProva() {
         <div style={{ fontSize: 20, fontWeight: 700, color: GD, marginBottom: 8 }}>Liberatoria inviata!</div>
         <div style={{ fontSize: 13, color: SUB, lineHeight: 1.8, marginBottom: 20 }}>
           Grazie <strong>{d.nome} {d.cognome}</strong>!<br />
-          La tua richiesta per <strong>{corsoscelto?.nome}</strong><br />
+          La tua richiesta per il corso di <strong>{corsoscelto?.nome}</strong><br />
           presso <strong>{corsoscelto?.sede}</strong> è stata registrata.
         </div>
         <div style={{ background: AL, border: `1px solid ${A}33`, borderRadius: 12, padding: "12px 16px", fontSize: 12, color: AD, textAlign: "left", lineHeight: 1.8, marginBottom: 20 }}>
           <strong>Cosa succede ora:</strong><br />
           📧 Riceverai una email di conferma a <strong>{d.email}</strong><br />
-          🎽 Potrai partecipare alla prima lezione disponibile del corso<br />
+          🎽 Potrai partecipare alla lezione di prova una volta che ti sarà stata confermata via email, con la data indicata<br />
           ⏱ Dopo la prova hai <strong>2 giorni</strong> per finalizzare l'iscrizione<br />
           📞 Per info: <strong>WhatsApp 327 868 1393</strong>
         </div>
