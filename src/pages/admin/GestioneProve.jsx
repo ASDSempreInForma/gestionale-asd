@@ -495,12 +495,19 @@ export default function GestioneProve() {
                             loading={isSaving} onClick={() => aggiornaStato(p.id, "annullata")} />
                         )}
                         {p.email && (
-                          <a href={`https://wa.me/39${(p.telefono||"").replace(/\D/g,"")}`}
-                            target="_blank" rel="noreferrer"
-                            style={{ padding:"5px 10px", background:GL, border:`1px solid ${G}44`,
-                              borderRadius:7, fontSize:11, color:GD, textDecoration:"none", fontWeight:600 }}>
-                            💬 WhatsApp
-                          </a>
+                          <>
+                            <a href={`mailto:${p.email}`}
+                              style={{ padding:"5px 10px", background:BLL, border:`1px solid ${BL}44`,
+                                borderRadius:7, fontSize:11, color:BL, textDecoration:"none", fontWeight:600 }}>
+                              📧 Email
+                            </a>
+                            <a href={`https://wa.me/39${(p.telefono||"").replace(/\D/g,"")}`}
+                              target="_blank" rel="noreferrer"
+                              style={{ padding:"5px 10px", background:GL, border:`1px solid ${G}44`,
+                                borderRadius:7, fontSize:11, color:GD, textDecoration:"none", fontWeight:600 }}>
+                              💬 WhatsApp
+                            </a>
+                          </>
                         )}
                       </div>
                       {p.note && (
