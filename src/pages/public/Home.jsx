@@ -200,29 +200,12 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Accesso area segreteria — ben visibile */}
-        <Link to="/admin" style={{ textDecoration: "none" }}>
-          <div style={{
-            background: "white", border: `1.5px solid ${BD}`, borderRadius: 12,
-            padding: "16px 20px", display: "flex", alignItems: "center",
-            justifyContent: "space-between", cursor: "pointer", gap: 14
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{
-                width: 44, height: 44, borderRadius: 10, background: "#F1F5F9",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 22, flexShrink: 0
-              }}>🔐</div>
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 600, color: TX }}>Accesso area segreteria</div>
-                <div style={{ fontSize: 12, color: SUB, marginTop: 2 }}>
-                  Gestionale riservato — richiede login
-                </div>
-              </div>
-            </div>
-            <div style={{ fontSize: 22, color: SUB, flexShrink: 0 }}>›</div>
-          </div>
-        </Link>
+        {/* Accesso area segreteria — discreto, in fondo */}
+        <div style={{ textAlign: "center", marginTop: 8 }}>
+          <Link to="/admin" style={{ fontSize: 11.5, color: "#C4C0B6", textDecoration: "none" }}>
+            Accesso riservato
+          </Link>
+        </div>
 
       </div>
     </div>
