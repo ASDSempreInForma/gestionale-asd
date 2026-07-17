@@ -55,6 +55,7 @@ export default function GestioneProve() {
   const [filtroSede, setFiltroSede] = useState("");
   const [filtroStato, setFiltroStato] = useState("");
   const [filtroCorsoPk, setFiltroCorsoPk] = useState("");
+  const [vistaProve, setVistaProve] = useState("attive"); // attive | storico
 
   // Salvataggio in corso
   const [saving, setSaving] = useState({});
@@ -171,12 +172,18 @@ export default function GestioneProve() {
   const sedi = [...new Set(corsi.map(c => c.sede))].sort();
   const corsiDisponibili = corsi.filter(c => !filtroSede || c.sede === filtroSede);
 
-  // Prove filtrate
+  const STATI_ATTIVI = ["in_attesa", "confermata", "effettuata"];
+  const STATI_STORICO = ["iscritta", "scaduta", "annullata"];
+
+  // Prove filtrate: prima per vista (attive/storico), poi per gli altri filtri
   const proveFiltrate = prove.filter(p => {
+    const stati = vistaProve === "attive" ? STATI_ATTIVI : STATI_STORICO;
+    if (!stati.includes(p.stato)) return false;
     if (filtroStato && p.stato !== filtroStato) return false;
     if (filtroCorsoPk && p.corso_id !== filtroCorsoPk) return false;
     return true;
   });
+  const opzioniStato = STATI_PROVA.filter(s => (vistaProve === "attive" ? STATI_ATTIVI : STATI_STORICO).includes(s.value));
 
   // Allarmi: corsi con prove sufficienti (≥7) in attesa
   const allarmi = corsi.filter(c => {
@@ -245,7 +252,7 @@ export default function GestioneProve() {
         {!loading && tab === "prove" && (
           <div>
             {/* Allarmi soglia */}
-            {allarmi.length > 0 && (
+            {vistaProve === "attive" && allarmi.length > 0 && (
               <div style={{ background:AL, border:`1px solid ${A}33`, borderRadius:10,
                 padding:"12px 14px", marginBottom:14 }}>
                 <div style={{ fontSize:12, fontWeight:700, color:AD, marginBottom:6 }}>
@@ -270,7 +277,7 @@ export default function GestioneProve() {
             )}
 
             {/* Scadenze imminenti */}
-            {scadenze.length > 0 && (
+            {vistaProve === "attive" && scadenze.length > 0 && (
               <div style={{ background:RL, border:`1px solid ${R}33`, borderRadius:10,
                 padding:"12px 14px", marginBottom:14 }}>
                 <div style={{ fontSize:12, fontWeight:700, color:R, marginBottom:6 }}>
@@ -284,6 +291,22 @@ export default function GestioneProve() {
                 ))}
               </div>
             )}
+
+            {/* Vista: in corso / storico */}
+            <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+              <button onClick={() => { setVistaProve("attive"); setFiltroStato(""); }}
+                style={{ padding:"7px 14px", borderRadius:8, border:`1px solid ${vistaProve==="attive"?G:BD}`,
+                  background:vistaProve==="attive"?GL:"white", color:vistaProve==="attive"?GD:SUB,
+                  fontSize:12.5, fontWeight:600, cursor:"pointer" }}>
+                📋 In corso
+              </button>
+              <button onClick={() => { setVistaProve("storico"); setFiltroStato(""); }}
+                style={{ padding:"7px 14px", borderRadius:8, border:`1px solid ${vistaProve==="storico"?G:BD}`,
+                  background:vistaProve==="storico"?GL:"white", color:vistaProve==="storico"?GD:SUB,
+                  fontSize:12.5, fontWeight:600, cursor:"pointer" }}>
+                🗂️ Storico
+              </button>
+            </div>
 
             {/* Filtri */}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:14 }}>
@@ -300,14 +323,14 @@ export default function GestioneProve() {
               <select value={filtroStato} onChange={e => setFiltroStato(e.target.value)}
                 style={{ padding:"8px 10px", border:`1px solid ${BD}`, borderRadius:8, fontSize:12, background:"white" }}>
                 <option value="">Tutti gli stati</option>
-                {STATI_PROVA.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                {opzioniStato.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
 
             {/* Lista prove */}
             {proveFiltrate.length === 0 ? (
               <div style={{ textAlign:"center", padding:"32px 0", color:SUB, fontSize:13 }}>
-                Nessuna richiesta trovata con questi filtri.
+                {vistaProve === "attive" ? "Nessuna richiesta aperta con questi filtri." : "Nessuna richiesta archiviata con questi filtri."}
               </div>
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
