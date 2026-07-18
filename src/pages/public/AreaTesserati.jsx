@@ -39,6 +39,46 @@ function fileToBase64(file) {
   });
 }
 
+// Comprime le foto (non i PDF) prima dell'invio: le foto scattate da telefono
+// pesano spesso 3-5 MB, qui vengono ridotte a poche centinaia di KB restando
+// perfettamente leggibili — fondamentale per non riempire lo spazio di archiviazione.
+function comprimiImmagine(file, maxLato = 1600, qualita = 0.75) {
+  return new Promise((resolve) => {
+    if (!file.type.startsWith("image/")) {
+      resolve(file); // PDF o altro: non tocchiamo
+      return;
+    }
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxLato || height > maxLato) {
+        const scala = maxLato / Math.max(width, height);
+        width = Math.round(width * scala);
+        height = Math.round(height * scala);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        (blob) => {
+          URL.revokeObjectURL(url);
+          if (!blob || blob.size >= file.size) {
+            resolve(file); // se per qualche motivo non ha ridotto il peso, teniamo l'originale
+          } else {
+            resolve(new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" }));
+          }
+        },
+        "image/jpeg",
+        qualita
+      );
+    };
+    img.onerror = () => resolve(file); // in caso di errore, non blocchiamo l'invio
+    img.src = url;
+  });
+}
+
 function fmtData(d) {
   if (!d) return "—";
   const [y, m, day] = d.split("-");
@@ -156,15 +196,16 @@ function ModaleRicevuta({ iscrizioneIds, onClose, onDone, callFnWithAuth }) {
     }
     setLoading(true);
     setErrore("");
-    const base64 = await fileToBase64(file);
+    const fileCompresso = await comprimiImmagine(file);
+    const base64 = await fileToBase64(fileCompresso);
     const r = await callFnWithAuth({
       action: "upload_documento",
       tipo: "ricevuta",
       iscrizione_ids: iscrizioneIds,
       dichiarazione: { tipo_pagamento: tipoPagamento, importo: Number(importo), data_pagamento: dataPagamento },
       file_base64: base64,
-      file_name: file.name,
-      file_type: file.type,
+      file_name: fileCompresso.name,
+      file_type: fileCompresso.type,
     });
     setLoading(false);
     if (r.ok) onDone(r.message);
@@ -213,15 +254,16 @@ function ModaleCertificato({ iscrizioneIds, onClose, onDone, callFnWithAuth }) {
     }
     setLoading(true);
     setErrore("");
-    const base64 = await fileToBase64(file);
+    const fileCompresso = await comprimiImmagine(file);
+    const base64 = await fileToBase64(fileCompresso);
     const r = await callFnWithAuth({
       action: "upload_documento",
       tipo: "certificato",
       iscrizione_ids: iscrizioneIds,
       dichiarazione: { data_scadenza: scadenza },
       file_base64: base64,
-      file_name: file.name,
-      file_type: file.type,
+      file_name: fileCompresso.name,
+      file_type: fileCompresso.type,
     });
     setLoading(false);
     if (r.ok) onDone(r.message);
