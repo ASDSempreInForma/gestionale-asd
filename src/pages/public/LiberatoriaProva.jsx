@@ -240,6 +240,8 @@ export default function LiberatoriaProva() {
           orario_frequenza_preferito: d.orarioFrequenza || null,
           corso_nome: corso?.nome,
           corso_sede: corso?.sede,
+          luogo_firma: d.luogo,
+          data_firma: d.dataFirma,
         },
       });
 

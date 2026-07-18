@@ -699,6 +699,9 @@ export default function ModuloIscrizione() {
         giorno_scelto: c.frequenza === "1x" && c.corso.ha_variante_frequenza ? c.giornoScelto : null,
         tipo_pagamento: c.pagamento === "q1" ? "quad1" : c.pagamento === "q2" ? "quad2" : "annuale",
         importo_dichiarato: prezzoTotale.totale ?? null,
+        presa_visione_regolamenti: true,
+        firma_url: firmaSocio || null,
+        firma_genitore_url: isMinorenne ? (firmaGenitore || null) : null,
         note: [
           `Codice: ${c.codiceCompleto}`,
           `Frequenza: ${c.frequenza === "2x" ? "bisettimanale" : "monosettimanale"}${

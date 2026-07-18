@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { generaPdfLiberatoria } from "../../pdfModuli.js";
 
 /* =====================================================================
    GESTIONE PROVE — A.S.D. Sempre In Forma (pannello admin)
@@ -122,9 +123,9 @@ export default function GestioneProve() {
       const { data: proveDB, error: errP } = await supabase
         .from("prove")
         .select(`
-          id, nome, cognome, cf, email, telefono,
-          stato, data_richiesta, scadenza_3gg,
-          corso_id, dati_extra,
+          id, nome, cognome, cf, email, telefono, data_nascita,
+          stato, data_richiesta, data_effettuata, scadenza_3gg, scadenza_preavviso,
+          corso_id, dati_extra, note, firma_url, firma2_url,
           corsi ( disciplina, giorni_orari, sedi ( nome ) )
         `)
         .order("data_richiesta", { ascending: false });
@@ -493,6 +494,13 @@ export default function GestioneProve() {
                         {["in_attesa","confermata"].includes(p.stato) && (
                           <BtnAzione label="Annulla" color={R} bg={RL}
                             loading={isSaving} onClick={() => aggiornaStato(p.id, "annullata")} />
+                        )}
+                        {p.firma_url && (
+                          <button onClick={() => generaPdfLiberatoria({ prova: p })}
+                            style={{ padding:"5px 10px", background:GL, border:`1px solid ${G}44`,
+                              borderRadius:7, fontSize:11, color:GD, fontWeight:600, cursor:"pointer" }}>
+                            📄 Scarica liberatoria
+                          </button>
                         )}
                         {p.email && (
                           <>

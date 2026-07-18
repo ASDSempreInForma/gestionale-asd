@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../../supabase.js'
+import { generaPdfDomandaAdesione } from '../../pdfModuli.js'
 
 const G = "#2D6A4F", GL = "#D8F3DC"
 const BD = "#E8E4DC", TX = "#1A1A1A", SUB = "#6B7280"
@@ -228,7 +229,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
       .select(`
         id, corso_id, tipo_pagamento, stato_pagamento, importo_dichiarato, ricevuta_url,
         stato_certificato, data_scadenza_certificato, certificato_url,
-        data_iscrizione, note,
+        data_iscrizione, note, firma_url, firma_genitore_url,
         corsi ( disciplina, giorni_orari, sedi ( nome ) ),
         stagioni ( nome, attiva )
       `)
@@ -479,9 +480,17 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
                 <BadgeCertificato stato={i.stato_certificato} />
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+            <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
               {i.ricevuta_url && <button onClick={() => apriDocumento(i.ricevuta_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Ricevuta</button>}
               {i.certificato_url && <button onClick={() => apriDocumento(i.certificato_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Certificato</button>}
+              {(i.firma_url || i.firma_genitore_url) ? (
+                <button onClick={() => generaPdfDomandaAdesione({ socio, iscrizione: i, corso: i.corsi })}
+                  style={{ fontSize: 12, background: GL, color: G, border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', fontWeight: 600 }}>
+                  📄 Scarica modulo firmato
+                </button>
+              ) : (
+                <span style={{ fontSize: 11, color: SUB, fontStyle: 'italic' }}>Nessuna firma digitale collegata (iscrizione probabilmente inserita manualmente)</span>
+              )}
             </div>
             {i.note && <div style={{ fontSize: 11.5, color: SUB, marginTop: 6, fontStyle: 'italic' }}>{i.note}</div>}
           </div>
