@@ -13,6 +13,35 @@ const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVic3VxZHhmbHlneGh1cHRubnVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNTU1OTcsImV4cCI6MjA5NzYzMTU5N30.KXgue3EKXZdZZ5vvkmHcEzO5OvFEAQWyuvMtLm2RtV0";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const FUNCTION_URL_AI = "https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/genera-testo-ai";
+
+// Comprime la foto prima di inviarla all'AI e prima di mostrarla: le foto da
+// fotocamera pesano spesso 3-5 MB, qui si riducono a poche centinaia di KB.
+function comprimiImmagine(file, maxLato = 1600, qualita = 0.75) {
+  return new Promise((resolve) => {
+    if (!file.type.startsWith("image/")) { resolve(file); return; }
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxLato || height > maxLato) {
+        const scala = maxLato / Math.max(width, height);
+        width = Math.round(width * scala);
+        height = Math.round(height * scala);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(url);
+        if (!blob || blob.size >= file.size) resolve(file);
+        else resolve(new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" }));
+      }, "image/jpeg", qualita);
+    };
+    img.onerror = () => resolve(file);
+    img.src = url;
+  });
+}
 
 const G = "#2D6A4F", GL = "#D8F3DC", GD = "#1B4332";
 const A = "#B45309", AL = "#FEF3C7";
@@ -36,6 +65,7 @@ function parseItalianDate(s) {
 export default function ScannerCertificati() {
   const [stato, setStato] = useState("idle"); // idle | caricamento | analisi | risultato | confermato | errore
   const [immagine, setImmagine] = useState(null);
+  const [fileDaSalvare, setFileDaSalvare] = useState(null);
   const [datiEstratti, setDatiEstratti] = useState(null);
   const [iscrittoTrovato, setIscrittoTrovato] = useState(null);
   const [socioList, setSocioList] = useState([]); // lista per selezione manuale
@@ -89,30 +119,27 @@ export default function ScannerCertificati() {
     setIscrittoTrovato(null);
     setErrore("");
 
+    const fileCompresso = await comprimiImmagine(file);
+
     const base64 = await new Promise((res, rej) => {
       const r = new FileReader();
       r.onload = () => res(r.result.split(",")[1]);
       r.onerror = rej;
-      r.readAsDataURL(file);
+      r.readAsDataURL(fileCompresso);
     });
-    setImmagine(`data:${file.type};base64,${base64}`);
+    setImmagine(`data:${fileCompresso.type};base64,${base64}`);
+    setFileDaSalvare(fileCompresso);
     setStato("analisi");
     addLog("Immagine caricata — invio all'AI per analisi...");
 
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await fetch(FUNCTION_URL_AI, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
         body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 500,
-          messages: [{
-            role: "user",
-            content: [
-              { type: "image", source: { type: "base64", media_type: file.type, data: base64 } },
-              {
-                type: "text",
-                text: `Sei un assistente che legge certificati medici sportivi italiani.
+          immagineBase64: base64,
+          immagineTipo: fileCompresso.type,
+          userPrompt: `Sei un assistente che legge certificati medici sportivi italiani.
 Analizza questa immagine ed estrai le seguenti informazioni in formato JSON:
 {
   "nome": "nome della persona",
@@ -124,15 +151,13 @@ Analizza questa immagine ed estrai le seguenti informazioni in formato JSON:
   "fiducia": "alta/media/bassa (quanto sei sicuro della lettura)"
 }
 Se un campo non è leggibile metti null.
-Rispondi SOLO con il JSON, senza testo aggiuntivo.`
-              }
-            ]
-          }]
-        })
+Rispondi SOLO con il JSON, senza testo aggiuntivo.`,
+        }),
       });
 
-      const data = await response.json();
-      const testo = data.content?.[0]?.text || "";
+      const dataRes = await response.json();
+      if (!dataRes.ok) throw new Error(dataRes.error || "Errore nella chiamata all'AI.");
+      const testo = dataRes.testo || "";
       addLog("Risposta AI ricevuta — elaborazione dati...");
 
       let estratti;
@@ -170,21 +195,35 @@ Rispondi SOLO con il JSON, senza testo aggiuntivo.`
     setSaving(true);
     const scad = parseItalianDate(datiEstratti.dataScadenza);
 
+    // Carica la copia digitale del certificato nello storage privato, se presente
+    let certificatoUrl = null;
+    if (fileDaSalvare) {
+      const percorso = `${iscrittoTrovato.cf}/certificato_scanner_${Date.now()}.jpg`;
+      const { error: errUpload } = await supabase.storage
+        .from("documenti-soci")
+        .upload(percorso, fileDaSalvare, { contentType: fileDaSalvare.type });
+      if (!errUpload) certificatoUrl = percorso;
+      else addLog("⚠️ Impossibile salvare la copia del certificato: " + errUpload.message);
+    }
+
     // Aggiorna soci
     const { error: errS } = await supabase
       .from("soci")
       .update({ cert_scadenza: scad })
       .eq("cf", iscrittoTrovato.cf);
 
-    // Aggiorna tutte le iscrizioni attive di questo socio
+    // Aggiorna tutte le iscrizioni attive di questo socio (data + copia del certificato)
+    const aggiornamentoIscrizioni = { stato_certificato: "valido", data_scadenza_certificato: scad };
+    if (certificatoUrl) aggiornamentoIscrizioni.certificato_url = certificatoUrl;
     const { error: errI } = await supabase
       .from("iscrizioni")
-      .update({ stato_certificato: "valido", data_scadenza_certificato: scad })
-      .eq("socio_cf", iscrittoTrovato.cf);
+      .update(aggiornamentoIscrizioni)
+      .eq("socio_cf", iscrittoTrovato.cf)
+      .neq("stato_pagamento", "annullata");
 
     if (!errS && !errI) {
       setIscrittoTrovato(prev => ({ ...prev, cert_scadenza: scad }));
-      addLog(`✅ Profilo aggiornato: ${iscrittoTrovato.cognome} ${iscrittoTrovato.nome} — scad. ${fmtDate(scad)}`);
+      addLog(`✅ Profilo aggiornato: ${iscrittoTrovato.cognome} ${iscrittoTrovato.nome} — scad. ${fmtDate(scad)}${certificatoUrl ? " (copia salvata)" : ""}`);
       setStato("confermato");
     } else {
       addLog("❌ Errore salvataggio su Supabase");
@@ -194,7 +233,7 @@ Rispondi SOLO con il JSON, senza testo aggiuntivo.`
   }
 
   function reset() {
-    setStato("idle"); setImmagine(null); setDatiEstratti(null);
+    setStato("idle"); setImmagine(null); setFileDaSalvare(null); setDatiEstratti(null);
     setIscrittoTrovato(null); setErrore(""); setSocioList([]);
   }
 
