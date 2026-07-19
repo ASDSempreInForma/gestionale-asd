@@ -113,6 +113,11 @@ function scriviDueRighe(page, font, str, x, yTop, larghezzaDisponibile, sizeMax)
   page.drawText(riga1, { x, y: yTop + 1, size, font, color });
   if (riga2) page.drawText(riga2, { x, y: yTop + 1 - (size + 3), size, font, color });
 }
+
+// Scrive un testo sbiancando prima i puntini/trattini sotto; se il testo è più
+// largo dello spazio disponibile, riduce automaticamente la dimensione del
+// carattere finché non ci sta, così non finisce mai sopra il campo successivo.
+function scriviAdattivo(page, font, str, x, yTop, larghezzaDisponibile, sizeMax, opts = {}) {
   if (!str) return;
   const { color = rgb(0.05, 0.05, 0.35) } = opts;
   let size = sizeMax;
