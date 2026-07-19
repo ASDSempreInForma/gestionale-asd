@@ -496,7 +496,7 @@ export default function GestioneProve() {
                             loading={isSaving} onClick={() => aggiornaStato(p.id, "annullata")} />
                         )}
                         {p.firma_url && (
-                          <button onClick={() => generaPdfLiberatoria({ prova: p })}
+                          <button onClick={() => generaPdfLiberatoria({ prova: p }).catch(err => alert("Impossibile generare il PDF: " + err.message))}
                             style={{ padding:"5px 10px", background:GL, border:`1px solid ${G}44`,
                               borderRadius:7, fontSize:11, color:GD, fontWeight:600, cursor:"pointer" }}>
                             📄 Scarica liberatoria

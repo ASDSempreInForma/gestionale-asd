@@ -485,7 +485,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
               {i.ricevuta_url && <button onClick={() => apriDocumento(i.ricevuta_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Ricevuta</button>}
               {i.certificato_url && <button onClick={() => apriDocumento(i.certificato_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Certificato</button>}
               {(i.firma_url || i.firma_genitore_url) ? (
-                <button onClick={() => generaPdfDomandaAdesione({ socio, iscrizione: i, corso: i.corsi })}
+                <button onClick={() => generaPdfDomandaAdesione({ socio, iscrizione: i, corso: i.corsi }).catch(err => alert("Impossibile generare il PDF: " + err.message))}
                   style={{ fontSize: 12, background: GL, color: G, border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', fontWeight: 600 }}>
                   📄 Scarica modulo firmato
                 </button>
