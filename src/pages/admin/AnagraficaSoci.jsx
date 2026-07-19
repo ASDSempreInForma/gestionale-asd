@@ -214,6 +214,8 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
     cognome: socio.cognome || '',
     cf: socio.cf || '',
     data_nascita: socio.data_nascita || '',
+    comune_nascita: socio.comune_nascita || '',
+    provincia_nascita: socio.provincia_nascita || '',
     telefono: socio.telefono || '',
     email: socio.email || '',
     indirizzo: socio.indirizzo || '',
@@ -279,6 +281,8 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
       nome: anagrafica.nome.trim(),
       cognome: anagrafica.cognome.trim(),
       data_nascita: anagrafica.data_nascita || null,
+      comune_nascita: anagrafica.comune_nascita.trim() || null,
+      provincia_nascita: anagrafica.provincia_nascita.trim() || null,
       telefono: anagrafica.telefono.trim() || null,
       email: anagrafica.email.trim().toLowerCase() || null,
       indirizzo: anagrafica.indirizzo.trim() || null,
@@ -376,6 +380,13 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
                   ⚠️ Stai cambiando il codice fiscale — verranno spostate anche tutte le sue iscrizioni collegate.
                 </p>
               )}
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, marginBottom: 8 }}>
+                <ComboComune value={anagrafica.comune_nascita} onChange={v => setAnagrafica(a => ({ ...a, comune_nascita: v }))}
+                  onSiglaProvincia={sigla => setAnagrafica(a => ({ ...a, provincia_nascita: sigla }))} placeholder="Comune di nascita" />
+                <input placeholder="Prov. nascita" value={anagrafica.provincia_nascita} maxLength={2}
+                  onChange={e => setAnagrafica(a => ({ ...a, provincia_nascita: e.target.value.toUpperCase() }))}
+                  style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box', textTransform: 'uppercase' }} />
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
                 <input placeholder="Indirizzo" value={anagrafica.indirizzo} onChange={e => setAnagrafica(a => ({ ...a, indirizzo: e.target.value }))}
                   style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
@@ -393,7 +404,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => {
                   setModificaAnagrafica(false)
-                  setAnagrafica({ nome: socio.nome || '', cognome: socio.cognome || '', cf: socio.cf || '', data_nascita: socio.data_nascita || '', telefono: socio.telefono || '', email: socio.email || '', indirizzo: socio.indirizzo || '', comune_residenza: socio.comune_residenza || '', provincia_residenza: socio.provincia_residenza || '', cap: socio.cap || '' })
+                  setAnagrafica({ nome: socio.nome || '', cognome: socio.cognome || '', cf: socio.cf || '', data_nascita: socio.data_nascita || '', comune_nascita: socio.comune_nascita || '', provincia_nascita: socio.provincia_nascita || '', telefono: socio.telefono || '', email: socio.email || '', indirizzo: socio.indirizzo || '', comune_residenza: socio.comune_residenza || '', provincia_residenza: socio.provincia_residenza || '', cap: socio.cap || '' })
                 }}
                   style={{ background: 'white', border: `1px solid ${BD}`, borderRadius: 7, padding: '7px 12px', fontSize: 12.5, cursor: 'pointer', color: SUB }}>
                   Annulla
