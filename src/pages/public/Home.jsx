@@ -118,7 +118,7 @@ export default function Home() {
               <div style={{ padding: "16px 18px 20px" }}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: TX, marginBottom: 5 }}>Modulo di iscrizione</div>
                 <div style={{ fontSize: 13, color: SUB, lineHeight: 1.6, marginBottom: 14 }}>
-                  Iscriviti a uno o più corsi della stagione 2025/26. Puoi scegliere corsi in sedi diverse.
+                  Iscriviti a uno o più corsi. Puoi scegliere corsi in sedi diverse.
                 </div>
                 <div style={{ display: "inline-flex", background: GL, color: GD, borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600 }}>
                   Compila il modulo →
@@ -154,7 +154,7 @@ export default function Home() {
               <div style={{ padding: "16px 18px 20px" }}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: TX, marginBottom: 5 }}>Area Tesserati</div>
                 <div style={{ fontSize: 13, color: SUB, lineHeight: 1.6, marginBottom: 14 }}>
-                  Sei già socio? Accedi con codice fiscale ed email per vedere le tue scadenze, caricare documenti o rinnovare.
+                  Sei già iscritto? Accedi con codice fiscale ed email per vedere le tue scadenze, caricare documenti o rinnovare.
                 </div>
                 <div style={{ display: "inline-flex", background: "#FEF3C7", color: "#92400E", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600 }}>
                   Accedi all'area →

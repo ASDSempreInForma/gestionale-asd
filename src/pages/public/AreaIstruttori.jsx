@@ -34,6 +34,16 @@ function BadgeCertificato({ stato }) {
   return <span style={{ background: s.bg, color: s.col, borderRadius: 20, padding: "2px 9px", fontSize: 11.5, fontWeight: 600 }}>{s.label}</span>;
 }
 
+function BadgePagamento({ stato }) {
+  const map = {
+    confermato: { label: "✅ Pagato", bg: "#DCFCE7", col: "#166534" },
+    dichiarato: { label: "⏳ Ricevuta da verificare", bg: "#FEF3C7", col: "#B45309" },
+    in_attesa: { label: "🔴 Pagamento in attesa", bg: "#FEE2E2", col: "#991B1B" },
+  };
+  const s = map[stato] || map.in_attesa;
+  return <span style={{ background: s.bg, color: s.col, borderRadius: 20, padding: "2px 9px", fontSize: 11.5, fontWeight: 600 }}>{s.label}</span>;
+}
+
 const GIORNI_IT = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
 function oggiLungo() {
   const d = new Date();
@@ -116,6 +126,7 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
   };
 
   const giaSegnata = corso.lezioneOggi?.stato;
+  const eCollaboratore = istruttore.tipo === "collaboratore";
 
   return (
     <div style={styles.card}>
@@ -125,28 +136,31 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
           <div style={{ color: "#64748b", fontSize: 13 }}>{corso.giorni_orari} · {corso.sede}</div>
           <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 2 }}>{corso.iscritti.length} iscritti</div>
         </div>
-        {giaSegnata === "fatta" && <span style={styles.badgeVerde}>✓ Lezione di oggi segnata come svolta</span>}
-        {giaSegnata === "sospesa" && <span style={styles.badgeRosso}>Lezione di oggi segnata come non svolta</span>}
+        {!eCollaboratore && giaSegnata === "fatta" && <span style={styles.badgeVerde}>✓ Lezione di oggi segnata come svolta</span>}
+        {!eCollaboratore && giaSegnata === "sospesa" && <span style={styles.badgeRosso}>Lezione di oggi segnata come non svolta</span>}
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
         <button onClick={() => setAperto((a) => !a)} style={styles.btnSecondary}>
           {aperto ? "Chiudi elenco" : "📋 Check-in / vedi iscritti"}
         </button>
-        <button onClick={() => setModaleSospesa(true)} style={styles.btnSecondary}>
-          Lezione non svolta oggi
-        </button>
+        {!eCollaboratore && (
+          <button onClick={() => setModaleSospesa(true)} style={styles.btnSecondary}>
+            Lezione non svolta oggi
+          </button>
+        )}
       </div>
 
       {aperto && (
         <div style={{ marginTop: 14 }}>
           <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 8 }}>
             Check-in per la lezione di <b>oggi, {oggiLungo()}</b>
+            {eCollaboratore && " — registra solo le presenze, non genera compensi a lezione"}
           </div>
           {corso.iscritti.length === 0 && <p style={{ color: "#64748b", fontSize: 13 }}>Nessun iscritto trovato.</p>}
           {corso.iscritti.map((i) => (
-            <label key={i.cf} style={styles.rigaIscritto}>
-              <input type="checkbox" checked={presenti.has(i.cf)} onChange={() => toggle(i.cf)} />
+            <label key={i.cf} style={{ ...styles.rigaIscritto, alignItems: "flex-start" }}>
+              <input type="checkbox" checked={presenti.has(i.cf)} onChange={() => toggle(i.cf)} style={{ marginTop: 3 }} />
               <span style={{ flex: 1 }}>
                 <div>{i.cognome} {i.nome}</div>
                 <div style={{ fontSize: 11.5, color: "#94a3b8" }}>
@@ -154,8 +168,16 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
                   {i.data_nascita && i.telefono && " · "}
                   {i.telefono}
                 </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 5 }}>
+                  <BadgeCertificato stato={i.stato_certificato} />
+                  <BadgePagamento stato={i.stato_pagamento} />
+                </div>
+                {i.note && (
+                  <div style={{ fontSize: 11.5, color: "#7C3AED", background: "#F5F3FF", borderRadius: 6, padding: "4px 7px", marginTop: 5 }}>
+                    📝 {i.note}
+                  </div>
+                )}
               </span>
-              <BadgeCertificato stato={i.stato_certificato} />
             </label>
           ))}
           {corso.iscritti.length > 0 && (
@@ -320,7 +342,14 @@ export default function AreaIstruttori() {
       <div style={styles.container}>
         <div style={styles.header}>
           <div>
-            <h2 style={{ margin: 0 }}>Ciao {istruttore.nome} 👋</h2>
+            <h2 style={{ margin: 0 }}>
+              Ciao {istruttore.nome} 👋
+              {istruttore.tipo === "collaboratore" && (
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#7C3AED", background: "#EDE9FE", padding: "2px 8px", borderRadius: 6, marginLeft: 8, verticalAlign: "middle" }}>
+                  COLLABORATORE
+                </span>
+              )}
+            </h2>
             <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>Stagione {stagione}</p>
           </div>
           <button onClick={logout} style={styles.btnSecondary}>Esci</button>

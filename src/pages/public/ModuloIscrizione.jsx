@@ -1000,12 +1000,6 @@ export default function ModuloIscrizione() {
                         </div>
                       )}
 
-                      {corso?.quota_annuale_under65 && (
-                        <div className="mt-3 text-xs px-3 py-2 rounded-lg border bg-slate-50 border-slate-200 text-slate-500">
-                          Tariffa ridotta 130€ (invece di 150€) riservata a chi ha più di 65 anni ed è residente a Bovezzo — verificata automaticamente dai dati inseriti.
-                        </div>
-                      )}
-
                       {corso?.ha_variante_frequenza && (
                         <div className="mt-3">
                           <label className="text-xs font-medium text-slate-600 block mb-1">Frequenza</label>
@@ -1045,7 +1039,7 @@ export default function ModuloIscrizione() {
                         <div className="mt-3">
                           <label className="text-xs font-medium text-slate-600 block mb-1">Tipo pagamento</label>
                           <div className="flex flex-col gap-1.5">
-                            {PAGAMENTI.filter((p) => p.value !== "q2" || mostraQ2).map((p) => (
+                            {PAGAMENTI.filter((p) => (p.value !== "q2" || mostraQ2) && (p.value !== "q1" || corso.quota_quad1)).map((p) => (
                               <label key={p.value} className="flex items-start gap-2 text-sm cursor-pointer">
                                 <input type="radio" className="mt-0.5" checked={sel.pagamento === p.value} onChange={() => aggiornaCorso(idx, "pagamento", p.value)} />
                                 <span>
@@ -1058,12 +1052,6 @@ export default function ModuloIscrizione() {
                         </div>
                       )}
 
-                      {corso && (
-                        <div className="mt-3 bg-teal-50 border border-teal-200 rounded-lg px-3 py-2 flex items-center justify-between">
-                          <span className="text-xs text-teal-700">Codice corso per questa scelta:</span>
-                          <span className="font-mono font-bold text-teal-800">{codice}</span>
-                        </div>
-                      )}
                       {corso?.mese_inizio === "settembre" && (
                         <p className="mt-2 text-xs text-teal-700">
                           ✨ Questo corso inizia a settembre (soglia minima raggiunta).
@@ -1223,10 +1211,7 @@ export default function ModuloIscrizione() {
               <p><span className="text-slate-500">Socio:</span> <span className="font-medium">{anagrafica.nome} {anagrafica.cognome}</span></p>
               <p><span className="text-slate-500">CF:</span> <span className="font-mono">{anagrafica.cf}</span></p>
               {corsiConCodice.map((c, i) => (
-                <p key={i} className="flex justify-between">
-                  <span className="text-slate-600">{c.corso.corso} — {c.corso.sede}</span>
-                  <span className="font-mono text-teal-700">{c.codiceCompleto}</span>
-                </p>
+                <p key={i} className="text-slate-600">{c.corso.corso} — {c.corso.sede}</p>
               ))}
               <div className="border-t pt-2 mt-2 flex justify-between items-center">
                 <span className="text-slate-500">Quota da versare:</span>
