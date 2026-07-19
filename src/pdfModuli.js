@@ -8,6 +8,10 @@
 // Richiede la libreria "pdf-lib" (npm install pdf-lib).
 
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import * as pdfjsLib from "pdfjs-dist";
+
+// Worker caricato da CDN — evita complicazioni con la configurazione del bundler
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
 const URL_TEMPLATE_ADESIONE = "https://ebsuqdxflygxhuptnnun.supabase.co/storage/v1/object/public/assets/domanda_adesione_template.pdf";
 const URL_TEMPLATE_LIBERATORIA = "https://ebsuqdxflygxhuptnnun.supabase.co/storage/v1/object/public/assets/liberatoria_template.pdf";
@@ -57,6 +61,56 @@ function disegnaFirma(page, img, x, yBase, maxWidth, maxHeight) {
   page.drawImage(img, { x, y: yBase, width: w, height: h });
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// COMPRESSIONE TESSERA PDF (ASI/Libertas) — queste tessere sono in pratica
+// un'unica immagine ad alta risoluzione incollata in un PDF (300ppi o più,
+// spesso 400-550KB per una tessera). Le rasterizziamo a una risoluzione
+// più ragionevole e le ricomprimiamo come PDF-immagine JPEG, restando
+// perfettamente leggibili ma molto più leggere (in genere sotto i 100KB).
+// ─────────────────────────────────────────────────────────────────────────
+export async function comprimiTesseraPdf(file, scalaResa = 2, qualita = 0.72) {
+  if (file.type !== "application/pdf") return file; // non tocchiamo altri formati
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+
+    // Dimensioni reali della pagina originale (in punti PDF), per ricreare
+    // un nuovo PDF della stessa dimensione fisica
+    const docOriginale = await PDFDocument.load(arrayBuffer.slice(0));
+    const paginaOriginale = docOriginale.getPage(0);
+    const { width: larghezzaPt, height: altezzaPt } = paginaOriginale.getSize();
+
+    // Rasterizza la pagina con pdf.js
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: scalaResa });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+
+    const jpegBlob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", qualita));
+    if (!jpegBlob) return file; // se qualcosa va storto, teniamo l'originale
+
+    const jpegBytes = new Uint8Array(await jpegBlob.arrayBuffer());
+
+    // Ricrea un PDF minimo con la sola immagine JPEG, stessa dimensione fisica dell'originale
+    const nuovoDoc = await PDFDocument.create();
+    const img = await nuovoDoc.embedJpg(jpegBytes);
+    const nuovaPagina = nuovoDoc.addPage([larghezzaPt, altezzaPt]);
+    nuovaPagina.drawImage(img, { x: 0, y: 0, width: larghezzaPt, height: altezzaPt });
+
+    const nuoviBytes = await nuovoDoc.save();
+
+    if (nuoviBytes.length >= file.size) return file; // se non ha ridotto il peso, teniamo l'originale
+
+    return new File([nuoviBytes], file.name, { type: "application/pdf" });
+  } catch (e) {
+    console.error("Impossibile comprimere la tessera PDF, carico l'originale:", e);
+    return file;
+  }
+}
 // ─────────────────────────────────────────────────────────────────────────
 // DOMANDA DI ADESIONE — sovrapposta al modulo reale a 2 pagine
 // (pag.1: 612x792 dati anagrafici + corso + firma; pag.2: 612x792 informativa

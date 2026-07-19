@@ -14,7 +14,8 @@
     "@supabase/supabase-js": "^2.45.0",
     "react-router-dom": "^6.26.0",
     "papaparse": "^5.4.1",
-    "pdf-lib": "^1.17.1"
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.0.379"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",

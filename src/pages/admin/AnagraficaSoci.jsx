@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../../supabase.js'
-import { generaPdfDomandaAdesione } from '../../pdfModuli.js'
+import { generaPdfDomandaAdesione, comprimiTesseraPdf } from '../../pdfModuli.js'
 
 const G = "#2D6A4F", GL = "#D8F3DC"
 const BD = "#E8E4DC", TX = "#1A1A1A", SUB = "#6B7280"
@@ -307,8 +307,9 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
     if (!file) return
     setCaricandoPdf(true)
     setErrorePdf('')
+    const fileCompresso = await comprimiTesseraPdf(file)
     const path = `${socio.cf}/tessera_ufficiale.pdf`
-    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, {
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, fileCompresso, {
       contentType: 'application/pdf',
       upsert: true,
     })
