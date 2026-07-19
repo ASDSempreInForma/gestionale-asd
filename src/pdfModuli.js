@@ -85,10 +85,34 @@ function separaIndirizzo(indirizzo) {
   return { via: m[1].trim(), civico: m[2].trim() };
 }
 
-// Scrive un testo sbiancando prima i puntini/trattini sotto; se il testo è più
-// largo dello spazio disponibile, riduce automaticamente la dimensione del
-// carattere finché non ci sta, così non finisce mai sopra il campo successivo.
-function scriviAdattivo(page, font, str, x, yTop, larghezzaDisponibile, sizeMax, opts = {}) {
+// Come scriviAdattivo, ma se il testo non ci sta nemmeno riducendo il carattere
+// lo spezza su due righe (c'è spazio verticale reale sotto queste righe, verificato
+// nel PDF originale) invece di continuare a rimpicciolire all'infinito.
+function scriviDueRighe(page, font, str, x, yTop, larghezzaDisponibile, sizeMax) {
+  if (!str) return;
+  const color = rgb(0.05, 0.05, 0.35);
+  const ciSta = (testo, size) => font.widthOfTextAtSize(testo, size) <= larghezzaDisponibile - 4;
+
+  if (ciSta(str, sizeMax)) {
+    page.drawRectangle({ x: x - 2, y: yTop - 2, width: larghezzaDisponibile, height: sizeMax + 4, color: rgb(1, 1, 1) });
+    page.drawText(str, { x, y: yTop + 1, size: sizeMax, font, color });
+    return;
+  }
+
+  // Spezza in due righe, tagliando allo spazio più vicino alla metà della stringa
+  const metà = Math.ceil(str.length / 2);
+  let idx = str.lastIndexOf(" ", metà);
+  if (idx === -1) idx = str.indexOf(" ", metà);
+  const riga1 = idx === -1 ? str : str.slice(0, idx).trim();
+  const riga2 = idx === -1 ? "" : str.slice(idx + 1).trim();
+
+  let size = sizeMax;
+  while (size > 6.5 && (!ciSta(riga1, size) || !ciSta(riga2, size))) size -= 0.5;
+
+  page.drawRectangle({ x: x - 2, y: yTop - 2 - (size + 3), width: larghezzaDisponibile, height: (size + 3) * 2 + 2, color: rgb(1, 1, 1) });
+  page.drawText(riga1, { x, y: yTop + 1, size, font, color });
+  if (riga2) page.drawText(riga2, { x, y: yTop + 1 - (size + 3), size, font, color });
+}
   if (!str) return;
   const { color = rgb(0.05, 0.05, 0.35) } = opts;
   let size = sizeMax;
@@ -187,27 +211,30 @@ export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }) {
   scrivi1(fmtData(socio.data_nascita), 52, 137.4, 68);
   scriviAdattivo(p1, font, socio.comune_residenza || "", 182, H - 137.4, 115, 9);
   scrivi1(socio.provincia_residenza || "", 302, 137.4, 40, { size: 9 });
-  scriviAdattivo(p1, font, via, 345, H - 137.4, 128, 9);         // via, senza civico
-  scrivi1(civico, 483, 137.4, 34, { size: 9 });                   // civico, dopo la label "n°" (che inizia a x=479.9)
-  scrivi1(socio.cap || "", 540, 137.4, 30, { size: 9 });          // dopo la fine dell'etichetta "cap" (x=534.3)
+  scriviAdattivo(p1, font, via, 348, H - 137.4, 122, 9);           // via, senza civico — la label "via" finisce a x=344.9
+  scrivi1(civico, 494, 137.4, 22, { size: 9 });                     // civico, dopo la fine vera dell'etichetta "n°" (x=490.3)
+  scrivi1(socio.cap || "", 540, 137.4, 30, { size: 9 });            // dopo la fine dell'etichetta "cap" (x=534.3)
 
   scrivi1(socio.telefono || "", 120, 162.7, 190);
   scriviAdattivo(p1, font, socio.email || "", 362, H - 162.7, 200, 9);
 
   scrivi1(socio.cf, 120, 187.9, 280, { bold: true });
 
-  // Corso/sede/orario: dimensione automatica, non finiscono mai sopra il campo dopo
-  scriviAdattivo(p1, fontBold, corso?.disciplina || "", 185, H - 213.2, 90, 9);
-  scriviAdattivo(p1, fontBold, corso?.sedi?.nome || "", 315, H - 213.2, 96, 9);
-  scriviAdattivo(p1, fontBold, corso?.giorni_orari || "", 490, H - 213.2, 76, 8);
+  // Corso/sede/orario: c'è ~24pt di spazio libero sotto questa riga prima della
+  // successiva (verificato nel PDF originale), quindi se il testo non ci sta
+  // nemmeno riducendo il carattere va su due righe invece di rimpicciolire troppo
+  scriviDueRighe(p1, fontBold, corso?.disciplina || "", 185, H - 213.2, 90, 9);
+  scriviDueRighe(p1, fontBold, corso?.sedi?.nome || "", 315, H - 213.2, 96, 9);
+  scriviDueRighe(p1, fontBold, corso?.giorni_orari || "", 490, H - 213.2, 76, 8);
 
   // Le due spunte "Presto il consenso" (statuto + certificato medico) — coordinate
   // vere dei quadratini prese dal PDF (132.6-141.6 x 623.6-632.6 e x 714.5-723.5)
   segnaCasella(p1, fontBold, { x0: 132.6, x1: 141.6, top: 623.6, bottom: 632.6 }, H);
   segnaCasella(p1, fontBold, { x0: 132.6, x1: 141.6, top: 714.5, bottom: 723.5 }, H);
 
-  // Firma unica (statuto + certificato medico), in fondo pagina 1
-  scrivi1(luogo, 48, 782.6, 118);
+  // Firma unica (statuto + certificato medico), in fondo pagina 1 — il valore deve
+  // iniziare dopo la fine vera dell'etichetta "Luogo" (x=71.4), non al suo inizio
+  scrivi1(luogo, 75, 782.6, 92);
   scrivi1(fmtData(dataFirma), 200, 782.6, 108);
   disegnaFirma(p1, firmaImg, 411, H - 771, 150, 24);
 
@@ -227,7 +254,7 @@ export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }) {
   if (consensoImmagini) segnaCasella(p2, fontBold, { x0: 139.2, x1: 148.2, top: 608.8, bottom: 617.8 }, H);
   else segnaCasella(p2, fontBold, { x0: 251.8, x1: 260.9, top: 609.4, bottom: 618.4 }, H);
 
-  scrivi2(luogo, 48, 654.9, 118);
+  scrivi2(luogo, 75, 654.9, 92);
   scrivi2(fmtData(dataFirma), 200, 654.9, 108);
 
   // Firma dell'interessato al trattamento (stessa firma del socio/genitore) —
