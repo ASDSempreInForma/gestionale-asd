@@ -75,6 +75,7 @@ export default function GestioneProve() {
   // Salvataggio in corso
   const [saving, setSaving] = useState({});
   const [dataProvaScelta, setDataProvaScelta] = useState({});
+  const [eccezioni, setEccezioni] = useState({}); // {cf: motivo}
 
   // ── Caricamento iniziale ─────────────────────────────────────────────────
   useEffect(() => { caricaDati(); }, []);
@@ -132,6 +133,11 @@ export default function GestioneProve() {
       if (errP) throw errP;
       setProve(proveDB || []);
 
+      const { data: eccDB } = await supabase.from("eccezioni_limite_prova").select("cf, motivo");
+      const eccObj = {};
+      (eccDB || []).forEach(e => { eccObj[e.cf] = e.motivo || "Eccezione attiva"; });
+      setEccezioni(eccObj);
+
     } catch (err) {
       console.error(err);
       setErrore("Errore caricamento dati. Controlla la connessione.");
@@ -140,7 +146,17 @@ export default function GestioneProve() {
     }
   }
 
-  // ── Aggiorna stato prova ─────────────────────────────────────────────────
+  // ── Sblocca/blocca il limite richieste prova per un CF ───────────
+  async function toggleEccezione(cf, attiva) {
+    if (attiva) {
+      const motivo = window.prompt("Motivo dell'eccezione (facoltativo):", "") || "Eccezione manuale";
+      const { error } = await supabase.from("eccezioni_limite_prova").upsert({ cf, motivo }, { onConflict: "cf" });
+      if (!error) setEccezioni(prev => ({ ...prev, [cf]: motivo }));
+    } else {
+      const { error } = await supabase.from("eccezioni_limite_prova").delete().eq("cf", cf);
+      if (!error) setEccezioni(prev => { const n = { ...prev }; delete n[cf]; return n; });
+    }
+  }
   async function aggiornaStato(id, nuovoStato, extraCampi = {}) {
     setSaving(p => ({ ...p, [id]: true }));
     const extra = nuovoStato === "effettuata"
@@ -521,6 +537,29 @@ export default function GestioneProve() {
                       {p.note && (
                         <div style={{ fontSize:11, color:SUB, marginTop:8, fontStyle:"italic" }}>{p.note}</div>
                       )}
+                      {(() => {
+                        const storicoAltro = prove.filter(x => x.cf === p.cf && x.id !== p.id);
+                        const eccezioneAttiva = eccezioni[p.cf];
+                        return (
+                          <div style={{ marginTop:8, paddingTop:8, borderTop:"1px solid #F3F4F6" }}>
+                            {storicoAltro.length > 0 && (
+                              <div style={{ fontSize:11, color:A, background:AL, borderRadius:7, padding:"6px 9px", marginBottom:6 }}>
+                                ⚠️ Questa persona ha già richiesto {storicoAltro.length} prov{storicoAltro.length===1?"a":"e"} in passato:
+                                {storicoAltro.map((s,i) => (
+                                  <div key={i} style={{ marginTop:2 }}>
+                                    · {s.corsi?.disciplina} — {s.corsi?.sedi?.nome} ({new Date(s.data_richiesta).toLocaleDateString("it-IT")}, {STATI_PROVA.find(x=>x.value===s.stato)?.label || s.stato})
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <button onClick={() => toggleEccezione(p.cf, !eccezioneAttiva)}
+                              style={{ fontSize:11, padding:"4px 9px", borderRadius:7, border:`1px solid ${eccezioneAttiva?G:BD}`,
+                                background: eccezioneAttiva?GL:"white", color: eccezioneAttiva?GD:SUB, cursor:"pointer" }}>
+                              {eccezioneAttiva ? `🔓 Eccezione attiva — clicca per rimuovere` : "🔒 Sblocca limite per questa persona"}
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}

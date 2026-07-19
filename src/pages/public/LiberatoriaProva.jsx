@@ -87,6 +87,8 @@ export default function LiberatoriaProva() {
   const [inviato, setInviato] = useState(false);
   const [inviando, setInviando] = useState(false);
   const [erroreInvio, setErroreInvio] = useState(null);
+  const [verificandoLimite, setVerificandoLimite] = useState(false);
+  const [limiteBloccato, setLimiteBloccato] = useState(null); // motivo string, o null se non bloccato
   const [errs, setErrs] = useState({});
 
   // Corsi dal DB
@@ -272,10 +274,33 @@ export default function LiberatoriaProva() {
     }
   }
 
-  function next() {
+  async function next() {
     const e = valid(step);
     if (Object.keys(e).length) { setErrs(e); window.scrollTo(0, 0); return; }
     if (step === 6) { inviaLiberatoria(); return; }
+
+    if (step === 4) {
+      setVerificandoLimite(true);
+      setLimiteBloccato(null);
+      try {
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/verifica-limite-prova`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+          body: JSON.stringify({ cf: d.cf, corso_id: d.corsoProvaId }),
+        });
+        const dataRes = await res.json();
+        setVerificandoLimite(false);
+        if (dataRes.ok && dataRes.bloccato) {
+          setLimiteBloccato(dataRes.motivo);
+          window.scrollTo(0, 0);
+          return;
+        }
+      } catch (_) {
+        setVerificandoLimite(false);
+        // In caso di errore di rete non blocchiamo la persona: meglio un falso negativo che impedire l'iscrizione
+      }
+    }
+
     setStep(s => s + 1); setErrs({});
     window.scrollTo(0, 0);
   }
@@ -467,7 +492,7 @@ export default function LiberatoriaProva() {
                     const isBlocked = stato === "pieno" || stato === "prove_bloccate";
                     const isSelected = d.corsoProvaId === c.id;
                     return (
-                      <div key={c.id} onClick={() => !isBlocked && set("corsoProvaId", c.id)}
+                      <div key={c.id} onClick={() => !isBlocked && (set("corsoProvaId", c.id), setLimiteBloccato(null))}
                         style={{ border: `1.5px solid ${isSelected?G:isBlocked?"#E5E7EB":BD}`, borderRadius: 10, padding: "11px 14px",
                           cursor: isBlocked?"not-allowed":"pointer", background: isSelected?GL:isBlocked?"#FAFAFA":"white",
                           opacity: isBlocked?0.7:1, transition: "all .15s" }}>
@@ -494,6 +519,15 @@ export default function LiberatoriaProva() {
                 </div>
               )}
               {errs.corsoProvaId && <p style={{ fontSize: 11, color: R, marginTop: -6, marginBottom: 8 }}>{errs.corsoProvaId}</p>}
+              {limiteBloccato && (
+                <div style={{ background: RL, border: `1px solid ${R}33`, borderRadius: 10, padding: "12px 14px", marginTop: 4 }}>
+                  <p style={{ fontSize: 13, color: R, margin: 0, fontWeight: 600 }}>Non puoi procedere con questa richiesta</p>
+                  <p style={{ fontSize: 12.5, color: R, margin: "4px 0 8px" }}>{limiteBloccato}</p>
+                  <p style={{ fontSize: 12, color: SUB, margin: 0 }}>
+                    Se pensi sia un errore, contatta la segreteria: 💬 WhatsApp <a href="https://wa.me/393278681393" target="_blank" rel="noreferrer" style={{ color: G }}>327 868 1393</a>
+                  </p>
+                </div>
+              )}
               {lbl("Giorni e orari preferiti (opzionale)")}{inp("orarioProva", "Es. Martedì sera, oppure mattina…")}
               <div style={{ borderTop: `1px solid ${BD}`, paddingTop: 14, marginTop: 4 }}>
                 <div style={{ fontSize: 13, fontWeight: 500, color: TX, marginBottom: 4 }}>Quale corso vorresti frequentare?</div>
@@ -566,9 +600,9 @@ export default function LiberatoriaProva() {
               ← Indietro
             </button>
           )}
-          <button onClick={next} disabled={inviando}
-            style={{ flex: 1, padding: "11px", background: G, border: "none", borderRadius: 10, fontSize: 13, fontWeight: 600, color: "white", cursor: inviando?"not-allowed":"pointer", opacity: inviando?0.7:1 }}>
-            {step === 6 ? (inviando ? "Invio in corso…" : "✉️ Invia liberatoria") : "Continua →"}
+          <button onClick={next} disabled={inviando || verificandoLimite}
+            style={{ flex: 1, padding: "11px", background: G, border: "none", borderRadius: 10, fontSize: 13, fontWeight: 600, color: "white", cursor: (inviando||verificandoLimite)?"not-allowed":"pointer", opacity: (inviando||verificandoLimite)?0.7:1 }}>
+            {step === 6 ? (inviando ? "Invio in corso…" : "✉️ Invia liberatoria") : verificandoLimite ? "Verifico…" : "Continua →"}
           </button>
         </div>
 
