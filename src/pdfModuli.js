@@ -61,6 +61,44 @@ function disegnaFirma(page, img, x, yBase, maxWidth, maxHeight) {
   page.drawImage(img, { x, y: yBase, width: w, height: h });
 }
 
+// Centra una "X" dentro il quadratino reale della casella (coordinate prese
+// direttamente dal PDF originale, non stimate) — sia in orizzontale che in verticale.
+function segnaCasella(page, font, rectPdfTop, H, size = 9) {
+  const { x0, x1, top, bottom } = rectPdfTop;
+  const centroX = (x0 + x1) / 2;
+  const centroYOriginale = (top + bottom) / 2;
+  const larghezzaX = font.widthOfTextAtSize("X", size);
+  page.drawText("X", {
+    x: centroX - larghezzaX / 2,
+    y: H - centroYOriginale - size * 0.35,
+    size,
+    font,
+  });
+}
+
+// Separa "Via Roma 12" in { via: "Via Roma", civico: "12" } — se non trova un
+// numero finale, mette tutto nel campo via e lascia vuoto il civico.
+function separaIndirizzo(indirizzo) {
+  if (!indirizzo) return { via: "", civico: "" };
+  const m = indirizzo.trim().match(/^(.*?)[,\s]+(\d+[A-Za-z]?)\s*$/);
+  if (!m) return { via: indirizzo.trim(), civico: "" };
+  return { via: m[1].trim(), civico: m[2].trim() };
+}
+
+// Scrive un testo sbiancando prima i puntini/trattini sotto; se il testo è più
+// largo dello spazio disponibile, riduce automaticamente la dimensione del
+// carattere finché non ci sta, così non finisce mai sopra il campo successivo.
+function scriviAdattivo(page, font, str, x, yTop, larghezzaDisponibile, sizeMax, opts = {}) {
+  if (!str) return;
+  const { color = rgb(0.05, 0.05, 0.35) } = opts;
+  let size = sizeMax;
+  while (size > 5.5 && font.widthOfTextAtSize(str, size) > larghezzaDisponibile - 4) {
+    size -= 0.5;
+  }
+  page.drawRectangle({ x: x - 2, y: yTop - 2, width: larghezzaDisponibile, height: sizeMax + 4, color: rgb(1, 1, 1) });
+  page.drawText(str, { x, y: yTop + 1, size, font, color });
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // COMPRESSIONE TESSERA PDF (ASI/Libertas) — queste tessere sono in pratica
 // un'unica immagine ad alta risoluzione incollata in un PDF (300ppi o più,
@@ -129,11 +167,10 @@ export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }) {
   const luogo = (iscrizione.note || "").match(/Luogo firma:\s*([^|]+)/)?.[1]?.trim() || "";
   const dataFirma = iscrizione.data_iscrizione ? iscrizione.data_iscrizione.slice(0, 10) : null;
   const consensoImmagini = /Consenso immagini:\s*sì/i.test(iscrizione.note || "");
+  const { via, civico } = separaIndirizzo(socio.indirizzo);
 
   // ── Pagina 1 ──
   const p1 = pdfDoc.getPage(0);
-  // Scrive un valore SBIANCANDO prima i puntini originali sotto, così il testo
-  // non appare "barrato" sopra la riga tratteggiata del modulo.
   const scrivi1 = (str, x, bottomOriginale, larghezzaBianco, opts = {}) => {
     if (!str) return;
     const { size = 9, bold = false, color = rgb(0.05, 0.05, 0.35) } = opts;
@@ -142,29 +179,32 @@ export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }) {
     p1.drawText(str, { x, y: yTop + 1, size, font: bold ? fontBold : font, color });
   };
 
-  scrivi1(`${socio.cognome} ${socio.nome}`, 140, 111.0, 215);
-  scrivi1(socio.comune_nascita || "", 395, 111.0, 128, { size: 9 });
-  scrivi1(socio.provincia_nascita || "", 523, 111.0, 45, { size: 9 });
+  // Nome: deve fermarsi prima di "nato" (che inizia a x=351.3) — dimensione adattiva
+  scriviAdattivo(p1, fontBold, `${socio.cognome} ${socio.nome}`, 140, H - 111.0, 205, 9);
+  scriviAdattivo(p1, font, socio.comune_nascita || "", 395, H - 111.0, 122, 9);
+  scrivi1(socio.provincia_nascita || "", 523, 111.0, 40, { size: 9 });
 
-  scrivi1(fmtData(socio.data_nascita), 52, 137.4, 74);
-  scrivi1(socio.comune_residenza || "", 182, 137.4, 122, { size: 9 });
-  scrivi1(socio.provincia_residenza || "", 302, 137.4, 45, { size: 9 });
-  scrivi1(socio.indirizzo || "", 345, 137.4, 172, { size: 9 });
-  scrivi1(socio.cap || "", 535, 137.4, 38, { size: 9 });
+  scrivi1(fmtData(socio.data_nascita), 52, 137.4, 68);
+  scriviAdattivo(p1, font, socio.comune_residenza || "", 182, H - 137.4, 115, 9);
+  scrivi1(socio.provincia_residenza || "", 302, 137.4, 40, { size: 9 });
+  scriviAdattivo(p1, font, via, 345, H - 137.4, 128, 9);         // via, senza civico
+  scrivi1(civico, 483, 137.4, 34, { size: 9 });                   // civico, dopo la label "n°" (che inizia a x=479.9)
+  scrivi1(socio.cap || "", 540, 137.4, 30, { size: 9 });          // dopo la fine dell'etichetta "cap" (x=534.3)
 
-  scrivi1(socio.telefono || "", 120, 162.7, 198);
-  scrivi1(socio.email || "", 362, 162.7, 210, { size: 9 });
+  scrivi1(socio.telefono || "", 120, 162.7, 190);
+  scriviAdattivo(p1, font, socio.email || "", 362, H - 162.7, 200, 9);
 
-  scrivi1(socio.cf, 120, 187.9, 288, { bold: true });
+  scrivi1(socio.cf, 120, 187.9, 280, { bold: true });
 
-  scrivi1(corso?.disciplina || "", 185, 213.2, 96, { size: 8, bold: true });
-  scrivi1(corso?.sedi?.nome || "", 315, 213.2, 102, { size: 8, bold: true }); // dopo la label "Luogo"
-  scrivi1(corso?.giorni_orari || "", 490, 213.2, 82, { size: 7.5, bold: true }); // dopo la label "Orari"
+  // Corso/sede/orario: dimensione automatica, non finiscono mai sopra il campo dopo
+  scriviAdattivo(p1, fontBold, corso?.disciplina || "", 185, H - 213.2, 90, 9);
+  scriviAdattivo(p1, fontBold, corso?.sedi?.nome || "", 315, H - 213.2, 96, 9);
+  scriviAdattivo(p1, fontBold, corso?.giorni_orari || "", 490, H - 213.2, 76, 8);
 
-  // Le due spunte "Presto il consenso" (statuto + certificato medico): sempre
-  // spuntate, perché per arrivare fin qui la persona le ha già accettate nel modulo online
-  p1.drawText("X", { x: 138, y: H - 630.8 + 1, size: 10, font: fontBold });
-  p1.drawText("X", { x: 138, y: H - 721.7 + 1, size: 10, font: fontBold });
+  // Le due spunte "Presto il consenso" (statuto + certificato medico) — coordinate
+  // vere dei quadratini prese dal PDF (132.6-141.6 x 623.6-632.6 e x 714.5-723.5)
+  segnaCasella(p1, fontBold, { x0: 132.6, x1: 141.6, top: 623.6, bottom: 632.6 }, H);
+  segnaCasella(p1, fontBold, { x0: 132.6, x1: 141.6, top: 714.5, bottom: 723.5 }, H);
 
   // Firma unica (statuto + certificato medico), in fondo pagina 1
   scrivi1(luogo, 48, 782.6, 118);
@@ -183,10 +223,9 @@ export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }) {
 
   scrivi2(`${socio.cognome} ${socio.nome}`, 155, 564.0, 245, { size: 9 });
 
-  // Spunta la casella corrispondente al consenso immagini dichiarato in fase di iscrizione
-  // (le caselle vere iniziano subito prima di "Presto"/"Non...Presto", a x=157.5 e x=286.4)
-  p2.drawText(consensoImmagini ? "X" : "", { x: 141, y: H - 618.2 + 1, size: 10, font: fontBold });
-  p2.drawText(!consensoImmagini ? "X" : "", { x: 251, y: H - 618.2 + 1, size: 10, font: fontBold });
+  // Consenso immagini — coordinate vere dei quadratini (139.2-148.2 e 251.8-260.9, top~609-618)
+  if (consensoImmagini) segnaCasella(p2, fontBold, { x0: 139.2, x1: 148.2, top: 608.8, bottom: 617.8 }, H);
+  else segnaCasella(p2, fontBold, { x0: 251.8, x1: 260.9, top: 609.4, bottom: 618.4 }, H);
 
   scrivi2(luogo, 48, 654.9, 118);
   scrivi2(fmtData(dataFirma), 200, 654.9, 108);
@@ -196,7 +235,8 @@ export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }) {
   disegnaFirma(p2, firmaImg, 45, H - 696, 190, 20);
 
   if (minorenne) {
-    p2.drawText("X", { x: 96, y: H - 723.0 + 1, size: 9, font: fontBold });
+    // Casella "Minore" (nessun rettangolo rilevabile nel PDF, stimata subito prima della label a x=108.5)
+    p2.drawText("X", { x: 91, y: H - 723.0 + 1, size: 9, font: fontBold });
     disegnaFirma(p2, firmaImg, 340, H - 723, 195, 18);
   }
 
@@ -215,6 +255,7 @@ export async function generaPdfLiberatoria({ prova }) {
   const page = pdfDoc.getPage(0);
   const H = 841.92;
   const extra = prova.dati_extra || {};
+  const { via, civico } = separaIndirizzo(extra.indirizzo);
 
   const scrivi = (str, x, bottomOriginale, larghezzaBianco, size = 9) => {
     if (!str) return;
@@ -223,11 +264,16 @@ export async function generaPdfLiberatoria({ prova }) {
     page.drawText(str, { x, y: yTop + 1, size, font, color: rgb(0.05, 0.05, 0.35) });
   };
 
-  scrivi(`${prova.cognome} ${prova.nome}`, 175, 105.5, 232, 10);
-  scrivi(extra.comune_nascita || "", 98, 133.1, 172, 9);
-  scrivi(fmtData(prova.data_nascita), 276, 133.1, 132, 9);
-  scrivi(`${extra.citta || ""}${extra.provincia ? " (" + extra.provincia + ")" : ""}`, 93, 160.7, 312, 9);
-  scrivi(extra.indirizzo || "", 88, 188.3, 247, 9);
+  // Nome: dimensione adattiva (non c'è una label successiva da rispettare su questa riga)
+  scriviAdattivo(page, font, `${prova.cognome} ${prova.nome}`, 175, H - 105.5, 220, 10);
+  // Comune di nascita: deve fermarsi prima di "il" (che inizia a x=265.0)
+  scriviAdattivo(page, font, extra.comune_nascita || "", 98, H - 133.1, 158, 9);
+  scrivi(fmtData(prova.data_nascita), 276, 133.1, 120, 9);
+  // Città di residenza (+ provincia): riga libera, nessun campo dopo
+  scriviAdattivo(page, font, `${extra.citta || ""}${extra.provincia ? " (" + extra.provincia + ")" : ""}`, 93, H - 160.7, 300, 9);
+  // Via (senza civico) e civico separato — la label "n°" comincia subito dopo la fine della riga via
+  scriviAdattivo(page, font, via, 88, H - 188.3, 235, 9);
+  scrivi(civico, 350, 188.3, 50, 9);
 
   const firma1Img = await embedFirma(pdfDoc, prova.firma_url);
   disegnaFirma(page, firma1Img, 139, H - 673.6, 230, 30);
