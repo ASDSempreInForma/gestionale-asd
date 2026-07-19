@@ -142,24 +142,24 @@ export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }) {
     p1.drawText(str, { x, y: yTop + 1, size, font: bold ? fontBold : font, color });
   };
 
-  scrivi1(`${socio.cognome} ${socio.nome}`, 140, 111.0, 205);
-  scrivi1(socio.comune_nascita || "", 395, 111.0, 120);
-  scrivi1(socio.provincia_nascita || "", 523, 111.0, 40, { size: 8 });
+  scrivi1(`${socio.cognome} ${socio.nome}`, 140, 111.0, 215);
+  scrivi1(socio.comune_nascita || "", 395, 111.0, 128, { size: 9 });
+  scrivi1(socio.provincia_nascita || "", 523, 111.0, 45, { size: 9 });
 
-  scrivi1(fmtData(socio.data_nascita), 52, 137.4, 68);
-  scrivi1(socio.comune_residenza || "", 182, 137.4, 115);
-  scrivi1(socio.provincia_residenza || "", 302, 137.4, 40, { size: 8 });
-  scrivi1(socio.indirizzo || "", 345, 137.4, 165, { size: 8 });
-  scrivi1(socio.cap || "", 535, 137.4, 32, { size: 8 });
+  scrivi1(fmtData(socio.data_nascita), 52, 137.4, 74);
+  scrivi1(socio.comune_residenza || "", 182, 137.4, 122, { size: 9 });
+  scrivi1(socio.provincia_residenza || "", 302, 137.4, 45, { size: 9 });
+  scrivi1(socio.indirizzo || "", 345, 137.4, 172, { size: 9 });
+  scrivi1(socio.cap || "", 535, 137.4, 38, { size: 9 });
 
-  scrivi1(socio.telefono || "", 120, 162.7, 190);
-  scrivi1(socio.email || "", 362, 162.7, 200, { size: 8 });
+  scrivi1(socio.telefono || "", 120, 162.7, 198);
+  scrivi1(socio.email || "", 362, 162.7, 210, { size: 9 });
 
-  scrivi1(socio.cf, 120, 187.9, 280, { bold: true });
+  scrivi1(socio.cf, 120, 187.9, 288, { bold: true });
 
-  scrivi1(corso?.disciplina || "", 185, 213.2, 90, { size: 8, bold: true });
-  scrivi1(corso?.sedi?.nome || "", 315, 213.2, 95, { size: 8, bold: true }); // dopo la label "Luogo"
-  scrivi1(corso?.giorni_orari || "", 490, 213.2, 78, { size: 7, bold: true }); // dopo la label "Orari"
+  scrivi1(corso?.disciplina || "", 185, 213.2, 96, { size: 8, bold: true });
+  scrivi1(corso?.sedi?.nome || "", 315, 213.2, 102, { size: 8, bold: true }); // dopo la label "Luogo"
+  scrivi1(corso?.giorni_orari || "", 490, 213.2, 82, { size: 7.5, bold: true }); // dopo la label "Orari"
 
   // Le due spunte "Presto il consenso" (statuto + certificato medico): sempre
   // spuntate, perché per arrivare fin qui la persona le ha già accettate nel modulo online
@@ -167,8 +167,8 @@ export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }) {
   p1.drawText("X", { x: 138, y: H - 721.7 + 1, size: 10, font: fontBold });
 
   // Firma unica (statuto + certificato medico), in fondo pagina 1
-  scrivi1(luogo, 48, 782.6, 110);
-  scrivi1(fmtData(dataFirma), 200, 782.6, 100);
+  scrivi1(luogo, 48, 782.6, 118);
+  scrivi1(fmtData(dataFirma), 200, 782.6, 108);
   disegnaFirma(p1, firmaImg, 411, H - 771, 150, 24);
 
   // ── Pagina 2 (informativa privacy / consenso immagini) ──
@@ -181,17 +181,19 @@ export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }) {
     p2.drawText(str, { x, y: yTop + 1, size, font: bold ? fontBold : font, color });
   };
 
-  scrivi2(`${socio.cognome} ${socio.nome}`, 155, 564.0, 235, { size: 8 });
+  scrivi2(`${socio.cognome} ${socio.nome}`, 155, 564.0, 245, { size: 9 });
 
   // Spunta la casella corrispondente al consenso immagini dichiarato in fase di iscrizione
-  p2.drawText(consensoImmagini ? "X" : "", { x: 168, y: H - 618.2 + 1, size: 9, font: fontBold });
-  p2.drawText(!consensoImmagini ? "X" : "", { x: 279, y: H - 618.2 + 1, size: 9, font: fontBold });
+  // (le caselle vere iniziano subito prima di "Presto"/"Non...Presto", a x=157.5 e x=286.4)
+  p2.drawText(consensoImmagini ? "X" : "", { x: 141, y: H - 618.2 + 1, size: 10, font: fontBold });
+  p2.drawText(!consensoImmagini ? "X" : "", { x: 251, y: H - 618.2 + 1, size: 10, font: fontBold });
 
-  scrivi2(luogo, 48, 654.9, 110);
-  scrivi2(fmtData(dataFirma), 200, 654.9, 100);
+  scrivi2(luogo, 48, 654.9, 118);
+  scrivi2(fmtData(dataFirma), 200, 654.9, 108);
 
-  // Firma dell'interessato al trattamento (stessa firma del socio/genitore)
-  disegnaFirma(p2, firmaImg, 45, H - 687, 190, 20);
+  // Firma dell'interessato al trattamento (stessa firma del socio/genitore) —
+  // sulla riga di puntini sotto l'etichetta (top 687.5-696.5), non sopra
+  disegnaFirma(p2, firmaImg, 45, H - 696, 190, 20);
 
   if (minorenne) {
     p2.drawText("X", { x: 96, y: H - 723.0 + 1, size: 9, font: fontBold });
@@ -221,11 +223,11 @@ export async function generaPdfLiberatoria({ prova }) {
     page.drawText(str, { x, y: yTop + 1, size, font, color: rgb(0.05, 0.05, 0.35) });
   };
 
-  scrivi(`${prova.cognome} ${prova.nome}`, 175, 105.5, 220);
-  scrivi(extra.comune_nascita || "", 98, 133.1, 160);
-  scrivi(fmtData(prova.data_nascita), 276, 133.1, 120);
-  scrivi(`${extra.citta || ""}${extra.provincia ? " (" + extra.provincia + ")" : ""}`, 93, 160.7, 300);
-  scrivi(extra.indirizzo || "", 88, 188.3, 235);
+  scrivi(`${prova.cognome} ${prova.nome}`, 175, 105.5, 232, 10);
+  scrivi(extra.comune_nascita || "", 98, 133.1, 172, 9);
+  scrivi(fmtData(prova.data_nascita), 276, 133.1, 132, 9);
+  scrivi(`${extra.citta || ""}${extra.provincia ? " (" + extra.provincia + ")" : ""}`, 93, 160.7, 312, 9);
+  scrivi(extra.indirizzo || "", 88, 188.3, 247, 9);
 
   const firma1Img = await embedFirma(pdfDoc, prova.firma_url);
   disegnaFirma(page, firma1Img, 139, H - 673.6, 230, 30);
@@ -233,8 +235,8 @@ export async function generaPdfLiberatoria({ prova }) {
   const firma2Img = await embedFirma(pdfDoc, prova.firma2_url);
   disegnaFirma(page, firma2Img, 139, H - 756.4, 230, 30);
 
-  scrivi(extra.luogo_firma || "", 70, 784.0, 190);
-  scrivi(fmtData(extra.data_firma), 296, 784.0, 200);
+  scrivi(extra.luogo_firma || "", 70, 784.0, 198, 9);
+  scrivi(fmtData(extra.data_firma), 296, 784.0, 208, 9);
 
   const bytes = await pdfDoc.save();
   scaricaPdf(bytes, `Liberatoria_${prova.cognome}_${prova.nome}.pdf`.replace(/\s+/g, "_"));
