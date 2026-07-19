@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
+import ComboComune from "../../ComboComune.jsx";
 
 /* =====================================================================
    LIBERATORIA PER LEZIONE DI PROVA — A.S.D. Sempre In Forma
@@ -382,7 +383,15 @@ export default function LiberatoriaProva() {
               {errs.genere && <p style={{ fontSize: 11, color: R, marginTop: -8, marginBottom: 8 }}>{errs.genere}</p>}
               {lbl("Data di nascita", true)}{inp("dataNascita", "", "date")}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
-                <div>{lbl("Comune di nascita", true)}{inp("comuneNascita", "Brescia")}</div>
+                <div>{lbl("Comune di nascita", true)}
+                  <ComboComune
+                    value={d.comuneNascita}
+                    onChange={(v) => set("comuneNascita", v)}
+                    onSiglaProvincia={(sigla) => set("provinciaNascita", sigla)}
+                    placeholder="Brescia"
+                  />
+                  {errs.comuneNascita && <p style={{ fontSize: 11, color: R, marginTop: 2 }}>{errs.comuneNascita}</p>}
+                </div>
                 <div>{lbl("Provincia di nascita")}{inp("provinciaNascita", "BS")}</div>
               </div>
               {lbl("Codice Fiscale", true)}
@@ -414,7 +423,15 @@ export default function LiberatoriaProva() {
                 <div>{lbl("N° Civico")}{inp("civico", "10")}</div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 10px" }}>
-                <div style={{ gridColumn: "1/3" }}>{lbl("Città", true)}{inp("citta", "Brescia")}</div>
+                <div style={{ gridColumn: "1/3" }}>{lbl("Città", true)}
+                  <ComboComune
+                    value={d.citta}
+                    onChange={(v) => set("citta", v)}
+                    onSiglaProvincia={(sigla) => set("provincia", sigla)}
+                    placeholder="Brescia"
+                  />
+                  {errs.citta && <p style={{ fontSize: 11, color: R, marginTop: 2 }}>{errs.citta}</p>}
+                </div>
                 <div>{lbl("Provincia")}{inp("provincia", "BS")}</div>
               </div>
               {lbl("CAP", true)}{inp("cap", "25100")}

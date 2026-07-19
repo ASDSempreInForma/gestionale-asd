@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../../supabase.js'
 import { generaPdfDomandaAdesione, comprimiTesseraPdf } from '../../pdfModuli.js'
+import ComboComune from '../../ComboComune.jsx'
 
 const G = "#2D6A4F", GL = "#D8F3DC"
 const BD = "#E8E4DC", TX = "#1A1A1A", SUB = "#6B7280"
@@ -217,6 +218,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
     email: socio.email || '',
     indirizzo: socio.indirizzo || '',
     comune_residenza: socio.comune_residenza || '',
+    provincia_residenza: socio.provincia_residenza || '',
     cap: socio.cap || '',
   })
   const [salvandoAnagrafica, setSalvandoAnagrafica] = useState(false)
@@ -281,6 +283,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
       email: anagrafica.email.trim().toLowerCase() || null,
       indirizzo: anagrafica.indirizzo.trim() || null,
       comune_residenza: anagrafica.comune_residenza.trim() || null,
+      provincia_residenza: anagrafica.provincia_residenza.trim() || null,
       cap: anagrafica.cap.trim() || null,
     }).eq('cf', nuovoCf)
     setSalvandoAnagrafica(false)
@@ -376,8 +379,8 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
                 <input placeholder="Indirizzo" value={anagrafica.indirizzo} onChange={e => setAnagrafica(a => ({ ...a, indirizzo: e.target.value }))}
                   style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
-                <input placeholder="Comune" value={anagrafica.comune_residenza} onChange={e => setAnagrafica(a => ({ ...a, comune_residenza: e.target.value }))}
-                  style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
+                <ComboComune value={anagrafica.comune_residenza} onChange={v => setAnagrafica(a => ({ ...a, comune_residenza: v }))}
+                  onSiglaProvincia={sigla => setAnagrafica(a => ({ ...a, provincia_residenza: sigla }))} placeholder="Comune" />
                 <input placeholder="CAP" value={anagrafica.cap} onChange={e => setAnagrafica(a => ({ ...a, cap: e.target.value }))}
                   style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
               </div>
@@ -390,7 +393,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => {
                   setModificaAnagrafica(false)
-                  setAnagrafica({ nome: socio.nome || '', cognome: socio.cognome || '', cf: socio.cf || '', data_nascita: socio.data_nascita || '', telefono: socio.telefono || '', email: socio.email || '', indirizzo: socio.indirizzo || '', comune_residenza: socio.comune_residenza || '', cap: socio.cap || '' })
+                  setAnagrafica({ nome: socio.nome || '', cognome: socio.cognome || '', cf: socio.cf || '', data_nascita: socio.data_nascita || '', telefono: socio.telefono || '', email: socio.email || '', indirizzo: socio.indirizzo || '', comune_residenza: socio.comune_residenza || '', provincia_residenza: socio.provincia_residenza || '', cap: socio.cap || '' })
                 }}
                   style={{ background: 'white', border: `1px solid ${BD}`, borderRadius: 7, padding: '7px 12px', fontSize: 12.5, cursor: 'pointer', color: SUB }}>
                   Annulla
@@ -608,12 +611,14 @@ function ModaleNuovoSocio({ onClose, onCreato }) {
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, marginBottom: 8 }}>
-          {campo('Comune di nascita', 'comune_nascita')}
+          <ComboComune value={dati.comune_nascita} onChange={v => setDati(d => ({ ...d, comune_nascita: v }))}
+            onSiglaProvincia={sigla => setDati(d => ({ ...d, provincia_nascita: sigla }))} placeholder="Comune di nascita" />
           {campo('Prov.', 'provincia_nascita', { maxLength: 2, style: { textTransform: 'uppercase' } })}
         </div>
         <div style={{ marginBottom: 8 }}>{campo('Indirizzo di residenza', 'indirizzo')}</div>
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
-          {campo('Comune di residenza', 'comune_residenza')}
+          <ComboComune value={dati.comune_residenza} onChange={v => setDati(d => ({ ...d, comune_residenza: v }))}
+            onSiglaProvincia={sigla => setDati(d => ({ ...d, provincia_residenza: sigla }))} placeholder="Comune di residenza" />
           {campo('Prov.', 'provincia_residenza', { maxLength: 2, style: { textTransform: 'uppercase' } })}
           {campo('CAP', 'cap')}
         </div>
@@ -662,7 +667,7 @@ export default function AnagraficaSoci() {
     const termine = q.trim()
     const { data, error } = await supabase
       .from('soci')
-      .select('cf, nome, cognome, email, telefono, numero_tessera, ente_tessera, scadenza_tessera, is_admin_blocked, blocco_motivo, data_nascita, comune_nascita, provincia_nascita, indirizzo, comune_residenza, cap')
+      .select('cf, nome, cognome, email, telefono, numero_tessera, ente_tessera, scadenza_tessera, is_admin_blocked, blocco_motivo, data_nascita, comune_nascita, provincia_nascita, indirizzo, comune_residenza, provincia_residenza, cap')
       .or(`nome.ilike.%${termine}%,cognome.ilike.%${termine}%,cf.ilike.%${termine}%`)
       .order('cognome')
       .limit(30)

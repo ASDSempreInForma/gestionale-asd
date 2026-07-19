@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
+import ComboComune from "../../ComboComune.jsx";
 
 /* =====================================================================
    MODULO DI ISCRIZIONE — A.S.D. Sempre In Forma
@@ -680,6 +681,7 @@ export default function ModuloIscrizione() {
           indirizzo: residenza.indirizzo || null,
           cap: residenza.cap || null,
           comune_residenza: residenza.comune || null,
+          provincia_residenza: residenza.provincia || null,
           telefono: residenza.telefono || null,
           email: residenza.email || null,
           sesso: anagrafica.sesso || null,
@@ -819,7 +821,17 @@ export default function ModuloIscrizione() {
               <Campo label="Nome *" value={anagrafica.nome} onChange={(v) => setAnagrafica({ ...anagrafica, nome: v })} />
               <Campo label="Cognome *" value={anagrafica.cognome} onChange={(v) => setAnagrafica({ ...anagrafica, cognome: v })} />
               <Campo type="date" label="Data di nascita *" value={anagrafica.dataNascita} onChange={(v) => setAnagrafica({ ...anagrafica, dataNascita: v })} />
-              <Campo label="Luogo di nascita" value={anagrafica.luogoNascita} onChange={(v) => setAnagrafica({ ...anagrafica, luogoNascita: v })} />
+              <div>
+                <label className="text-xs font-medium text-slate-600">Luogo di nascita</label>
+                <div className="mt-1">
+                  <ComboComune
+                    value={anagrafica.luogoNascita}
+                    onChange={(v) => setAnagrafica((a) => ({ ...a, luogoNascita: v }))}
+                    onSiglaProvincia={(sigla) => setAnagrafica((a) => ({ ...a, provinciaNascita: sigla }))}
+                    placeholder="Es. Brescia"
+                  />
+                </div>
+              </div>
               <Campo label="Provincia nascita" value={anagrafica.provinciaNascita} onChange={(v) => setAnagrafica({ ...anagrafica, provinciaNascita: v })} />
               <div>
                 <label className="text-xs font-medium text-slate-600">Sesso</label>
@@ -862,7 +874,17 @@ export default function ModuloIscrizione() {
             <h2 className="font-semibold text-slate-800 text-lg">2. Residenza e contatti</h2>
             <div className="grid grid-cols-2 gap-3">
               <Campo label="Indirizzo *" value={residenza.indirizzo} onChange={(v) => setResidenza({ ...residenza, indirizzo: v })} className="col-span-2" />
-              <Campo label="Comune *" value={residenza.comune} onChange={(v) => setResidenza({ ...residenza, comune: v })} />
+              <div>
+                <label className="text-xs font-medium text-slate-600">Comune *</label>
+                <div className="mt-1">
+                  <ComboComune
+                    value={residenza.comune}
+                    onChange={(v) => setResidenza((r) => ({ ...r, comune: v }))}
+                    onSiglaProvincia={(sigla) => setResidenza((r) => ({ ...r, provincia: sigla }))}
+                    placeholder="Es. Brescia"
+                  />
+                </div>
+              </div>
               <Campo label="CAP" value={residenza.cap} onChange={(v) => setResidenza({ ...residenza, cap: v })} />
               <Campo label="Telefono" value={residenza.telefono} onChange={(v) => setResidenza({ ...residenza, telefono: v })} />
               <Campo type="email" label="Email *" value={residenza.email} onChange={(v) => setResidenza({ ...residenza, email: v })} />
