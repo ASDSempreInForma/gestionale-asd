@@ -170,7 +170,7 @@ export default function Home() {
             }}>
               <IconaAreaIstruttori />
               <div style={{ padding: "16px 18px 20px" }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: TX, marginBottom: 5 }}>Area Istruttori</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: TX, marginBottom: 5 }}>Area Istruttori e Collaboratori</div>
                 <div style={{ fontSize: 13, color: SUB, lineHeight: 1.6, marginBottom: 14 }}>
                   Sei un istruttore o un collaboratore? Accedi per vedere i tuoi corsi e fare il check-in delle presenze.
                 </div>
