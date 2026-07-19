@@ -553,13 +553,20 @@ export default function ModuloIscrizione() {
         .filter((c) => c.corsoId)
         .map((c) => {
           let corso = corsi.find((x) => x.id === c.corsoId);
-          // Ginnastica Dolce standard (Bovezzo): tariffa under 65 se applicabile
-          if (corso && corso.quota_annuale_under65 && eta !== null && eta < 65) {
-            corso = { ...corso, quota_annuale: corso.quota_annuale_under65 };
+          // Ginnastica Dolce Bovezzo: 130€ SOLO se over 65 E residente a Bovezzo.
+          // Bovezzo è un comune a sé (non una frazione), quindi si verifica
+          // direttamente dal comune di residenza inserito in anagrafica — nessuna
+          // dichiarazione manuale necessaria. In ogni altro caso (età sconosciuta,
+          // under 65, o comune diverso da Bovezzo) si applica la tariffa piena
+          // salvata in quota_annuale_under65 (150€).
+          if (corso && corso.quota_annuale_under65) {
+            const residenteBovezzo = (residenza.comune || "").trim().toLowerCase() === "bovezzo";
+            const idoneoScontoOver65 = eta !== null && eta >= 65 && residenteBovezzo;
+            if (!idoneoScontoOver65) corso = { ...corso, quota_annuale: corso.quota_annuale_under65 };
           }
           return { ...c, corso, codiceCompleto: componiCodice(corso, c.frequenza, c.pagamento) };
         }),
-    [corsiScelti, corsi, eta]
+    [corsiScelti, corsi, eta, residenza.comune]
   );
 
   const prezzoTotale = useMemo(() => calcolaPrezzoTotale(corsiConCodice), [corsiConCodice]);
@@ -710,6 +717,7 @@ export default function ModuloIscrizione() {
             c.frequenza === "1x" && c.corso.ha_variante_frequenza && c.giornoScelto ? ` (${c.giornoScelto})` : ""
           }`,
           regolamenti.immagini ? "Consenso immagini: sì" : "Consenso immagini: no",
+          c.corso.quota_annuale_under65 ? `Tariffa over 65 Bovezzo applicata: ${c.corso.quota_annuale == c.corso.quota_annuale_under65 ? "no (150€)" : "sì (130€)"}` : null,
           isMinorenne ? `Genitore: ${genitore.nome} ${genitore.cognome} (${genitore.cf})` : null,
           `Luogo firma: ${luogoFirma}`,
           `Data iscrizione: ${new Date().toLocaleDateString("it-IT")}`,
@@ -989,6 +997,12 @@ export default function ModuloIscrizione() {
                       {corso && corso.posti && corso.posti.length === 1 && corso.posti[0].disponibili !== null && corso.posti[0].disponibili <= 0 && (
                         <div className="mt-2 text-sm px-3 py-2 rounded-lg border bg-red-50 border-red-200 text-red-700">
                           Corso al completo. Contatta la segreteria (327 868 1393) per la lista d'attesa.
+                        </div>
+                      )}
+
+                      {corso?.quota_annuale_under65 && (
+                        <div className="mt-3 text-xs px-3 py-2 rounded-lg border bg-slate-50 border-slate-200 text-slate-500">
+                          Tariffa ridotta 130€ (invece di 150€) riservata a chi ha più di 65 anni ed è residente a Bovezzo — verificata automaticamente dai dati inseriti.
                         </div>
                       )}
 
