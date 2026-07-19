@@ -95,7 +95,7 @@ export default function GestioneIstruttori(){
   const [newPeriodo,setNewPeriodo]=useState({dal:"",al:"",desc:""});
   const [focusedInstr,setFocusedInstr]=useState(null);
   const [showAddInstr,setShowAddInstr]=useState(false);
-  const [newInstr,setNewInstr]=useState({nome:"",cognome:"",email:"",telefono:"",compenso:"",colore:COLORI_DISPONIBILI[0]});
+  const [newInstr,setNewInstr]=useState({nome:"",cognome:"",email:"",telefono:"",compenso:"",tariffaOraria:"",tipo:"istruttore",colore:COLORI_DISPONIBILI[0]});
   const [loading,setLoading]=useState(true);
   const [saving,setSaving]=useState({});
   const [corsiInfoMap,setCorsiInfoMap]=useState({});
@@ -103,6 +103,31 @@ export default function GestioneIstruttori(){
 
   // ── Caricamento da Supabase ──────────────────────────────────────
   useEffect(()=>{ caricaDati(); },[]);
+
+  // Ore collaboratori del mese selezionato (ricaricate ad ogni cambio mese)
+  const [oreCollab,setOreCollab]=useState({}); // {istruttoreId: {ore, note}}
+  const [salvandoOre,setSalvandoOre]=useState({});
+  useEffect(()=>{
+    const m=MESI_STAGIONE[meseSelIdx];
+    if(!m) return;
+    supabase.from("ore_collaboratori").select("*").eq("anno",m.anno).eq("mese",m.mese)
+      .then(({data})=>{
+        const obj={};
+        (data||[]).forEach(r=>{ obj[r.istruttore_id]={ore:r.ore, note:r.note||""}; });
+        setOreCollab(obj);
+      });
+  },[meseSelIdx]);
+
+  async function salvaOreCollaboratore(istruttoreId, ore){
+    const m=MESI_STAGIONE[meseSelIdx];
+    setSalvandoOre(p=>({...p,[istruttoreId]:true}));
+    await supabase.from("ore_collaboratori").upsert(
+      {istruttore_id:istruttoreId, anno:m.anno, mese:m.mese, ore},
+      {onConflict:"istruttore_id,anno,mese"}
+    );
+    setOreCollab(prev=>({...prev,[istruttoreId]:{...prev[istruttoreId],ore}}));
+    setSalvandoOre(p=>({...p,[istruttoreId]:false}));
+  }
 
   async function caricaDati(){
     try{
@@ -121,7 +146,7 @@ export default function GestioneIstruttori(){
       const {data:istrDB}=await supabase
         .from("istruttori")
         .select(`
-          id,nome,cognome,telefono,email,compenso_lezione_default,attivo,
+          id,nome,cognome,telefono,email,compenso_lezione_default,attivo,tipo,tariffa_oraria,
           istruttori_corsi(
             id,
             corsi(id,disciplina,giorni_orari,sedi(nome))
@@ -147,6 +172,7 @@ export default function GestioneIstruttori(){
         return {
           id:t.id,
           nome:t.nome, cognome:t.cognome, telefono:t.telefono, email:t.email,
+          tipo:t.tipo||"istruttore", tariffaOraria:t.tariffa_oraria||0,
           compenso:t.compenso_lezione_default||0,
           colore:COLORI_DISPONIBILI[idx%COLORI_DISPONIBILI.length],
           corsi_nomi:corsiNomi,
@@ -158,8 +184,9 @@ export default function GestioneIstruttori(){
       setIstruttori(formatted);
 
       // Mappa corso_id -> {nome, giorni_orari, istruttore assegnato}, usata per generare/sincronizzare le lezioni reali
+      // I collaboratori sono esclusi: controllano un corso ma non lo insegnano, non generano lezioni/compensi a lezione
       const corsiInfoObj={};
-      formatted.forEach(t=>{
+      formatted.filter(t=>t.tipo==="istruttore").forEach(t=>{
         t.corsi_ids.forEach((cid,i)=>{
           const corsoDB=(corsiDB||[]).find(c=>c.id===cid);
           corsiInfoObj[cid]={
@@ -261,6 +288,14 @@ export default function GestioneIstruttori(){
     setSaving(p=>({...p,["comp_"+id]:false}));
   }
 
+  // ── Aggiorna tariffa oraria collaboratore su Supabase ───────────
+  async function aggiornaTariffaOraria(id, nuovaTariffa){
+    setSaving(p=>({...p,["tar_"+id]:true}));
+    await supabase.from("istruttori").update({tariffa_oraria:nuovaTariffa}).eq("id",id);
+    setIstruttori(prev=>prev.map(t=>t.id===id?{...t,tariffaOraria:nuovaTariffa}:t));
+    setSaving(p=>({...p,["tar_"+id]:false}));
+  }
+
   // ── Aggiungi istruttore ─────────────────────────────────────────
   async function aggiungiIstruttore(){
     if(!newInstr.nome.trim()||!newInstr.cognome.trim()) return;
@@ -268,18 +303,21 @@ export default function GestioneIstruttori(){
       nome:newInstr.nome.trim(), cognome:newInstr.cognome.trim(),
       email:newInstr.email.trim().toLowerCase()||null,
       telefono:newInstr.telefono.trim()||null,
-      compenso_lezione_default:parseFloat(newInstr.compenso)||0,
+      tipo:newInstr.tipo,
+      compenso_lezione_default:newInstr.tipo==="istruttore"?(parseFloat(newInstr.compenso)||0):0,
+      tariffa_oraria:newInstr.tipo==="collaboratore"?(parseFloat(newInstr.tariffaOraria)||0):null,
       attivo:true
     }).select().single();
     if(!error&&data){
       setIstruttori(prev=>[...prev,{
         id:data.id, nome:data.nome, cognome:data.cognome,
         email:data.email, telefono:data.telefono,
+        tipo:data.tipo, tariffaOraria:data.tariffa_oraria||0,
         compenso:data.compenso_lezione_default||0,
         colore:newInstr.colore, corsi_nomi:[], corsi_ids:[],
         istruttori_corsi_ids:[], giorniLezione:[],
       }]);
-      setNewInstr({nome:"",cognome:"",email:"",telefono:"",compenso:"",colore:COLORI_DISPONIBILI[0]});
+      setNewInstr({nome:"",cognome:"",email:"",telefono:"",compenso:"",tariffaOraria:"",tipo:"istruttore",colore:COLORI_DISPONIBILI[0]});
       setShowAddInstr(false);
     }else if(error){
       alert("Errore nel salvataggio: "+error.message);
@@ -377,6 +415,10 @@ export default function GestioneIstruttori(){
   }
 
   const totMese=istruttori.reduce((acc,t)=>{
+    if(t.tipo==="collaboratore"){
+      const o=oreCollab[t.id]?.ore||0;
+      return acc+o*(t.tariffaOraria||0);
+    }
     const r=reportInstr(t.id);
     return acc+(r?.totale||0);
   },0);
@@ -405,7 +447,27 @@ export default function GestioneIstruttori(){
 
         {showAddInstr&&(
           <div style={{background:"white",border:`1px solid ${C.border}`,borderRadius:13,padding:"15px",marginBottom:14}}>
-            <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:12}}>Nuovo istruttore</div>
+            <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:12}}>Nuovo istruttore/collaboratore</div>
+            <div style={{display:"flex",gap:8,marginBottom:10}}>
+              <button onClick={()=>setNewInstr(p=>({...p,tipo:"istruttore"}))}
+                style={{flex:1,padding:"7px",borderRadius:8,border:`1px solid ${newInstr.tipo==="istruttore"?C.green:C.border}`,
+                  background:newInstr.tipo==="istruttore"?C.green+"18":"white",fontSize:12,fontWeight:600,
+                  color:newInstr.tipo==="istruttore"?C.green:C.textSub,cursor:"pointer"}}>
+                🧑‍🏫 Istruttore
+              </button>
+              <button onClick={()=>setNewInstr(p=>({...p,tipo:"collaboratore"}))}
+                style={{flex:1,padding:"7px",borderRadius:8,border:`1px solid ${newInstr.tipo==="collaboratore"?C.green:C.border}`,
+                  background:newInstr.tipo==="collaboratore"?C.green+"18":"white",fontSize:12,fontWeight:600,
+                  color:newInstr.tipo==="collaboratore"?C.green:C.textSub,cursor:"pointer"}}>
+                📋 Collaboratore
+              </button>
+            </div>
+            {newInstr.tipo==="collaboratore"&&(
+              <div style={{fontSize:11,color:C.textSub,marginBottom:10,background:"#F8FAFC",padding:"7px 9px",borderRadius:7}}>
+                Il collaboratore controlla dei corsi ma non li insegna — non genera lezioni/compensi a lezione.
+                Il pagamento si calcola dalle ore di segreteria (tab Pagamenti).
+              </div>
+            )}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:10}}>
               <input placeholder="Nome" value={newInstr.nome} onChange={e=>setNewInstr(p=>({...p,nome:e.target.value}))}
                 style={{padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,fontFamily:"inherit"}}/>
@@ -415,8 +477,13 @@ export default function GestioneIstruttori(){
                 style={{padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,fontFamily:"inherit",gridColumn:"span 2"}}/>
               <input type="tel" placeholder="Telefono" value={newInstr.telefono} onChange={e=>setNewInstr(p=>({...p,telefono:e.target.value}))}
                 style={{padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,fontFamily:"inherit"}}/>
-              <input type="number" placeholder="Compenso/lez (€)" value={newInstr.compenso} onChange={e=>setNewInstr(p=>({...p,compenso:e.target.value}))}
-                style={{padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,fontFamily:"inherit"}}/>
+              {newInstr.tipo==="istruttore" ? (
+                <input type="number" placeholder="Compenso/lez (€)" value={newInstr.compenso} onChange={e=>setNewInstr(p=>({...p,compenso:e.target.value}))}
+                  style={{padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,fontFamily:"inherit"}}/>
+              ) : (
+                <input type="number" placeholder="Tariffa oraria (€/h)" value={newInstr.tariffaOraria} onChange={e=>setNewInstr(p=>({...p,tariffaOraria:e.target.value}))}
+                  style={{padding:"8px 10px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,fontFamily:"inherit"}}/>
+              )}
               <div style={{display:"flex",gap:5,alignItems:"center",gridColumn:"span 2"}}>
                 {COLORI_DISPONIBILI.map(col=>(
                   <div key={col} onClick={()=>setNewInstr(p=>({...p,colore:col}))}
@@ -449,19 +516,39 @@ export default function GestioneIstruttori(){
                   {(t.nome[0]||"")}{ (t.cognome[0]||"")}
                 </div>
                 <div>
-                  <div style={{fontSize:13,fontWeight:600,color:C.text}}>{t.cognome} {t.nome}</div>
-                  <div style={{fontSize:11,color:C.textSub}}>{t.corsi_nomi.length} cors{t.corsi_nomi.length===1?"o":"i"} assegnat{t.corsi_nomi.length===1?"o":"i"}</div>
+                  <div style={{fontSize:13,fontWeight:600,color:C.text,display:"flex",alignItems:"center",gap:6}}>
+                    {t.cognome} {t.nome}
+                    {t.tipo==="collaboratore"&&(
+                      <span style={{fontSize:9,fontWeight:700,color:"#7C3AED",background:"#EDE9FE",padding:"2px 6px",borderRadius:5}}>COLLABORATORE</span>
+                    )}
+                  </div>
+                  <div style={{fontSize:11,color:C.textSub}}>
+                    {t.tipo==="collaboratore"
+                      ? `${t.corsi_nomi.length} cors${t.corsi_nomi.length===1?"o":"i"} da controllare`
+                      : `${t.corsi_nomi.length} cors${t.corsi_nomi.length===1?"o":"i"} assegnat${t.corsi_nomi.length===1?"o":"i"}`}
+                  </div>
                 </div>
               </div>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
-                <div style={{textAlign:"right"}}>
-                  <input type="number" value={t.compenso}
-                    onClick={e=>e.stopPropagation()}
-                    onChange={e=>setIstruttori(prev=>prev.map(x=>x.id===t.id?{...x,compenso:parseFloat(e.target.value)||0}:x))}
-                    onBlur={e=>aggiornaCompenso(t.id,parseFloat(e.target.value)||0)}
-                    style={{width:60,padding:"3px 6px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:12,textAlign:"center"}}/>
-                  <div style={{fontSize:9,color:C.textSub,textAlign:"center"}}>€/lez</div>
-                </div>
+                {t.tipo==="istruttore" ? (
+                  <div style={{textAlign:"right"}}>
+                    <input type="number" value={t.compenso}
+                      onClick={e=>e.stopPropagation()}
+                      onChange={e=>setIstruttori(prev=>prev.map(x=>x.id===t.id?{...x,compenso:parseFloat(e.target.value)||0}:x))}
+                      onBlur={e=>aggiornaCompenso(t.id,parseFloat(e.target.value)||0)}
+                      style={{width:60,padding:"3px 6px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:12,textAlign:"center"}}/>
+                    <div style={{fontSize:9,color:C.textSub,textAlign:"center"}}>€/lez</div>
+                  </div>
+                ) : (
+                  <div style={{textAlign:"right"}}>
+                    <input type="number" value={t.tariffaOraria}
+                      onClick={e=>e.stopPropagation()}
+                      onChange={e=>setIstruttori(prev=>prev.map(x=>x.id===t.id?{...x,tariffaOraria:parseFloat(e.target.value)||0}:x))}
+                      onBlur={e=>aggiornaTariffaOraria(t.id,parseFloat(e.target.value)||0)}
+                      style={{width:60,padding:"3px 6px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:12,textAlign:"center"}}/>
+                    <div style={{fontSize:9,color:C.textSub,textAlign:"center"}}>€/ora</div>
+                  </div>
+                )}
                 <span style={{fontSize:13,color:C.gray}}>{focusedInstr===t.id?"▲":"▼"}</span>
               </div>
             </div>
@@ -509,8 +596,8 @@ export default function GestioneIstruttori(){
                     <option key={c.id} value={c.id}>{c.disciplina} — {c.sedi?.nome} ({c.giorni_orari})</option>
                   ))}
                 </select>
-                {/* Riepilogo mese */}
-                {(()=>{const r=reportInstr(t.id);return r&&(
+                {/* Riepilogo mese (solo istruttori, i collaboratori sono a ore — vedi tab Pagamenti) */}
+                {t.tipo==="istruttore" && (()=>{const r=reportInstr(t.id);return r&&(
                   <div style={{marginTop:12,background:"#FAFAF8",borderRadius:9,padding:"10px 12px",
                     border:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div style={{fontSize:11,color:C.textSub}}>{meseSel.labelFull} · {r.totLez} lezioni</div>
@@ -741,6 +828,43 @@ export default function GestioneIstruttori(){
             </div>
           );
         })}
+        {istruttori.filter(t=>t.tipo==="collaboratore").length>0 && (
+          <div style={{marginTop:16,marginBottom:9}}>
+            <div style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:9}}>📋 Collaboratori — ore di segreteria</div>
+            {istruttori.filter(t=>t.tipo==="collaboratore").map(t=>{
+              const ore=oreCollab[t.id]?.ore||0;
+              const totale=ore*(t.tariffaOraria||0);
+              return(
+                <div key={t.id} style={{background:"white",border:`1px solid ${C.border}`,borderRadius:13,marginBottom:9,padding:"12px 15px"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                    <div style={{display:"flex",alignItems:"center",gap:9}}>
+                      <div style={{width:34,height:34,borderRadius:"50%",background:t.colore+"22",display:"flex",alignItems:"center",justifyContent:"center",
+                        fontSize:12,fontWeight:700,color:t.colore}}>{(t.nome[0]||"")}{(t.cognome[0]||"")}</div>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:600,color:C.text}}>{t.cognome} {t.nome}</div>
+                        <div style={{fontSize:11,color:C.textSub}}>{fmtEuro(t.tariffaOraria||0)}/ora</div>
+                      </div>
+                    </div>
+                    <div style={{fontSize:18,fontWeight:700,color:C.greenD}}>{fmtEuro(totale)}</div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <input type="number" step="0.5" placeholder="Ore nel mese" value={ore||""}
+                      onChange={e=>setOreCollab(prev=>({...prev,[t.id]:{...prev[t.id],ore:parseFloat(e.target.value)||0}}))}
+                      style={{width:110,padding:"7px 9px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
+                    <span style={{fontSize:11,color:C.textSub}}>ore in {meseSel.labelFull}</span>
+                    <button onClick={()=>salvaOreCollaboratore(t.id,oreCollab[t.id]?.ore||0)}
+                      disabled={salvandoOre[t.id]}
+                      style={{marginLeft:"auto",padding:"6px 13px",background:C.green,border:"none",borderRadius:8,
+                        fontSize:12,fontWeight:600,color:"white",cursor:"pointer"}}>
+                      {salvandoOre[t.id]?"Salvo…":"Salva"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         <button onClick={()=>window.print()}
           style={{width:"100%",padding:"11px",background:C.greenL,border:`1px solid ${C.green}44`,borderRadius:10,
             fontSize:13,fontWeight:600,color:C.greenD,cursor:"pointer",marginTop:4}}>
