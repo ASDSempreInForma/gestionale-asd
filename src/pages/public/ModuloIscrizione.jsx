@@ -1293,6 +1293,9 @@ function Campo({ label, value, onChange, type = "text", className = "", maxLengt
           minWidth: 0, width: "100%", boxSizing: "border-box",
           background: "white", color: "#0f172a",
           WebkitAppearance: "none", appearance: "none",
+          border: "1px solid #cbd5e1", borderRadius: "0.5rem", WebkitBorderRadius: "0.5rem",
+          padding: "0.5rem 0.75rem", height: "2.5rem", lineHeight: "1.25rem",
+          fontFamily: "inherit", fontSize: "0.875rem", margin: 0,
         }}
       />
     </div>
