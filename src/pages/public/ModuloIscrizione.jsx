@@ -1289,7 +1289,11 @@ function Campo({ label, value, onChange, type = "text", className = "", maxLengt
         maxLength={maxLength}
         onChange={(e) => onChange(e.target.value)}
         className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm"
-        style={{ minWidth: 0, width: "100%", boxSizing: "border-box" }}
+        style={{
+          minWidth: 0, width: "100%", boxSizing: "border-box",
+          background: "white", color: "#0f172a",
+          WebkitAppearance: "none", appearance: "none",
+        }}
       />
     </div>
   );
