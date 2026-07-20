@@ -22,6 +22,34 @@ async function callFn(payload) {
   }
 }
 
+// Comprime le foto prima dell'invio: le foto da fotocamera pesano spesso 3-5 MB,
+// qui si riducono a poche centinaia di KB restando perfettamente leggibili.
+function comprimiImmagine(file, maxLato = 1600, qualita = 0.75) {
+  return new Promise((resolve) => {
+    if (!file.type.startsWith("image/")) { resolve(file); return; }
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxLato || height > maxLato) {
+        const scala = maxLato / Math.max(width, height);
+        width = Math.round(width * scala);
+        height = Math.round(height * scala);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(url);
+        if (!blob || blob.size >= file.size) resolve(file);
+        else resolve(new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" }));
+      }, "image/jpeg", qualita);
+    };
+    img.onerror = () => resolve(file);
+    img.src = url;
+  });
+}
+
 function BadgeCertificato({ stato }) {
   const map = {
     valido: { label: "✅ Certificato ok", bg: "#DCFCE7", col: "#166534" },
@@ -74,6 +102,106 @@ async function inviaNotaEmail({ istruttore, corso, testo }) {
   return res.json();
 }
 
+function ModaleDocumentoSocio({ iscritto, tipo, corso, callFnWithAuth, onClose, onDone }) {
+  const [file, setFile] = useState(null);
+  const [tipoPagamento, setTipoPagamento] = useState("annuale");
+  const [importo, setImporto] = useState("");
+  const [dataPagamento, setDataPagamento] = useState("");
+  const [scadenza, setScadenza] = useState("");
+  const [caricando, setCaricando] = useState(false);
+  const [errore, setErrore] = useState("");
+
+  const invia = async () => {
+    if (!file) { setErrore("Allega una foto o un PDF del documento."); return; }
+    if (tipo === "ricevuta" && (!importo || !dataPagamento)) { setErrore("Indica importo e data del pagamento."); return; }
+    if (tipo === "certificato" && !scadenza) { setErrore("Indica la data di scadenza del certificato."); return; }
+
+    setCaricando(true);
+    setErrore("");
+    const fileCompresso = await comprimiImmagine(file);
+    const base64 = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result.split(",")[1]);
+      r.onerror = rej;
+      r.readAsDataURL(fileCompresso);
+    });
+
+    const r = await callFnWithAuth({
+      action: "carica_documento_socio",
+      corso_id: corso.id,
+      socio_cf: iscritto.cf,
+      tipo,
+      dichiarazione: tipo === "ricevuta"
+        ? { tipo_pagamento: tipoPagamento, importo: Number(importo), data_pagamento: dataPagamento }
+        : { data_scadenza: scadenza },
+      file_base64: base64,
+      file_name: fileCompresso.name,
+      file_type: fileCompresso.type,
+    });
+    setCaricando(false);
+    if (r.ok) onDone();
+    else setErrore(r.error || "Errore durante il caricamento.");
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 16 }} onClick={onClose}>
+      <div style={{ background: "white", borderRadius: 14, padding: 22, width: "100%", maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ marginTop: 0 }}>{tipo === "ricevuta" ? "📎 Carica ricevuta di pagamento" : "📎 Carica certificato medico"}</h3>
+        <p style={{ fontSize: 12.5, color: "#64748b", marginTop: -6, marginBottom: 14 }}>
+          Per {iscritto.cognome} {iscritto.nome} — {corso.disciplina}
+        </p>
+
+        {tipo === "ricevuta" && (
+          <>
+            <label style={{ fontSize: 11, color: "#64748b", display: "block", marginBottom: 3 }}>Tipo pagamento</label>
+            <select value={tipoPagamento} onChange={(e) => setTipoPagamento(e.target.value)}
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #E8E4DC", fontSize: 13, marginBottom: 10 }}>
+              <option value="annuale">Annuale</option>
+              <option value="quad1">1° quadrimestre</option>
+              <option value="quad2">2° quadrimestre</option>
+            </select>
+            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: "#64748b", display: "block", marginBottom: 3 }}>Importo (€)</label>
+                <input type="number" value={importo} onChange={(e) => setImporto(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #E8E4DC", fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: "#64748b", display: "block", marginBottom: 3 }}>Data pagamento</label>
+                <input type="date" value={dataPagamento} onChange={(e) => setDataPagamento(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #E8E4DC", fontSize: 13, boxSizing: "border-box" }} />
+              </div>
+            </div>
+          </>
+        )}
+        {tipo === "certificato" && (
+          <>
+            <label style={{ fontSize: 11, color: "#64748b", display: "block", marginBottom: 3 }}>Data di scadenza del certificato</label>
+            <input type="date" value={scadenza} onChange={(e) => setScadenza(e.target.value)}
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #E8E4DC", fontSize: 13, marginBottom: 10, boxSizing: "border-box" }} />
+          </>
+        )}
+
+        <label style={{ fontSize: 11, color: "#64748b", display: "block", marginBottom: 3 }}>Foto o PDF del documento</label>
+        <input type="file" accept="image/*,application/pdf" capture="environment"
+          onChange={(e) => setFile(e.target.files[0])}
+          style={{ width: "100%", fontSize: 12.5, marginBottom: 14 }} />
+
+        {errore && <p style={{ color: "#DC2626", fontSize: 12, marginBottom: 10 }}>{errore}</p>}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "10px", borderRadius: 10, border: "1px solid #E8E4DC", background: "white", color: "#64748b", fontSize: 13, cursor: "pointer" }}>
+            Annulla
+          </button>
+          <button onClick={invia} disabled={caricando}
+            style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: "#2D6A4F", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: caricando ? 0.6 : 1 }}>
+            {caricando ? "Carico…" : "✓ Carica"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
   const [aperto, setAperto] = useState(false);
   const [presenti, setPresenti] = useState(new Set());
@@ -84,6 +212,7 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
   const [nota, setNota] = useState("");
   const [inviandoNota, setInviandoNota] = useState(false);
   const [esitoNota, setEsitoNota] = useState("");
+  const [modaleDoc, setModaleDoc] = useState(null); // { iscritto, tipo }
 
   const toggle = (cf) => {
     setPresenti((prev) => {
@@ -177,6 +306,18 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
                     📝 {i.note}
                   </div>
                 )}
+                <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                  <button
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setModaleDoc({ iscritto: i, tipo: "ricevuta" }); }}
+                    style={{ fontSize: 11, padding: "4px 8px", borderRadius: 7, border: "1px solid #BFDBFE", background: "#EFF6FF", color: "#1D4ED8", cursor: "pointer" }}>
+                    📎 Ricevuta
+                  </button>
+                  <button
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setModaleDoc({ iscritto: i, tipo: "certificato" }); }}
+                    style={{ fontSize: 11, padding: "4px 8px", borderRadius: 7, border: "1px solid #FDE68A", background: "#FFFBEB", color: "#B45309", cursor: "pointer" }}>
+                    📎 Certificato
+                  </button>
+                </div>
               </span>
             </label>
           ))}
@@ -218,6 +359,17 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
             </div>
           </div>
         </div>
+      )}
+
+      {modaleDoc && (
+        <ModaleDocumentoSocio
+          iscritto={modaleDoc.iscritto}
+          tipo={modaleDoc.tipo}
+          corso={corso}
+          callFnWithAuth={callFnWithAuth}
+          onClose={() => setModaleDoc(null)}
+          onDone={() => { setModaleDoc(null); onAggiornato(); }}
+        />
       )}
     </div>
   );
