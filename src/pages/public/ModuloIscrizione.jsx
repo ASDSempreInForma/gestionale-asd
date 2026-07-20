@@ -1281,7 +1281,7 @@ export default function ModuloIscrizione() {
 // ---------------------------------------------------------------------
 function Campo({ label, value, onChange, type = "text", className = "", maxLength }) {
   return (
-    <div className={className}>
+    <div className={className} style={{ minWidth: 0 }}>
       <label className="text-xs font-medium text-slate-600">{label}</label>
       <input
         type={type}
@@ -1289,6 +1289,7 @@ function Campo({ label, value, onChange, type = "text", className = "", maxLengt
         maxLength={maxLength}
         onChange={(e) => onChange(e.target.value)}
         className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm"
+        style={{ minWidth: 0, width: "100%", boxSizing: "border-box" }}
       />
     </div>
   );
