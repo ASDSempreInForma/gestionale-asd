@@ -256,6 +256,10 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
 
   const giaSegnata = corso.lezioneOggi?.stato;
   const eCollaboratore = istruttore.tipo === "collaboratore";
+  const nomeGiornoOggi = GIORNI_IT[new Date().getDay()];
+  // Chi ci si aspetta oggi: chi frequenta 2 volte a settimana viene sempre,
+  // chi frequenta 1 volta sola solo se ha scelto proprio il giorno di oggi
+  const iscrittiOggi = corso.iscritti.filter((i) => i.frequenza !== "1x" || i.giorno_scelto === nomeGiornoOggi);
 
   return (
     <div style={styles.card}>
@@ -263,7 +267,7 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
         <div>
           <div style={{ fontWeight: 700, fontSize: 15 }}>{corso.disciplina}</div>
           <div style={{ color: "#64748b", fontSize: 13 }}>{corso.giorni_orari} · {corso.sede}</div>
-          <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 2 }}>{corso.iscritti.length} iscritti</div>
+          <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 2 }}>{corso.iscritti.length} iscritti in totale</div>
         </div>
         {!eCollaboratore && giaSegnata === "fatta" && <span style={styles.badgeVerde}>✓ Lezione di oggi segnata come svolta</span>}
         {!eCollaboratore && giaSegnata === "sospesa" && <span style={styles.badgeRosso}>Lezione di oggi segnata come non svolta</span>}
@@ -283,11 +287,11 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
       {aperto && (
         <div style={{ marginTop: 14 }}>
           <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 8 }}>
-            Check-in per la lezione di <b>oggi, {oggiLungo()}</b>
+            Chi ci si aspetta <b>oggi, {oggiLungo()}</b> ({iscrittiOggi.length} di {corso.iscritti.length})
             {eCollaboratore && " — registra solo le presenze, non genera compensi a lezione"}
           </div>
-          {corso.iscritti.length === 0 && <p style={{ color: "#64748b", fontSize: 13 }}>Nessun iscritto trovato.</p>}
-          {corso.iscritti.map((i) => (
+          {iscrittiOggi.length === 0 && <p style={{ color: "#64748b", fontSize: 13 }}>Nessuno atteso oggi per questo corso.</p>}
+          {iscrittiOggi.map((i) => (
             <label key={i.cf} style={{ ...styles.rigaIscritto, alignItems: "flex-start" }}>
               <input type="checkbox" checked={presenti.has(i.cf)} onChange={() => toggle(i.cf)} style={{ marginTop: 3 }} />
               <span style={{ flex: 1 }}>
@@ -301,11 +305,6 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
                   <BadgeCertificato stato={i.stato_certificato} />
                   <BadgePagamento stato={i.stato_pagamento} />
                 </div>
-                {i.note && (
-                  <div style={{ fontSize: 11.5, color: "#7C3AED", background: "#F5F3FF", borderRadius: 6, padding: "4px 7px", marginTop: 5 }}>
-                    📝 {i.note}
-                  </div>
-                )}
                 <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                   <button
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setModaleDoc({ iscritto: i, tipo: "ricevuta" }); }}
@@ -321,7 +320,7 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
               </span>
             </label>
           ))}
-          {corso.iscritti.length > 0 && (
+          {iscrittiOggi.length > 0 && (
             <button onClick={salvaPresenze} disabled={salvando} style={{ ...styles.btnPrimary, marginTop: 12 }}>
               {salvando ? "Salvo..." : `✓ Salva presenze (${presenti.size} presenti)`}
             </button>
