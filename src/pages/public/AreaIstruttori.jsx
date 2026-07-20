@@ -73,6 +73,17 @@ function BadgePagamento({ stato }) {
 }
 
 const GIORNI_IT = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
+
+// "Martedì/Venerdì 18:05-19:00" -> [2, 5]   ·   "Lunedì 17:10-18:00" -> [1]
+function giorniSettimanaDelCorso(giorniOrari) {
+  if (!giorniOrari) return [];
+  const match = giorniOrari.match(/^(.+?)\s\d{1,2}[:.]\d{2}-\d{1,2}[:.]\d{2}$/);
+  const parte = match ? match[1] : giorniOrari;
+  return parte
+    .split("/")
+    .map((g) => GIORNI_IT.findIndex((n) => n.toLowerCase() === g.trim().toLowerCase()))
+    .filter((n) => n >= 0);
+}
 function oggiLungo() {
   const d = new Date();
   return `${GIORNI_IT[d.getDay()]} ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -256,10 +267,15 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
 
   const giaSegnata = corso.lezioneOggi?.stato;
   const eCollaboratore = istruttore.tipo === "collaboratore";
-  const nomeGiornoOggi = GIORNI_IT[new Date().getDay()];
-  // Chi ci si aspetta oggi: chi frequenta 2 volte a settimana viene sempre,
+  const oggiNum = new Date().getDay();
+  const nomeGiornoOggi = GIORNI_IT[oggiNum];
+  const giorniLezione = giorniSettimanaDelCorso(corso.giorni_orari);
+  const oggiELezione = giorniLezione.length === 0 || giorniLezione.includes(oggiNum); // se non riconosce i giorni, non blocca per sicurezza
+  // Chi ci si aspetta oggi: chi frequenta 2 volte a settimana viene sempre (nei giorni di lezione),
   // chi frequenta 1 volta sola solo se ha scelto proprio il giorno di oggi
-  const iscrittiOggi = corso.iscritti.filter((i) => i.frequenza !== "1x" || i.giorno_scelto === nomeGiornoOggi);
+  const iscrittiOggi = oggiELezione
+    ? corso.iscritti.filter((i) => i.frequenza !== "1x" || i.giorno_scelto === nomeGiornoOggi)
+    : [];
 
   return (
     <div style={styles.card}>
@@ -277,18 +293,54 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
         <button onClick={() => setAperto((a) => !a)} style={styles.btnSecondary}>
           {aperto ? "Chiudi elenco" : "📋 Check-in / vedi iscritti"}
         </button>
-        {!eCollaboratore && (
+        {!eCollaboratore && oggiELezione && (
           <button onClick={() => setModaleSospesa(true)} style={styles.btnSecondary}>
             Lezione non svolta oggi
           </button>
         )}
       </div>
 
-      {aperto && (
+      {aperto && !oggiELezione && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 13, color: "#64748b", background: "#F8FAFC", borderRadius: 10, padding: "12px 14px", marginBottom: 10 }}>
+            Oggi è <b>{nomeGiornoOggi}</b>: questo corso si tiene solo <b>{corso.giorni_orari.replace(/\s\d.*$/, "")}</b>, quindi oggi non c'è lezione — niente check-in, ma puoi comunque consultare l'elenco (es. per un numero di telefono).
+          </div>
+          {corso.iscritti.length === 0 && <p style={{ color: "#64748b", fontSize: 13 }}>Nessun iscritto trovato.</p>}
+          {corso.iscritti.map((i) => (
+            <div key={i.cf} style={styles.rigaIscritto}>
+              <span style={{ flex: 1 }}>
+                <div>{i.cognome} {i.nome}</div>
+                <div style={{ fontSize: 11.5, color: "#94a3b8" }}>
+                  {i.data_nascita && `nato/a il ${fmtData(i.data_nascita)}`}
+                  {i.data_nascita && i.telefono && " · "}
+                  {i.telefono}
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 5 }}>
+                  <BadgeCertificato stato={i.stato_certificato} />
+                  <BadgePagamento stato={i.stato_pagamento} />
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                  <button
+                    onClick={() => setModaleDoc({ iscritto: i, tipo: "ricevuta" })}
+                    style={{ fontSize: 11, padding: "4px 8px", borderRadius: 7, border: "1px solid #BFDBFE", background: "#EFF6FF", color: "#1D4ED8", cursor: "pointer" }}>
+                    📎 Ricevuta
+                  </button>
+                  <button
+                    onClick={() => setModaleDoc({ iscritto: i, tipo: "certificato" })}
+                    style={{ fontSize: 11, padding: "4px 8px", borderRadius: 7, border: "1px solid #FDE68A", background: "#FFFBEB", color: "#B45309", cursor: "pointer" }}>
+                    📎 Certificato
+                  </button>
+                </div>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {aperto && oggiELezione && (
         <div style={{ marginTop: 14 }}>
           <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 8 }}>
-            Chi ci si aspetta <b>oggi, {oggiLungo()}</b> ({iscrittiOggi.length} di {corso.iscritti.length})
-            {eCollaboratore && " — registra solo le presenze, non genera compensi a lezione"}
+            {iscrittiOggi.length} di {corso.iscritti.length} attesi oggi
           </div>
           {iscrittiOggi.length === 0 && <p style={{ color: "#64748b", fontSize: 13 }}>Nessuno atteso oggi per questo corso.</p>}
           {iscrittiOggi.map((i) => (
