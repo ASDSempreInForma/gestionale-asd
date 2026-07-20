@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import jsQR from "jsqr";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const ANON_KEY =
@@ -213,6 +214,90 @@ function ModaleDocumentoSocio({ iscritto, tipo, corso, callFnWithAuth, onClose, 
   );
 }
 
+function ScannerQR({ onScansione, onClose }) {
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+  const attivoRef = useRef(true);
+  const ultimoCfRef = useRef(null);
+  const ultimoTsRef = useRef(0);
+  const [errore, setErrore] = useState("");
+  const [ultimoEsito, setUltimoEsito] = useState(null); // { ok, testo }
+
+  useEffect(() => {
+    attivoRef.current = true;
+    let raf;
+
+    async function avvia() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+        loop();
+      } catch (e) {
+        setErrore("Impossibile accedere alla fotocamera. Controlla di aver dato il permesso al browser.");
+      }
+    }
+
+    function loop() {
+      if (!attivoRef.current) return;
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      if (video && canvas && video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const codice = jsQR(imageData.data, imageData.width, imageData.height);
+        if (codice && codice.data) {
+          const ora = Date.now();
+          // Evita di segnalare lo stesso codice più volte di fila entro 2 secondi
+          if (codice.data !== ultimoCfRef.current || ora - ultimoTsRef.current > 2000) {
+            ultimoCfRef.current = codice.data;
+            ultimoTsRef.current = ora;
+            if (navigator.vibrate) navigator.vibrate(80);
+            const esito = onScansione(codice.data.trim());
+            setUltimoEsito(esito);
+          }
+        }
+      }
+      raf = requestAnimationFrame(loop);
+    }
+
+    avvia();
+    return () => {
+      attivoRef.current = false;
+      if (raf) cancelAnimationFrame(raf);
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+    };
+  }, [onScansione]);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.92)", zIndex: 300, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ position: "relative", width: "100%", maxWidth: 380 }}>
+        <video ref={videoRef} playsInline muted style={{ width: "100%", borderRadius: 12, background: "#111" }} />
+        <canvas ref={canvasRef} style={{ display: "none" }} />
+      </div>
+      {errore && <p style={{ color: "#FCA5A5", fontSize: 13, marginTop: 14, textAlign: "center" }}>{errore}</p>}
+      {ultimoEsito && (
+        <div style={{
+          marginTop: 14, padding: "10px 16px", borderRadius: 10, fontSize: 14, fontWeight: 600, textAlign: "center",
+          background: ultimoEsito.ok ? "#DCFCE7" : "#FEE2E2", color: ultimoEsito.ok ? "#166534" : "#991B1B",
+        }}>
+          {ultimoEsito.testo}
+        </div>
+      )}
+      <button onClick={onClose} style={{ marginTop: 18, padding: "10px 24px", borderRadius: 10, border: "none", background: "white", color: "#111", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+        Chiudi scanner
+      </button>
+    </div>
+  );
+}
+
 function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
   const [aperto, setAperto] = useState(false);
   const [presenti, setPresenti] = useState(new Set());
@@ -224,6 +309,7 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
   const [inviandoNota, setInviandoNota] = useState(false);
   const [esitoNota, setEsitoNota] = useState("");
   const [modaleDoc, setModaleDoc] = useState(null); // { iscritto, tipo }
+  const [scannerAperto, setScannerAperto] = useState(false);
 
   const toggle = (cf) => {
     setPresenti((prev) => {
@@ -277,6 +363,21 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
     ? corso.iscritti.filter((i) => i.frequenza !== "1x" || i.giorno_scelto === nomeGiornoOggi)
     : [];
 
+  // Chiamata dallo scanner ad ogni QR letto: cerca la persona tra gli attesi oggi,
+  // se la trova la spunta come presente (stesso elenco delle checkbox manuali)
+  function gestisciScansione(cf) {
+    const trovato = iscrittiOggi.find((i) => i.cf.toUpperCase() === cf.toUpperCase());
+    if (trovato) {
+      setPresenti((prev) => new Set(prev).add(trovato.cf));
+      return { ok: true, testo: `✓ ${trovato.cognome} ${trovato.nome} segnato presente` };
+    }
+    const iscrittoAltrove = corso.iscritti.find((i) => i.cf.toUpperCase() === cf.toUpperCase());
+    if (iscrittoAltrove) {
+      return { ok: false, testo: `⚠️ ${iscrittoAltrove.cognome} ${iscrittoAltrove.nome} non è tra gli attesi oggi (altro giorno/frequenza) — segna a mano se presente` };
+    }
+    return { ok: false, testo: "⚠️ QR non riconosciuto per questo corso" };
+  }
+
   return (
     <div style={styles.card}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
@@ -296,6 +397,12 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
         {!eCollaboratore && oggiELezione && (
           <button onClick={() => setModaleSospesa(true)} style={styles.btnSecondary}>
             Lezione non svolta oggi
+          </button>
+        )}
+        {oggiELezione && (
+          <button onClick={() => { setAperto(true); setScannerAperto(true); }}
+            style={{ ...styles.btnSecondary, background: "#111827", color: "white", border: "none" }}>
+            📷 Scansiona QR
           </button>
         )}
       </div>
@@ -410,6 +517,13 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
             </div>
           </div>
         </div>
+      )}
+
+      {scannerAperto && (
+        <ScannerQR
+          onScansione={gestisciScansione}
+          onClose={() => setScannerAperto(false)}
+        />
       )}
 
       {modaleDoc && (

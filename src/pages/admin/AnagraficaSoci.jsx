@@ -8,6 +8,42 @@ const BD = "#E8E4DC", TX = "#1A1A1A", SUB = "#6B7280"
 const R = "#991B1B", RL = "#FEE2E2"
 const BUCKET = 'documenti-soci'
 
+function stampaTesseraQR(socio) {
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(socio.cf)}`;
+  const w = window.open('', '_blank', 'width=420,height=620');
+  if (!w) { alert('Il browser ha bloccato la finestra di stampa. Consenti i popup per questo sito e riprova.'); return; }
+  w.document.write(`
+    <html>
+      <head>
+        <title>Tessera — ${socio.cognome} ${socio.nome}</title>
+        <style>
+          body { font-family: -apple-system, Arial, sans-serif; display:flex; align-items:center; justify-content:center; margin:0; padding:24px; box-sizing:border-box; }
+          .card { border:2px solid #2D6A4F; border-radius:16px; padding:24px; text-align:center; width:280px; }
+          .logo { font-size:13px; font-weight:700; color:#2D6A4F; letter-spacing:.05em; margin-bottom:10px; }
+          .nome { font-size:19px; font-weight:700; margin:14px 0 4px; }
+          .cf { font-size:12px; color:#6B7280; font-family:monospace; margin-bottom:4px; }
+          img { border-radius:8px; }
+          .nota { font-size:11px; color:#94A3B8; margin-top:14px; }
+          @media print { body { padding:0; } }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <div class="logo">A.S.D. SEMPRE IN FORMA</div>
+          <img src="${qrUrl}" width="220" height="220" alt="QR check-in" />
+          <div class="nome">${socio.cognome} ${socio.nome}</div>
+          <div class="cf">${socio.cf}</div>
+          <div class="nota">Mostra questo QR all'ingresso in palestra per il check-in</div>
+        </div>
+        <script>
+          window.onload = function() { setTimeout(function(){ window.print(); }, 300); };
+        </script>
+      </body>
+    </html>
+  `);
+  w.document.close();
+}
+
 function fmtData(d) {
   if (!d) return '—'
   const [y, m, day] = d.split('-')
@@ -434,6 +470,10 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
               {socio.ente_tessera} · scade {fmtData(socio.scadenza_tessera)}
             </div>
           )}
+          <button onClick={() => stampaTesseraQR(socio)}
+            style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 8, padding: '7px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+            🖨️ Stampa tessera con QR
+          </button>
         </div>
 
         <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 12, marginBottom: 16 }}>

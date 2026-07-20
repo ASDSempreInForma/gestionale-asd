@@ -15,7 +15,8 @@
     "react-router-dom": "^6.26.0",
     "papaparse": "^5.4.1",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^4.0.379"
+    "pdfjs-dist": "^4.0.379",
+    "jsqr": "^1.4.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
