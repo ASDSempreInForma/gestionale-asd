@@ -828,7 +828,7 @@ export default function ModuloIscrizione() {
             <div className="grid grid-cols-2 gap-3">
               <Campo label="Nome *" value={anagrafica.nome} onChange={(v) => setAnagrafica({ ...anagrafica, nome: v })} />
               <Campo label="Cognome *" value={anagrafica.cognome} onChange={(v) => setAnagrafica({ ...anagrafica, cognome: v })} />
-              <Campo type="date" label="Data di nascita *" value={anagrafica.dataNascita} onChange={(v) => setAnagrafica({ ...anagrafica, dataNascita: v })} />
+              <Campo type="date" label="Data di nascita *" className="min-w-0" value={anagrafica.dataNascita} onChange={(v) => setAnagrafica({ ...anagrafica, dataNascita: v })} />
               <div>
                 <label className="text-xs font-medium text-slate-600">Luogo di nascita</label>
                 <div className="mt-1">
