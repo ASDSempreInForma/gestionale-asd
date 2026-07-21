@@ -10,6 +10,18 @@ const LS_EMAIL = "areaIstruttori_email";
 const LS_TEL = "areaIstruttori_telefono";
 const WHATSAPP_NUM = "393278681393";
 
+// Blu petrolio del logo, usato per differenziare quest'area dalle altre
+const G = "#2A6F86";
+
+function IntestazioneScura({ sottotitolo }) {
+  return (
+    <div style={{ background: "#181818", padding: "18px 20px" }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: "white", letterSpacing: "0.02em" }}>A.S.D. SEMPRE IN FORMA</div>
+      <div style={{ fontSize: 11, color: G, fontWeight: 600, letterSpacing: "0.02em", marginTop: 3 }}>{sottotitolo}</div>
+    </div>
+  );
+}
+
 async function callFn(payload) {
   try {
     const res = await fetch(FUNCTION_URL, {
@@ -205,7 +217,7 @@ function ModaleDocumentoSocio({ iscritto, tipo, corso, callFnWithAuth, onClose, 
             Annulla
           </button>
           <button onClick={invia} disabled={caricando}
-            style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: "#2D6A4F", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: caricando ? 0.6 : 1 }}>
+            style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: G, color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: caricando ? 0.6 : 1 }}>
             {caricando ? "Carico…" : "✓ Carica"}
           </button>
         </div>
@@ -317,7 +329,7 @@ function ScannerQR({ onScansione, onClose }) {
           </p>
           <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
             <button onClick={() => rispondiConferma(false)} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #E2E8F0", background: "white", color: "#475569", fontSize: 13, cursor: "pointer" }}>No</button>
-            <button onClick={() => rispondiConferma(true)} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#2D6A4F", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>✓ Sì, segna il recupero</button>
+            <button onClick={() => rispondiConferma(true)} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: G, color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>✓ Sì, segna il recupero</button>
           </div>
         </div>
       )}
@@ -669,7 +681,9 @@ export default function AreaIstruttori() {
 
   if (!sessione) {
     return (
-      <div style={styles.page}>
+      <>
+        <IntestazioneScura sottotitolo="AREA ISTRUTTORI E COLLABORATORI" />
+        <div style={styles.page}>
         <div style={styles.loginBox}>
           <h2 style={{ marginTop: 0 }}>Area Istruttori</h2>
           <p style={{ color: "#64748b", fontSize: 14 }}>A.S.D. Sempre In Forma</p>
@@ -689,7 +703,8 @@ export default function AreaIstruttori() {
             <a href={`https://wa.me/${WHATSAPP_NUM}`} target="_blank" rel="noreferrer">WhatsApp</a>.
           </p>
         </div>
-      </div>
+        </div>
+      </>
     );
   }
 
@@ -711,7 +726,9 @@ export default function AreaIstruttori() {
   const { istruttore, stagione, corsi } = dati;
 
   return (
-    <div style={styles.page}>
+    <>
+      <IntestazioneScura sottotitolo="AREA ISTRUTTORI E COLLABORATORI" />
+      <div style={styles.page}>
       <div style={styles.container}>
         <div style={styles.header}>
           <div>
@@ -739,6 +756,7 @@ export default function AreaIstruttori() {
         ))}
       </div>
     </div>
+    </>
   );
 }
 
@@ -750,8 +768,8 @@ const styles = {
   label: { display: "block", fontSize: 13, fontWeight: 600, color: "#334155", marginTop: 10, marginBottom: 4 },
   input: { width: "100%", padding: "9px 10px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14, boxSizing: "border-box" },
   errore: { color: "#dc2626", fontSize: 13, marginTop: 8 },
-  btnPrimary: { background: "#4f46e5", color: "#fff", border: "none", padding: "10px 16px", borderRadius: 8, fontWeight: 600, cursor: "pointer" },
-  btnSecondary: { background: "#eef2ff", color: "#4338ca", border: "1px solid #c7d2fe", padding: "8px 14px", borderRadius: 8, fontWeight: 600, cursor: "pointer", fontSize: 13 },
+  btnPrimary: { background: "#2A6F86", color: "#fff", border: "none", padding: "10px 16px", borderRadius: 8, fontWeight: 600, cursor: "pointer" },
+  btnSecondary: { background: "#E8F1F4", color: "#1D4E5F", border: "1px solid #B7D4DC", padding: "8px 14px", borderRadius: 8, fontWeight: 600, cursor: "pointer", fontSize: 13 },
   card: { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16, marginBottom: 14 },
   badgeVerde: { background: "#DCFCE7", color: "#166534", borderRadius: 20, padding: "3px 10px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" },
   badgeRosso: { background: "#FEE2E2", color: "#991B1B", borderRadius: 20, padding: "3px 10px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" },
