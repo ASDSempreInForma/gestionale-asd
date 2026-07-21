@@ -257,6 +257,7 @@ function SezioneEmail({ socio }) {
   const [messaggi, setMessaggi] = useState(null)
   const [errore, setErrore] = useState('')
   const [selezionato, setSelezionato] = useState(null) // messaggio completo aperto
+  const [selezionatoId, setSelezionatoId] = useState(null) // id del messaggio espanso in elenco
   const [caricandoMsg, setCaricandoMsg] = useState(false)
   const [risposta, setRisposta] = useState('')
   const [inviando, setInviando] = useState(false)
@@ -290,6 +291,8 @@ function SezioneEmail({ socio }) {
   }
 
   const apriMessaggio = async (m) => {
+    if (selezionatoId === m.id) { setSelezionatoId(null); setSelezionato(null); return } // riclicco = chiudo
+    setSelezionatoId(m.id)
     if (m.id.startsWith('brevo_')) {
       setSelezionato({ brevo: true, oggetto: m.oggetto, data: m.data, stato: m.stato })
       setRisposta('')
@@ -377,56 +380,55 @@ function SezioneEmail({ socio }) {
           {messaggi && messaggi.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {messaggi.map(m => (
-                <div key={m.id} onClick={() => apriMessaggio(m)}
-                  style={{ background: 'white', borderRadius: 7, padding: '8px 10px', cursor: 'pointer', border: `1px solid ${BD}` }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, fontWeight: m.letta === false ? 700 : 400 }}>
-                    <span>
-                      {m.id.startsWith('brevo_') && (
-                        <span style={{ fontSize: 9.5, fontWeight: 700, color: '#0E7C7B', background: '#E6FAF8', padding: '1px 6px', borderRadius: 5, marginRight: 6 }}>AUTOMATICA</span>
-                      )}
-                      {m.oggetto || '(nessun oggetto)'}
-                    </span>
-                    <span style={{ color: SUB, fontWeight: 400 }}>{fmtData(m.data?.slice(0, 10))}</span>
+                <div key={m.id}>
+                  <div onClick={() => apriMessaggio(m)}
+                    style={{ background: 'white', borderRadius: 7, padding: '8px 10px', cursor: 'pointer', border: `1px solid ${BD}` }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, fontWeight: m.letta === false ? 700 : 400 }}>
+                      <span>
+                        {m.id.startsWith('brevo_') && (
+                          <span style={{ fontSize: 9.5, fontWeight: 700, color: '#0E7C7B', background: '#E6FAF8', padding: '1px 6px', borderRadius: 5, marginRight: 6 }}>AUTOMATICA</span>
+                        )}
+                        {m.oggetto || '(nessun oggetto)'}
+                      </span>
+                      <span style={{ color: SUB, fontWeight: 400 }}>{fmtData(m.data?.slice(0, 10))}</span>
+                    </div>
+                    {m.anteprima && <div style={{ fontSize: 11.5, color: SUB, marginTop: 2 }}>{m.anteprima}</div>}
                   </div>
-                  {m.anteprima && <div style={{ fontSize: 11.5, color: SUB, marginTop: 2 }}>{m.anteprima}</div>}
+
+                  {selezionatoId === m.id && caricandoMsg && (
+                    <p style={{ fontSize: 12.5, color: SUB, margin: '6px 0 0' }}>Apro il messaggio...</p>
+                  )}
+
+                  {selezionatoId === m.id && selezionato && selezionato.brevo && (
+                    <div style={{ background: '#FAFAF8', borderRadius: 8, padding: 12, marginTop: 4, border: `1px solid ${BD}` }}>
+                      <div style={{ fontSize: 11.5, color: SUB }}>
+                        Stato: {selezionato.stato || 'sconosciuto'}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: SUB, marginTop: 8, fontStyle: 'italic' }}>
+                        È un'email automatica inviata dal gestionale — il contenuto completo si può controllare su app.brevo.com. Non è possibile rispondere direttamente da qui.
+                      </div>
+                    </div>
+                  )}
+
+                  {selezionatoId === m.id && selezionato && !selezionato.brevo && (
+                    <div style={{ background: '#FAFAF8', borderRadius: 8, padding: 12, marginTop: 4, border: `1px solid ${BD}` }}>
+                      <div style={{ fontSize: 11.5, color: SUB, marginBottom: 8 }}>
+                        Da: {selezionato.daNome} ({selezionato.da})
+                      </div>
+                      <div style={{ fontSize: 12.5, maxHeight: 220, overflowY: 'auto', border: `1px solid ${BD}`, borderRadius: 6, padding: 8, background: 'white' }}
+                        dangerouslySetInnerHTML={{ __html: selezionato.corpoTipo === 'html' ? selezionato.corpo : `<pre style="white-space:pre-wrap;font-family:inherit">${selezionato.corpo}</pre>` }} />
+
+                      <label style={{ fontSize: 11, color: SUB, display: 'block', marginTop: 10, marginBottom: 3 }}>Rispondi</label>
+                      <textarea value={risposta} onChange={e => setRisposta(e.target.value)} rows={3} placeholder="Scrivi la risposta..."
+                        style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: `1px solid ${BD}`, fontSize: 12.5, boxSizing: 'border-box', fontFamily: 'inherit' }} />
+                      <button onClick={invia} disabled={inviando || !risposta.trim()} style={{ marginTop: 6, background: G, color: 'white', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                        {inviando ? 'Invio...' : '↩ Invia risposta'}
+                      </button>
+                      {esito && <p style={{ fontSize: 11.5, color: esito.startsWith('✓') ? G : R, marginTop: 6 }}>{esito}</p>}
+                    </div>
+                  )}
                 </div>
               ))}
-            </div>
-          )}
-
-          {caricandoMsg && <p style={{ fontSize: 12.5, color: SUB, marginTop: 8 }}>Apro il messaggio...</p>}
-
-          {selezionato && selezionato.brevo && (
-            <div style={{ background: 'white', borderRadius: 8, padding: 12, marginTop: 10, border: `1px solid ${BD}` }}>
-              <div style={{ fontSize: 9.5, fontWeight: 700, color: '#0E7C7B', background: '#E6FAF8', padding: '2px 7px', borderRadius: 5, display: 'inline-block', marginBottom: 6 }}>
-                EMAIL AUTOMATICA (Brevo)
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{selezionato.oggetto}</div>
-              <div style={{ fontSize: 11.5, color: SUB, marginTop: 4 }}>
-                Inviata il {fmtData(selezionato.data?.slice(0, 10))} · Stato: {selezionato.stato || 'sconosciuto'}
-              </div>
-              <div style={{ fontSize: 11.5, color: SUB, marginTop: 8, fontStyle: 'italic' }}>
-                È un'email automatica inviata dal gestionale — il contenuto completo si può controllare su app.brevo.com. Non è possibile rispondere direttamente da qui.
-              </div>
-            </div>
-          )}
-
-          {selezionato && !selezionato.brevo && (
-            <div style={{ background: 'white', borderRadius: 8, padding: 12, marginTop: 10, border: `1px solid ${BD}` }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{selezionato.oggetto}</div>
-              <div style={{ fontSize: 11.5, color: SUB, marginBottom: 8 }}>
-                Da: {selezionato.daNome} ({selezionato.da}) · {fmtData(selezionato.data?.slice(0, 10))}
-              </div>
-              <div style={{ fontSize: 12.5, maxHeight: 220, overflowY: 'auto', border: `1px solid ${BD}`, borderRadius: 6, padding: 8 }}
-                dangerouslySetInnerHTML={{ __html: selezionato.corpoTipo === 'html' ? selezionato.corpo : `<pre style="white-space:pre-wrap;font-family:inherit">${selezionato.corpo}</pre>` }} />
-
-              <label style={{ fontSize: 11, color: SUB, display: 'block', marginTop: 10, marginBottom: 3 }}>Rispondi</label>
-              <textarea value={risposta} onChange={e => setRisposta(e.target.value)} rows={3} placeholder="Scrivi la risposta..."
-                style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: `1px solid ${BD}`, fontSize: 12.5, boxSizing: 'border-box', fontFamily: 'inherit' }} />
-              <button onClick={invia} disabled={inviando || !risposta.trim()} style={{ marginTop: 6, background: G, color: 'white', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                {inviando ? 'Invio...' : '↩ Invia risposta'}
-              </button>
-              {esito && <p style={{ fontSize: 11.5, color: esito.startsWith('✓') ? G : R, marginTop: 6 }}>{esito}</p>}
             </div>
           )}
         </div>
