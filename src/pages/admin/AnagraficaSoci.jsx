@@ -8,6 +8,22 @@ const BD = "#E8E4DC", TX = "#1A1A1A", SUB = "#6B7280"
 const R = "#991B1B", RL = "#FEE2E2"
 const BUCKET = 'documenti-soci'
 
+const SUPABASE_URL = 'https://ebsuqdxflygxhuptnnun.supabase.co'
+const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVic3VxZHhmbHlneGh1cHRubnVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNTU1OTcsImV4cCI6MjA5NzYzMTU5N30.KXgue3EKXZdZZ5vvkmHcEzO5OvFEAQWyuvMtLm2RtV0'
+
+async function chiamaEmailFn(payload) {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/email-microsoft`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
+      body: JSON.stringify(payload),
+    })
+    return await res.json()
+  } catch (e) {
+    return { ok: false, error: 'Problema di connessione con il server email.' }
+  }
+}
+
 function stampaTesseraQR(socio) {
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(socio.cf)}`;
   const w = window.open('', '_blank', 'width=420,height=620');
@@ -231,6 +247,152 @@ function ModaleNuovaIscrizione({ socio, corsiEsclusi, onClose, onSalvato }) {
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+function SezioneEmail({ socio }) {
+  const [aperto, setAperto] = useState(false)
+  const [caricando, setCaricando] = useState(false)
+  const [messaggi, setMessaggi] = useState(null)
+  const [errore, setErrore] = useState('')
+  const [selezionato, setSelezionato] = useState(null) // messaggio completo aperto
+  const [caricandoMsg, setCaricandoMsg] = useState(false)
+  const [risposta, setRisposta] = useState('')
+  const [inviando, setInviando] = useState(false)
+  const [esito, setEsito] = useState('')
+  const [nuovaEmail, setNuovaEmail] = useState(false)
+  const [nuovoOggetto, setNuovoOggetto] = useState('')
+  const [nuovoTesto, setNuovoTesto] = useState('')
+
+  const apri = async () => {
+    setAperto(a => !a)
+    if (!messaggi && !aperto) {
+      setCaricando(true)
+      setErrore('')
+      const r = await chiamaEmailFn({ action: 'cerca_email', email: socio.email })
+      setCaricando(false)
+      if (r.ok) setMessaggi(r.messaggi)
+      else setErrore(r.error || 'Errore nel caricamento delle email.')
+    }
+  }
+
+  const apriMessaggio = async (id) => {
+    setCaricandoMsg(true)
+    setSelezionato(null)
+    setRisposta('')
+    setEsito('')
+    const r = await chiamaEmailFn({ action: 'leggi_email', id })
+    setCaricandoMsg(false)
+    if (r.ok) setSelezionato(r.messaggio)
+    else setErrore(r.error || 'Errore nel leggere il messaggio.')
+  }
+
+  const invia = async () => {
+    if (!risposta.trim()) return
+    setInviando(true)
+    setEsito('')
+    const r = await chiamaEmailFn({ action: 'rispondi_email', id: selezionato.id, testo: risposta })
+    setInviando(false)
+    if (r.ok) { setEsito('✓ Risposta inviata.'); setRisposta('') }
+    else setEsito('Errore: ' + (r.error || 'invio non riuscito'))
+  }
+
+  const inviaNuova = async () => {
+    if (!nuovoOggetto.trim() || !nuovoTesto.trim()) return
+    setInviando(true)
+    setEsito('')
+    const r = await chiamaEmailFn({
+      action: 'invia_nuova_email',
+      destinatarioEmail: socio.email,
+      destinatarioNome: `${socio.nome} ${socio.cognome}`,
+      oggetto: nuovoOggetto,
+      testo: nuovoTesto,
+    })
+    setInviando(false)
+    if (r.ok) { setEsito('✓ Email inviata.'); setNuovoOggetto(''); setNuovoTesto(''); setNuovaEmail(false) }
+    else setEsito('Errore: ' + (r.error || 'invio non riuscito'))
+  }
+
+  if (!socio.email) {
+    return (
+      <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 12.5, color: SUB }}>
+        📧 Nessun indirizzo email registrato per questa persona.
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <button onClick={apri} style={{ background: 'none', border: 'none', padding: 0, fontSize: 13, fontWeight: 600, color: TX, cursor: 'pointer' }}>
+          📧 Email {aperto ? '▲' : '▼'}
+        </button>
+        {aperto && (
+          <button onClick={() => setNuovaEmail(v => !v)} style={{ fontSize: 11.5, background: GL, color: G, border: 'none', borderRadius: 6, padding: '4px 9px', cursor: 'pointer', fontWeight: 600 }}>
+            ✎ Nuova email
+          </button>
+        )}
+      </div>
+
+      {aperto && (
+        <div style={{ marginTop: 10 }}>
+          {nuovaEmail && (
+            <div style={{ background: 'white', borderRadius: 8, padding: 10, marginBottom: 10, border: `1px solid ${BD}` }}>
+              <input placeholder="Oggetto" value={nuovoOggetto} onChange={e => setNuovoOggetto(e.target.value)}
+                style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: `1px solid ${BD}`, fontSize: 12.5, marginBottom: 6, boxSizing: 'border-box' }} />
+              <textarea placeholder="Testo del messaggio..." value={nuovoTesto} onChange={e => setNuovoTesto(e.target.value)} rows={4}
+                style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: `1px solid ${BD}`, fontSize: 12.5, boxSizing: 'border-box', fontFamily: 'inherit' }} />
+              <button onClick={inviaNuova} disabled={inviando} style={{ marginTop: 6, background: G, color: 'white', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                {inviando ? 'Invio...' : 'Invia'}
+              </button>
+            </div>
+          )}
+
+          {caricando && <p style={{ fontSize: 12.5, color: SUB }}>Carico le email...</p>}
+          {errore && <p style={{ fontSize: 12.5, color: R }}>{errore}</p>}
+
+          {messaggi && messaggi.length === 0 && (
+            <p style={{ fontSize: 12.5, color: SUB }}>Nessuna email trovata con questo indirizzo.</p>
+          )}
+
+          {messaggi && messaggi.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {messaggi.map(m => (
+                <div key={m.id} onClick={() => apriMessaggio(m.id)}
+                  style={{ background: 'white', borderRadius: 7, padding: '8px 10px', cursor: 'pointer', border: `1px solid ${BD}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, fontWeight: m.letta ? 400 : 700 }}>
+                    <span>{m.oggetto || '(nessun oggetto)'}</span>
+                    <span style={{ color: SUB, fontWeight: 400 }}>{fmtData(m.data?.slice(0, 10))}</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: SUB, marginTop: 2 }}>{m.anteprima}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {caricandoMsg && <p style={{ fontSize: 12.5, color: SUB, marginTop: 8 }}>Apro il messaggio...</p>}
+
+          {selezionato && (
+            <div style={{ background: 'white', borderRadius: 8, padding: 12, marginTop: 10, border: `1px solid ${BD}` }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{selezionato.oggetto}</div>
+              <div style={{ fontSize: 11.5, color: SUB, marginBottom: 8 }}>
+                Da: {selezionato.daNome} ({selezionato.da}) · {fmtData(selezionato.data?.slice(0, 10))}
+              </div>
+              <div style={{ fontSize: 12.5, maxHeight: 220, overflowY: 'auto', border: `1px solid ${BD}`, borderRadius: 6, padding: 8 }}
+                dangerouslySetInnerHTML={{ __html: selezionato.corpoTipo === 'html' ? selezionato.corpo : `<pre style="white-space:pre-wrap;font-family:inherit">${selezionato.corpo}</pre>` }} />
+
+              <label style={{ fontSize: 11, color: SUB, display: 'block', marginTop: 10, marginBottom: 3 }}>Rispondi</label>
+              <textarea value={risposta} onChange={e => setRisposta(e.target.value)} rows={3} placeholder="Scrivi la risposta..."
+                style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: `1px solid ${BD}`, fontSize: 12.5, boxSizing: 'border-box', fontFamily: 'inherit' }} />
+              <button onClick={invia} disabled={inviando || !risposta.trim()} style={{ marginTop: 6, background: G, color: 'white', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                {inviando ? 'Invio...' : '↩ Invia risposta'}
+              </button>
+              {esito && <p style={{ fontSize: 11.5, color: esito.startsWith('✓') ? G : R, marginTop: 6 }}>{esito}</p>}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -513,6 +675,8 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
             {salvandoBlocco ? 'Salvo...' : 'Salva'}
           </button>
         </div>
+
+        <SezioneEmail socio={socio} />
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <h3 style={{ fontSize: 14, margin: 0 }}>Iscrizioni</h3>

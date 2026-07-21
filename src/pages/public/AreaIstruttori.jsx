@@ -219,10 +219,12 @@ function ScannerQR({ onScansione, onClose }) {
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const attivoRef = useRef(true);
+  const inPausaRef = useRef(false);
   const ultimoCfRef = useRef(null);
   const ultimoTsRef = useRef(0);
   const [errore, setErrore] = useState("");
   const [ultimoEsito, setUltimoEsito] = useState(null); // { ok, testo }
+  const [conferma, setConferma] = useState(null); // { cf, nome, cognome, corsi }
 
   useEffect(() => {
     attivoRef.current = true;
@@ -244,6 +246,7 @@ function ScannerQR({ onScansione, onClose }) {
 
     function loop() {
       if (!attivoRef.current) return;
+      if (inPausaRef.current) { raf = requestAnimationFrame(loop); return; }
       const video = videoRef.current;
       const canvas = canvasRef.current;
       if (video && canvas && video.readyState === video.HAVE_ENOUGH_DATA) {
@@ -255,17 +258,25 @@ function ScannerQR({ onScansione, onClose }) {
         const codice = jsQR(imageData.data, imageData.width, imageData.height);
         if (codice && codice.data) {
           const ora = Date.now();
-          // Evita di segnalare lo stesso codice più volte di fila entro 2 secondi
           if (codice.data !== ultimoCfRef.current || ora - ultimoTsRef.current > 2000) {
             ultimoCfRef.current = codice.data;
             ultimoTsRef.current = ora;
             if (navigator.vibrate) navigator.vibrate(80);
-            const esito = onScansione(codice.data.trim());
-            setUltimoEsito(esito);
+            gestisci(codice.data.trim());
           }
         }
       }
       raf = requestAnimationFrame(loop);
+    }
+
+    async function gestisci(cf) {
+      const esito = await onScansione(cf);
+      if (esito.richiedeConferma) {
+        inPausaRef.current = true;
+        setConferma(esito);
+      } else {
+        setUltimoEsito(esito);
+      }
     }
 
     avvia();
@@ -276,6 +287,17 @@ function ScannerQR({ onScansione, onClose }) {
     };
   }, [onScansione]);
 
+  const rispondiConferma = (sì) => {
+    if (sì && conferma) {
+      const esito = conferma.onConferma();
+      setUltimoEsito(esito);
+    } else {
+      setUltimoEsito({ ok: false, testo: "Recupero non aggiunto." });
+    }
+    setConferma(null);
+    inPausaRef.current = false;
+  };
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.92)", zIndex: 300, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div style={{ position: "relative", width: "100%", maxWidth: 380 }}>
@@ -283,7 +305,24 @@ function ScannerQR({ onScansione, onClose }) {
         <canvas ref={canvasRef} style={{ display: "none" }} />
       </div>
       {errore && <p style={{ color: "#FCA5A5", fontSize: 13, marginTop: 14, textAlign: "center" }}>{errore}</p>}
-      {ultimoEsito && (
+
+      {conferma && (
+        <div style={{ marginTop: 14, padding: "14px 16px", borderRadius: 12, background: "white", maxWidth: 340, textAlign: "center" }}>
+          <p style={{ margin: 0, fontSize: 14, color: "#111" }}>
+            <b>{conferma.cognome} {conferma.nome}</b> non è iscritto/a a questo corso
+            {conferma.corsi?.[0] && <> — risulta iscritto/a a <b>{conferma.corsi[0].disciplina}</b> ({conferma.corsi[0].sede})</>}.
+          </p>
+          <p style={{ margin: "8px 0 12px", fontSize: 14, color: "#111" }}>
+            Vuoi segnare la lezione di recupero di <b>{conferma.cognome} {conferma.nome}</b> oggi, in questo corso?
+          </p>
+          <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+            <button onClick={() => rispondiConferma(false)} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #E2E8F0", background: "white", color: "#475569", fontSize: 13, cursor: "pointer" }}>No</button>
+            <button onClick={() => rispondiConferma(true)} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#2D6A4F", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>✓ Sì, segna il recupero</button>
+          </div>
+        </div>
+      )}
+
+      {!conferma && ultimoEsito && (
         <div style={{
           marginTop: 14, padding: "10px 16px", borderRadius: 10, fontSize: 14, fontWeight: 600, textAlign: "center",
           background: ultimoEsito.ok ? "#DCFCE7" : "#FEE2E2", color: ultimoEsito.ok ? "#166534" : "#991B1B",
@@ -291,6 +330,7 @@ function ScannerQR({ onScansione, onClose }) {
           {ultimoEsito.testo}
         </div>
       )}
+
       <button onClick={onClose} style={{ marginTop: 18, padding: "10px 24px", borderRadius: 10, border: "none", background: "white", color: "#111", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
         Chiudi scanner
       </button>
@@ -365,7 +405,7 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
 
   // Chiamata dallo scanner ad ogni QR letto: cerca la persona tra gli attesi oggi,
   // se la trova la spunta come presente (stesso elenco delle checkbox manuali)
-  function gestisciScansione(cf) {
+  async function gestisciScansione(cf) {
     const trovato = iscrittiOggi.find((i) => i.cf.toUpperCase() === cf.toUpperCase());
     if (trovato) {
       setPresenti((prev) => new Set(prev).add(trovato.cf));
@@ -375,7 +415,23 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
     if (iscrittoAltrove) {
       return { ok: false, testo: `⚠️ ${iscrittoAltrove.cognome} ${iscrittoAltrove.nome} non è tra gli attesi oggi (altro giorno/frequenza) — segna a mano se presente` };
     }
-    return { ok: false, testo: "⚠️ QR non riconosciuto per questo corso" };
+
+    // Non è iscritto a QUESTO corso: cerchiamo se è iscritto altrove, per offrire un recupero
+    const r = await callFnWithAuth({ action: "cerca_iscritto_cf", cf });
+    if (r.ok && r.trovato) {
+      return {
+        richiedeConferma: true,
+        cf: r.cf,
+        nome: r.nome,
+        cognome: r.cognome,
+        corsi: r.corsi,
+        onConferma: () => {
+          setPresenti((prev) => new Set(prev).add(r.cf));
+          return { ok: true, testo: `✓ Recupero segnato per ${r.cognome} ${r.nome}` };
+        },
+      };
+    }
+    return { ok: false, testo: "⚠️ QR non riconosciuto — questa persona non risulta iscritta a nessun corso attivo" };
   }
 
   return (
