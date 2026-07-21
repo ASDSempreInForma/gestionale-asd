@@ -15,7 +15,8 @@ const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVic3VxZHhmbHlneGh1cHRubnVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNTU1OTcsImV4cCI6MjA5NzYzMTU5N30.KXgue3EKXZdZZ5vvkmHcEzO5OvFEAQWyuvMtLm2RtV0";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const G="#2D6A4F",GL="#D8F3DC",GD="#1B4332";
+const G="#E8501F",GL="#FBE4D9",GD="#B23D16";
+const BLU="#2A6F86";
 const R="#991B1B",RL="#FEE2E2";
 const A="#B45309",AL="#FEF3C7",AD="#92400E";
 const TX="#1A1A1A",SUB="#6B7280",BD="#E8E4DC";
@@ -385,10 +386,13 @@ export default function LiberatoriaProva() {
   // ------------------------------------------------------------------
   return (
     <div style={{ fontFamily: "'Segoe UI',system-ui,sans-serif", background: "#F8F7F4", minHeight: "100vh" }}>
-      <div style={{ background: G, padding: "16px 18px", textAlign: "center" }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: "white" }}>A.S.D. SEMPRE IN FORMA</div>
-        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>
-          LIBERATORIA PER LEZIONE DI PROVA {stagione?.nome?.toUpperCase() ?? "2025/26"}
+      <div style={{ background: "#181818", padding: "18px 20px", textAlign: "left" }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "white", letterSpacing: "0.02em" }}>A.S.D. SEMPRE IN FORMA</div>
+        <div style={{ fontSize: 11, color: G, fontWeight: 600, letterSpacing: "0.02em", marginTop: 3 }}>
+          LIBERATORIA PER LEZIONE DI PROVA
+        </div>
+        <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 2 }}>
+          Stagione {stagione?.nome ?? "2025/26"}
         </div>
       </div>
 
