@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
+import { generaFileASI, generaFileLibertas } from "./esportaAssicurazioni.js";
+import { generaRegistroFirmeASI, generaRegistroFirmeLibertas } from "./registroFirme.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -8,6 +10,14 @@ const SUPABASE_ANON_KEY =
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const G = "#2D6A4F", GL = "#E8F5E9", TX = "#111827", GR = "#6B7280", BD = "#E5E7EB";
+
+function bottoneAssicurazione(attivo) {
+  return {
+    padding: "10px 8px", borderRadius: 10, border: "none",
+    background: attivo ? GL : "#F3F4F6", color: attivo ? G : "#9CA3AF",
+    fontSize: 12.5, fontWeight: 600, cursor: attivo ? "pointer" : "not-allowed",
+  };
+}
 
 const GRUPPI_COLONNE = [
   {
@@ -71,6 +81,7 @@ function labelFrequenza(r) {
 }
 
 export default function ElencoPersonalizzato() {
+  const [stagione, setStagione] = useState(null);
   const [corsi, setCorsi] = useState([]);
   const [iscrizioni, setIscrizioni] = useState([]);
   const [caricando, setCaricando] = useState(true);
@@ -95,6 +106,7 @@ export default function ElencoPersonalizzato() {
       const { data: stag, error: errS } = await supabase
         .from("stagioni").select("id,nome").eq("attiva", true).single();
       if (errS) throw errS;
+      setStagione(stag);
 
       const { data: corsiDB, error: errC } = await supabase
         .from("corsi")
@@ -106,7 +118,7 @@ export default function ElencoPersonalizzato() {
 
       const { data: iscDB, error: errI } = await supabase
         .from("iscrizioni")
-        .select("id, corso_id, frequenza, giorno_scelto, tipo_pagamento, stato_certificato, data_scadenza_certificato, note, soci ( cf, nome, cognome, data_nascita, telefono, numero_tessera )")
+        .select("id, corso_id, frequenza, giorno_scelto, tipo_pagamento, stato_certificato, data_scadenza_certificato, note, soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera, ente_tessera )")
         .eq("stagione_id", stag.id)
         .neq("stato_pagamento", "annullata")
         .order("id");
@@ -149,6 +161,11 @@ export default function ElencoPersonalizzato() {
     });
   }, [iscrizioni, filtroCorso, ricerca]);
 
+  const iscrizioniSelezionate = useMemo(
+    () => iscrizioni.filter((r) => selezionati.has(r.id)),
+    [iscrizioni, selezionati]
+  );
+
   function toggleSelezionato(id) {
     setSelezionati((prev) => {
       const next = new Set(prev);
@@ -181,10 +198,9 @@ export default function ElencoPersonalizzato() {
 
   function generaEsportazione() {
     const colonne = TUTTE_LE_COLONNE.filter((c) => colonneScelte.has(c.id));
-    const righeSelezionate = iscrizioni.filter((r) => selezionati.has(r.id));
 
     const intestazione = colonne.map((c) => c.label);
-    const righe = righeSelezionate.map((r) => colonne.map((c) => c.calc(r)));
+    const righe = iscrizioniSelezionate.map((r) => colonne.map((c) => c.calc(r)));
 
     const ws = XLSX.utils.aoa_to_sheet([intestazione, ...righe]);
     ws["!cols"] = colonne.map(() => ({ wch: 20 }));
@@ -210,6 +226,7 @@ export default function ElencoPersonalizzato() {
         {caricando ? (
           <p style={{ color: GR, fontSize: 13 }}>Caricamento...</p>
         ) : (
+          <>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 20 }}>
 
             <div style={{ background: "white", borderRadius: 12, border: "1px solid " + BD, padding: 18 }}>
@@ -290,6 +307,45 @@ export default function ElencoPersonalizzato() {
               </button>
             </div>
           </div>
+
+          {/* Assicurazioni per le persone selezionate, anche di corsi diversi tra loro */}
+          <div style={{ background: "white", borderRadius: 12, border: "1px solid " + BD, padding: 18, marginTop: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: TX, marginBottom: 4 }}>3. Assicurazioni per le persone selezionate</div>
+            <p style={{ fontSize: 12, color: GR, marginBottom: 12 }}>
+              Stessi registri della pagina "Esporta Assicurazioni", ma per la selezione di persone qui sopra invece che per un corso intero.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
+              <button
+                onClick={() => generaFileASI({ codice_corso: "Selezione" }, iscrizioniSelezionate, stagione)}
+                disabled={selezionati.size === 0}
+                style={bottoneAssicurazione(selezionati.size)}
+              >
+                Elenco dati ASI
+              </button>
+              <button
+                onClick={() => generaFileLibertas({ codice_corso: "Selezione" }, iscrizioniSelezionate, stagione)}
+                disabled={selezionati.size === 0}
+                style={bottoneAssicurazione(selezionati.size)}
+              >
+                Elenco dati Libertas
+              </button>
+              <button
+                onClick={() => generaRegistroFirmeASI({ codice_corso: "Selezione" }, iscrizioniSelezionate, stagione)}
+                disabled={selezionati.size === 0}
+                style={bottoneAssicurazione(selezionati.size)}
+              >
+                Registro firme ASI
+              </button>
+              <button
+                onClick={() => generaRegistroFirmeLibertas({ codice_corso: "Selezione" }, iscrizioniSelezionate, stagione)}
+                disabled={selezionati.size === 0}
+                style={bottoneAssicurazione(selezionati.size)}
+              >
+                Registro firme Libertas
+              </button>
+            </div>
+          </div>
+          </>
         )}
       </div>
     </div>
