@@ -8,6 +8,18 @@ const ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVic3VxZHhmbHlneGh1cHRubnVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNTU1OTcsImV4cCI6MjA5NzYzMTU5N30.KXgue3EKXZdZZ5vvkmHcEzO5OvFEAQWyuvMtLm2RtV0";
 const FUNCTION_URL = `${SUPABASE_URL}/functions/v1/area-tesserati`;
 
+// Colore ambra del logo, usato per differenziare quest'area dalle altre
+const G = "#F5A623";
+
+function IntestazioneScura({ sottotitolo }) {
+  return (
+    <div style={{ background: "#181818", padding: "18px 20px" }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: "white", letterSpacing: "0.02em" }}>A.S.D. SEMPRE IN FORMA</div>
+      <div style={{ fontSize: 11, color: G, fontWeight: 600, letterSpacing: "0.02em", marginTop: 3 }}>{sottotitolo}</div>
+    </div>
+  );
+}
+
 const LS_CF = "areaTesserati_cf";
 const LS_EMAIL = "areaTesserati_email";
 
@@ -479,7 +491,9 @@ export default function AreaTesserati() {
   // ── Schermata di login ──
   if (!sessione) {
     return (
-      <div style={styles.page}>
+      <>
+        <IntestazioneScura sottotitolo="AREA TESSERATI" />
+        <div style={styles.page}>
         <div style={styles.loginBox}>
           <h2 style={{ marginTop: 0 }}>Area Tesserati</h2>
           <p style={{ color: "#64748b", fontSize: 14 }}>A.S.D. Sempre In Forma</p>
@@ -521,7 +535,8 @@ export default function AreaTesserati() {
             <a href={`https://wa.me/${WHATSAPP_NUM}`} target="_blank" rel="noreferrer">WhatsApp</a>.
           </p>
         </div>
-      </div>
+        </div>
+      </>
     );
   }
 
@@ -561,7 +576,9 @@ export default function AreaTesserati() {
   const idsCertificatoAttivi = iscrizioniAttive.map((i) => i.id);
 
   return (
-    <div style={styles.page}>
+    <>
+      <IntestazioneScura sottotitolo="AREA TESSERATI" />
+      <div style={styles.page}>
       <div style={styles.container}>
         <div style={styles.header}>
           <div>
@@ -705,6 +722,7 @@ export default function AreaTesserati() {
         />
       )}
     </div>
+    </>
   );
 }
 
@@ -717,10 +735,10 @@ const styles = {
   label: { display: "block", fontSize: 13, fontWeight: 600, color: "#334155", marginTop: 10, marginBottom: 4 },
   input: { width: "100%", padding: "9px 10px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14, boxSizing: "border-box" },
   errore: { color: "#dc2626", fontSize: 13, marginTop: 8 },
-  btnPrimary: { background: "#4f46e5", color: "#fff", border: "none", padding: "10px 16px", borderRadius: 8, fontWeight: 600, cursor: "pointer" },
+  btnPrimary: { background: "#F5A623", color: "#fff", border: "none", padding: "10px 16px", borderRadius: 8, fontWeight: 600, cursor: "pointer" },
   btnSecondary: { background: "#e2e8f0", color: "#334155", border: "none", padding: "10px 16px", borderRadius: 8, fontWeight: 600, cursor: "pointer" },
-  btnSmall: { background: "#eef2ff", color: "#4338ca", border: "1px solid #c7d2fe", padding: "6px 10px", borderRadius: 8, fontSize: 13, cursor: "pointer" },
-  linkBtn: { background: "none", border: "none", color: "#4f46e5", fontSize: 12, cursor: "pointer", marginTop: 4 },
+  btnSmall: { background: "#FEF3E2", color: "#92400E", border: "1px solid #FBD38D", padding: "6px 10px", borderRadius: 8, fontSize: 13, cursor: "pointer" },
+  linkBtn: { background: "none", border: "none", color: "#F5A623", fontSize: 12, cursor: "pointer", marginTop: 4 },
   quickRow: { display: "flex", gap: 10, flexWrap: "wrap", margin: "16px 0 24px" },
   quickBtn: { background: "#fff", border: "1px solid #e2e8f0", padding: "10px 14px", borderRadius: 10, textDecoration: "none", color: "#334155", fontSize: 14, fontWeight: 500 },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14, marginBottom: 24 },
