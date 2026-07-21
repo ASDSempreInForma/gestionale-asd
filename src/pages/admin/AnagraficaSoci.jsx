@@ -299,7 +299,7 @@ function SezioneEmail({ socio }) {
       const r = await fetch(`${SUPABASE_URL}/functions/v1/email-brevo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
-        body: JSON.stringify({ action: 'leggi_email_brevo', messageId: m.messageId }),
+        body: JSON.stringify({ action: 'leggi_email_brevo', uuid: m.uuid }),
       }).then(r => r.json()).catch(() => ({ ok: false }))
       setCaricandoMsg(false)
       if (r.ok) setSelezionato({ brevo: true, oggetto: r.messaggio.oggetto, corpo: r.messaggio.corpo, stato: m.stato })
