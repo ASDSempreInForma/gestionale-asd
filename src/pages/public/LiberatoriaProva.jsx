@@ -117,7 +117,7 @@ export default function LiberatoriaProva() {
     async function carica() {
       try {
         const { data: stag, error: errS } = await supabase
-          .from("stagioni").select("id,nome").eq("attiva", true).single();
+          .from("stagioni").select("id,nome,iscrizioni_aperte").eq("attiva", true).single();
         if (errS) throw errS;
         setStagione(stag);
 
@@ -126,7 +126,7 @@ export default function LiberatoriaProva() {
           .from("corsi")
           .select(`
             id, codice_corso, disciplina, giorni_orari,
-            capienza_max, prove_attive,
+            capienza_max, prove_attive, mese_inizio,
             sedi ( nome ),
             iscrizioni ( id ),
             prove ( id, stato )
@@ -150,10 +150,17 @@ export default function LiberatoriaProva() {
             iscritti,
             prove: proveAttive,
             accettaProve: c.prove_attive !== false,
+            mese_inizio: c.mese_inizio,
           };
         });
 
-        setCorsi(corsiFormattati);
+        // Se le iscrizioni generali sono chiuse (interruttore in Gestione Stagioni),
+        // le prove restano prenotabili SOLO per i corsi che partono a settembre.
+        const corsiVisibili = stag.iscrizioni_aperte
+          ? corsiFormattati
+          : corsiFormattati.filter((c) => c.mese_inizio === "settembre");
+
+        setCorsi(corsiVisibili);
       } catch (err) {
         setErroreCorsi("Impossibile caricare i corsi. Riprova o contatta la segreteria al 327 868 1393.");
       } finally {
@@ -354,6 +361,26 @@ export default function LiberatoriaProva() {
   );
 
   // ------------------------------------------------------------------
+  // Iscrizioni chiuse (interruttore in Gestione Stagioni) — se non c'è
+  // nemmeno un corso di settembre disponibile, blocchiamo tutto il modulo
+  // ------------------------------------------------------------------
+  const iscrizioniChiuse = stagione && !stagione.iscrizioni_aperte;
+  if (iscrizioniChiuse && !loadingCorsi && corsi.length === 0) {
+    return (
+      <div style={{ fontFamily: "'Segoe UI',system-ui,sans-serif", background: "#F8F7F4", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ textAlign: "center", padding: "40px 24px", maxWidth: 420 }}>
+          <div style={{ fontSize: 52, marginBottom: 14 }}>🗓️</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: GD, marginBottom: 8 }}>Le prove non sono ancora attive</div>
+          <div style={{ fontSize: 13, color: SUB, lineHeight: 1.8 }}>
+            Potrai richiedere una lezione di prova a partire dal <strong>1° settembre</strong>.<br />
+            📞 WhatsApp 327 868 1393 · 📧 info@asdsempreinforma.it
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ------------------------------------------------------------------
   // Form principale
   // ------------------------------------------------------------------
   return (
@@ -366,6 +393,12 @@ export default function LiberatoriaProva() {
       </div>
 
       <div style={{ maxWidth: 540, margin: "0 auto", padding: "18px 14px 48px" }}>
+        {iscrizioniChiuse && (
+          <div style={{ background: AL, border: `1px solid ${A}44`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: AD, marginBottom: 14 }}>
+            Al momento sono aperte solo le prove per i corsi che partono a <strong>settembre</strong>. Gli altri
+            corsi saranno prenotabili dal <strong>1° settembre</strong>.
+          </div>
+        )}
 
         {/* Barra step */}
         <div style={{ display: "flex", alignItems: "center", marginBottom: 22, overflowX: "auto" }}>

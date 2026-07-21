@@ -412,7 +412,7 @@ export default function ModuloIscrizione() {
         // Stagione attiva
         const { data: stagioni, error: errS } = await supabase
           .from("stagioni")
-          .select("id, nome, data_inizio, data_fine")
+          .select("id, nome, data_inizio, data_fine, iscrizioni_aperte")
           .eq("attiva", true)
           .single();
         if (errS) throw errS;
@@ -525,7 +525,14 @@ export default function ModuloIscrizione() {
           };
         });
 
-        setCorsi(corsiFormattati);
+        // Se le iscrizioni generali sono chiuse (interruttore in Gestione Stagioni),
+        // restano prenotabili SOLO i corsi che partono a settembre — gli altri
+        // (in partenza a ottobre) compaiono solo dopo l'apertura generale.
+        const corsiVisibili = stagioni.iscrizioni_aperte
+          ? corsiFormattati
+          : corsiFormattati.filter((c) => c.mese_inizio === "settembre");
+
+        setCorsi(corsiVisibili);
       } catch (err) {
         console.error("Errore caricamento corsi:", err);
         setErroreCorsi("Impossibile caricare i corsi. Riprova più tardi o contatta la segreteria.");
@@ -798,6 +805,27 @@ export default function ModuloIscrizione() {
   }
 
   // ------------------------------------------------------------------
+  // ISCRIZIONI CHIUSE (interruttore in Gestione Stagioni) — se non c'è
+  // nemmeno un corso di settembre disponibile, blocchiamo tutto il modulo
+  // ------------------------------------------------------------------
+  const iscrizioniChiuse = stagione && !stagione.iscrizioni_aperte;
+  if (iscrizioniChiuse && !loadingCorsi && corsi.length === 0) {
+    return (
+      <div className="max-w-lg mx-auto mt-12 bg-white rounded-2xl shadow p-8 text-center">
+        <div className="text-5xl mb-4">🗓️</div>
+        <h2 className="text-xl font-bold text-slate-800 mb-2">Le iscrizioni non sono ancora attive</h2>
+        <p className="text-slate-600">
+          Potrai iscriverti a partire dal <b>1° settembre</b>. Per qualsiasi informazione nel frattempo,
+          scrivici pure.
+        </p>
+        <p className="text-xs text-slate-400 mt-4">
+          WhatsApp 327 868 1393 · info@asdsempreinforma.it
+        </p>
+      </div>
+    );
+  }
+
+  // ------------------------------------------------------------------
   // RENDER PRINCIPALE
   // ------------------------------------------------------------------
   return (
@@ -808,6 +836,13 @@ export default function ModuloIscrizione() {
           A.S.D. Sempre In Forma — stagione {stagione?.nome ?? "2025/2026"}
         </p>
       </div>
+
+      {iscrizioniChiuse && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 mb-4 text-sm">
+          Al momento sono aperte solo le iscrizioni ai corsi che partono a <b>settembre</b>. Gli altri corsi
+          saranno prenotabili dal <b>1° settembre</b>.
+        </div>
+      )}
 
       {/* Barra progresso */}
       <div className="flex items-center gap-1 mb-6">

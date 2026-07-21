@@ -85,7 +85,7 @@ export default function GestioneStagioni() {
     try {
       const { data: stagioniDB, error: errST } = await supabase
         .from("stagioni")
-        .select("id, nome, data_inizio, data_fine, attiva")
+        .select("id, nome, data_inizio, data_fine, attiva, iscrizioni_aperte")
         .order("data_inizio", { ascending: false });
       if (errST) throw errST;
       setStagioni(stagioniDB || []);
@@ -146,6 +146,19 @@ export default function GestioneStagioni() {
     } catch (err) {
       console.error(err);
       mostraMessaggio("Errore durante l'archiviazione.", "errore");
+    }
+  }
+
+  async function toggleIscrizioniAperte(stagioneId, valoreAttuale) {
+    const nuovoValore = !valoreAttuale;
+    try {
+      const { error } = await supabase.from("stagioni").update({ iscrizioni_aperte: nuovoValore }).eq("id", stagioneId);
+      if (error) throw error;
+      setStagioni((p) => p.map((s) => (s.id === stagioneId ? { ...s, iscrizioni_aperte: nuovoValore } : s)));
+      mostraMessaggio(nuovoValore ? "Iscrizioni aperte al pubblico." : "Iscrizioni chiuse: il modulo mostrerà solo i corsi che partono a settembre, con avviso per gli altri.");
+    } catch (err) {
+      console.error(err);
+      mostraMessaggio("Errore durante il cambio di stato.", "errore");
     }
   }
 
@@ -369,8 +382,19 @@ export default function GestioneStagioni() {
                   <span style={{ fontWeight: 600 }}>{s.nome}</span>{" "}
                   <span style={{ fontSize: 12, color: C.textSub }}>({s.data_inizio} → {s.data_fine})</span>{" "}
                   {s.attiva && <span style={{ marginLeft: 8, fontSize: 11, background: C.greenL, color: C.greenD, padding: "2px 8px", borderRadius: 20, fontWeight: 600 }}>ATTIVA</span>}
+                  {s.attiva && (
+                    <span style={{ marginLeft: 6, fontSize: 11, padding: "2px 8px", borderRadius: 20, fontWeight: 600,
+                      background: s.iscrizioni_aperte ? C.greenL : "#FEE2E2", color: s.iscrizioni_aperte ? C.greenD : "#991B1B" }}>
+                      {s.iscrizioni_aperte ? "🌐 Iscrizioni aperte" : "🔒 Iscrizioni chiuse"}
+                    </span>
+                  )}
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
+                  {s.attiva && (
+                    <button onClick={() => toggleIscrizioniAperte(s.id, s.iscrizioni_aperte)} style={btnSecondario}>
+                      {s.iscrizioni_aperte ? "Chiudi iscrizioni" : "Apri iscrizioni"}
+                    </button>
+                  )}
                   {s.attiva ? (
                     <button onClick={() => archiviaStagione(s.id)} style={btnPericolo}>Archivia</button>
                   ) : (
