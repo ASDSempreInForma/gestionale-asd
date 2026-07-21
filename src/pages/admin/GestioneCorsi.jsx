@@ -27,6 +27,8 @@ const C = {
   textSub: "#6B7280",
 };
 
+const MESI = ["settembre", "ottobre", "novembre", "dicembre"];
+
 // "Lunedì/Venerdì 20:10-21:00" -> [{giorno:"Lunedì", orario:"20:10-21:00"}, {giorno:"Venerdì", orario:"20:10-21:00"}]
 function estraiGiorniSingoli(giorniOrari) {
   if (!giorniOrari) return [];
@@ -63,7 +65,7 @@ export default function GestioneCorsi() {
       const { data: corsiDB, error: errC } = await supabase
         .from("corsi")
         .select(
-          "id, codice_corso, disciplina, giorni_orari, ha_variante_frequenza, capienza_max, capienza_giorno1, capienza_giorno2, sedi ( nome )"
+          "id, codice_corso, disciplina, giorni_orari, ha_variante_frequenza, capienza_max, capienza_giorno1, capienza_giorno2, mese_inizio, sedi ( nome )"
         )
         .eq("stagione_id", stagione.id)
         .order("codice_corso");
@@ -107,6 +109,7 @@ export default function GestioneCorsi() {
             disciplina: c.disciplina,
             sede: c.sedi?.nome || "—",
             haVarianteFrequenza: giorniSingoli.length === 2,
+            meseInizio: c.mese_inizio || "ottobre",
             posti,
           };
         })
@@ -141,6 +144,21 @@ export default function GestioneCorsi() {
       setTimeout(() => setSalvataggio((p) => ({ ...p, [chiave]: null })), 1500);
     } catch (err) {
       console.error("Errore salvataggio capienza:", err);
+      setSalvataggio((p) => ({ ...p, [chiave]: "errore" }));
+    }
+  }
+
+  async function salvaMeseInizio(corsoId, mese) {
+    const chiave = `${corsoId}:mese_inizio`;
+    setSalvataggio((p) => ({ ...p, [chiave]: "salvando" }));
+    try {
+      const { error } = await supabase.from("corsi").update({ mese_inizio: mese }).eq("id", corsoId);
+      if (error) throw error;
+      setCorsi((p) => p.map((c) => (c.id === corsoId ? { ...c, meseInizio: mese } : c)));
+      setSalvataggio((p) => ({ ...p, [chiave]: "ok" }));
+      setTimeout(() => setSalvataggio((p) => ({ ...p, [chiave]: null })), 1500);
+    } catch (err) {
+      console.error("Errore salvataggio mese inizio:", err);
       setSalvataggio((p) => ({ ...p, [chiave]: "errore" }));
     }
   }
@@ -240,6 +258,21 @@ export default function GestioneCorsi() {
                     <span style={{ fontFamily: "monospace", color: C.textSub, fontSize: 12, marginRight: 8 }}>{c.codice}</span>
                     <span style={{ fontWeight: 600 }}>{c.disciplina}</span>
                     <span style={{ color: C.textSub, fontSize: 12, marginLeft: 8 }}>{c.sede}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 12, color: C.textSub }}>Inizio corso:</span>
+                    <select
+                      value={c.meseInizio}
+                      onChange={(e) => salvaMeseInizio(c.id, e.target.value)}
+                      style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: C.card }}
+                    >
+                      {MESI.map((m) => (
+                        <option key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>
+                      ))}
+                    </select>
+                    {salvataggio[`${c.id}:mese_inizio`] === "salvando" && <span style={{ fontSize: 11, color: C.textSub }}>Salvo…</span>}
+                    {salvataggio[`${c.id}:mese_inizio`] === "ok" && <span style={{ fontSize: 11, color: C.green }}>✓</span>}
+                    {salvataggio[`${c.id}:mese_inizio`] === "errore" && <span style={{ fontSize: 11, color: C.red }}>Errore</span>}
                   </div>
                 </div>
 
