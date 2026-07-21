@@ -182,50 +182,69 @@ function importoCorso(corso, frequenza, pagamento, isolato) {
   if (!corso) return null;
   const is1x = frequenza === "1x" && corso.ha_variante_frequenza;
   const mesi = mesiPeriodo(corso, pagamento);
+  const settembre = corso?.mese_inizio === "settembre";
   const usaPromoBadia = isolato && corso.quota_annuale_badia !== null && corso.quota_annuale_badia !== undefined;
 
   let totaleConIscrizione;
-  if (usaPromoBadia) {
-    if (pagamento === "annuale") totaleConIscrizione = corso.quota_annuale_badia;
-    else if (pagamento === "q1") totaleConIscrizione = corso.quota_quad1_badia;
-    else totaleConIscrizione = corso.quota_quad2_badia;
-  } else if (pagamento === "annuale") totaleConIscrizione = is1x ? corso.quota_annuale_1x : corso.quota_annuale;
-  else if (pagamento === "q1") totaleConIscrizione = is1x ? corso.quota_quad1_1x : corso.quota_quad1;
-  else {
-    // "q2" nel modulo pubblico = NUOVO tesserato da gennaio (chi era già iscritto
-    // nel 1° quadrimestre non passa da qui). Tariffa: 1ª rata + 1 mese aggiuntivo,
-    // iscrizione inclusa (comprensione confermata da Solomon il 14/07/2026).
-    const base = is1x ? corso.quota_quad1_1x : corso.quota_quad1;
+  let puro;
+
+  if (pagamento === "q2") {
+    // "q2" nel modulo pubblico = SEMPRE nuovo tesserato da gennaio (chi era già
+    // iscritto nel 1° quadrimestre non passa MAI da qui — i rinnovi pagano
+    // sempre per intero e sono gestiti altrove, non da questo modulo pubblico).
+    // Base: quota 1° quadrimestre + 1 mese aggiuntivo, iscrizione già inclusa.
+    const base = usaPromoBadia ? corso.quota_quad1_badia : (is1x ? corso.quota_quad1_1x : corso.quota_quad1);
     if (base === null || base === undefined) return { mesi: 5, puro: null, totaleConIscrizione: null };
     const iscrizioneCorso = Number(corso.quota_adesione || 0);
     const puro4Mesi = Number(base) - iscrizioneCorso;
     const meseAggiuntivo = puro4Mesi / 4;
-    return {
-      mesi: 5,
-      puro: puro4Mesi + meseAggiuntivo,
-      totaleConIscrizione: Number(base) + meseAggiuntivo,
-    };
+    puro = puro4Mesi + meseAggiuntivo;
+    totaleConIscrizione = Number(base) + meseAggiuntivo;
+  } else {
+    if (usaPromoBadia) {
+      totaleConIscrizione = pagamento === "annuale" ? corso.quota_annuale_badia : corso.quota_quad1_badia;
+    } else if (pagamento === "annuale") {
+      totaleConIscrizione = is1x ? corso.quota_annuale_1x : corso.quota_annuale;
+    } else {
+      totaleConIscrizione = is1x ? corso.quota_quad1_1x : corso.quota_quad1; // q1
+    }
+
+    if (totaleConIscrizione === null || totaleConIscrizione === undefined) {
+      return { mesi, puro: null, totaleConIscrizione: null }; // dato mancante
+    }
+    const iscrizioneCorso = Number(corso.quota_adesione || 0);
+    puro = Number(totaleConIscrizione) - iscrizioneCorso;
+
+    // Corso che parte a settembre: il prezzo a DB corrisponde al periodo
+    // standard (8 mesi annuale / 4 mesi quadrimestre), aggiungiamo un mese
+    // extra proporzionale (bug corretto il 21/07/2026).
+    if (settembre) {
+      const mesiStandard = pagamento === "annuale" ? 8 : 4;
+      const meseAggiuntivo = puro / mesiStandard;
+      puro += meseAggiuntivo;
+      totaleConIscrizione = Number(totaleConIscrizione) + meseAggiuntivo;
+    }
   }
 
-  if (totaleConIscrizione === null || totaleConIscrizione === undefined) {
-    return { mesi, puro: null, totaleConIscrizione: null }; // dato mancante
+  // Sconto per stagione già iniziata: si tolgono i mesi già trascorsi dal
+  // riferimento del periodo — per annuale/1°quadrimestre il riferimento è
+  // l'inizio corso (settembre o ottobre), per il 2°quadrimestre è SEMPRE
+  // gennaio (indipendentemente da quando è partita la stagione). Regola
+  // confermata da Solomon il 21/07/2026: vale anche per la promo Villaggio
+  // Badia; NON riguarda i rinnovi, che non passano da questo modulo pubblico.
+  const mesiRiferimento = pagamento === "q2" ? 5 : mesi;
+  const meseInizioRiferimento = pagamento === "q2" ? 1 : (settembre ? 9 : 10);
+  const oggi = new Date();
+  let mesiTrascorsi = (oggi.getMonth() + 1) - meseInizioRiferimento;
+  if (mesiTrascorsi < 0) mesiTrascorsi += 12; // cambio anno
+  mesiTrascorsi = Math.min(Math.max(mesiTrascorsi, 0), mesiRiferimento - 1); // si paga sempre almeno 1 mese
+  if (mesiTrascorsi > 0) {
+    const meseUnitario = puro / mesiRiferimento;
+    puro -= meseUnitario * mesiTrascorsi;
+    totaleConIscrizione = Number(totaleConIscrizione) - meseUnitario * mesiTrascorsi;
   }
-  const iscrizioneCorso = pagamento === "q2" ? 0 : Number(corso.quota_adesione || 0);
-  let puro = pagamento === "q2" ? Number(totaleConIscrizione) : Number(totaleConIscrizione) - iscrizioneCorso;
 
-  // Se il corso parte a settembre (e non stiamo già usando la promo Villaggio
-  // Badia, che è una tariffa flat a sé), il prezzo salvato a DB corrisponde al
-  // periodo standard (8 mesi annuale / 4 mesi quadrimestre): aggiungiamo un
-  // mese extra proporzionale, altrimenti il mese in più non verrebbe mai
-  // fatturato davvero (bug corretto il 21/07/2026).
-  if (settembre && !usaPromoBadia) {
-    const mesiStandard = pagamento === "annuale" ? 8 : 4;
-    const meseAggiuntivo = puro / mesiStandard;
-    puro += meseAggiuntivo;
-    totaleConIscrizione = Number(totaleConIscrizione) + meseAggiuntivo;
-  }
-
-  return { mesi, puro, totaleConIscrizione: Number(totaleConIscrizione) };
+  return { mesi: mesiRiferimento, puro, totaleConIscrizione: Number(totaleConIscrizione) };
 }
 
 // Calcola il prezzo totale per l'intero carrello di corsi scelti.
@@ -590,6 +609,20 @@ export default function ModuloIscrizione() {
   );
 
   const prezzoTotale = useMemo(() => calcolaPrezzoTotale(corsiConCodice), [corsiConCodice]);
+
+  // Vero se almeno un corso nel carrello sta beneficiando dello sconto per
+  // stagione già iniziata (mesi già trascorsi dall'inizio del corso), per
+  // mostrare una nota di trasparenza nel riepilogo finale.
+  const mostraNotaMesiTrascorsi = useMemo(() => {
+    const oggi = new Date();
+    return corsiConCodice.some((c) => {
+      if (!c.corso || !["annuale", "q1", "q2"].includes(c.pagamento)) return false;
+      const meseInizioNum = c.pagamento === "q2" ? 1 : (c.corso.mese_inizio === "settembre" ? 9 : 10);
+      let mesiTrascorsi = (oggi.getMonth() + 1) - meseInizioNum;
+      if (mesiTrascorsi < 0) mesiTrascorsi += 12;
+      return mesiTrascorsi > 0;
+    });
+  }, [corsiConCodice]);
 
   const causaleCompleta = useMemo(() => {
     if (!anagrafica.nome || !anagrafica.cognome || corsiConCodice.length === 0) return "";
@@ -1269,6 +1302,11 @@ export default function ModuloIscrizione() {
                   <span className="font-semibold text-teal-700 text-base">{prezzoTotale.totale}€</span>
                 )}
               </div>
+              {mostraNotaMesiTrascorsi && (
+                <p className="text-xs text-slate-400 -mt-1">
+                  Il prezzo tiene già conto dei mesi di stagione già trascorsi.
+                </p>
+              )}
               <div className="border-t pt-2 mt-2">
                 <p className="text-slate-500 text-xs mb-1">Causale bonifico/bollettino:</p>
                 <p className="font-mono bg-white border border-slate-200 rounded px-3 py-2">{causaleCompleta}</p>
