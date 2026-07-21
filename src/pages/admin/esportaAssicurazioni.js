@@ -10,9 +10,6 @@ import * as XLSX from "xlsx";
    ===================================================================== */
 
 const PERSONE_PER_PAGINA = 5;
-const RIGHE_PER_PERSONA = 3;
-const RIGHE_INTESTAZIONE = 7; // righe 1-7 prima della prima persona (riga 8)
-const RIGHE_PIEDE = 2; // riga vuota + "Riservato all'Associazione" + riga firma segreteria (3 righe incl. vuota)
 
 function fmtData(d) {
   if (!d) return "";
@@ -25,60 +22,17 @@ function scaricaWorkbook(wb, nomeFile) {
   XLSX.writeFile(wb, nomeFile);
 }
 
-// Costruisce il foglio "registro firme" (uguale per ASI e Libertas, cambia solo il codice società)
-function foglioFirme(iscritti, codiceSocieta, stagioneNome) {
-  const righe = [];
-  const merges = [];
-
-  const aggiungiIntestazione = (rigaBase) => {
-    righe[rigaBase + 1] = [null, null, null, null, null, null, "Codice Società:", null, codiceSocieta];
-    righe[rigaBase + 2] = [null, null, null, `Tesseramento Anno sportivo ${stagioneNome}`];
-    righe[rigaBase + 4] = [null, null, null, "Società Sportiva : A.S.D. Sempre in Forma"];
-    merges.push(
-      { s: { r: rigaBase + 2, c: 3 }, e: { r: rigaBase + 3, c: 8 } },
-      { s: { r: rigaBase + 4, c: 3 }, e: { r: rigaBase + 4, c: 8 } }
-    );
-  };
-
-  aggiungiIntestazione(0);
-  let riga = RIGHE_INTESTAZIONE; // prossima riga libera (indice 0-based) = 7 -> persona parte da indice 7 (riga Excel 8)
-
-  iscritti.forEach((i, idx) => {
-    const s = i.soci || {};
-    const nella_pagina = idx % PERSONE_PER_PAGINA;
-
-    if (idx > 0 && nella_pagina === 0) {
-      // chiudi pagina precedente col piè di pagina, poi nuova intestazione
-      righe[riga] = [null];
-      righe[riga + 1] = ["Riservato all'Associazione"];
-      righe[riga + 2] = ["Data _____ / _____ / _____", null, null, "Firme ______________ ______________"];
-      merges.push({ s: { r: riga + 1, c: 0 }, e: { r: riga + 2, c: 8 } });
-      riga += 3;
-      aggiungiIntestazione(riga);
-      riga += RIGHE_INTESTAZIONE;
-    }
-
-    righe[riga] = ["Cognome:  ", s.cognome, null, "Nome: ", s.nome, null, "Data _____ / _____ / _____"];
-    righe[riga + 1] = [" Data nascita:  ", fmtData(s.data_nascita), null, "a: ", s.comune_nascita, "Firme ______________ ______________"];
-    righe[riga + 2] = ["Tipo Tessera: ", s.ente_tessera === "ASI" ? "A" : "APR", "Codice tessera:", null, s.numero_tessera || "", "Data emissione:", null, ""];
-    merges.push(
-      { s: { r: riga, c: 1 }, e: { r: riga, c: 2 } },
-      { s: { r: riga + 1, c: 1 }, e: { r: riga + 1, c: 2 } },
-      { s: { r: riga + 2, c: 1 }, e: { r: riga + 2, c: 2 } }
-    );
-    riga += RIGHE_PER_PERSONA;
-  });
-
-  // Piè di pagina finale
-  righe[riga] = [null];
-  righe[riga + 1] = ["Riservato all'Associazione"];
-  righe[riga + 2] = ["Data _____ / _____ / _____", null, null, "Firme ______________ ______________"];
-  merges.push({ s: { r: riga + 1, c: 0 }, e: { r: riga + 2, c: 8 } });
-
-  const ws = XLSX.utils.aoa_to_sheet(righe);
-  ws["!merges"] = merges;
-  ws["!cols"] = [{ wch: 14 }, { wch: 12 }, { wch: 4 }, { wch: 10 }, { wch: 14 }, { wch: 26 }, { wch: 4 }, { wch: 16 }];
-  return ws;
+function scaricaCSV(ws, nomeFile) {
+  const csv = XLSX.utils.sheet_to_csv(ws);
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" }); // BOM per gli accenti in Excel
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nomeFile;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 export function generaFileASI(corso, iscritti, stagione) {
@@ -93,13 +47,7 @@ export function generaFileASI(corso, iscritti, stagione) {
       "asdsempreinforma@gmail.com", s.numero_tessera || "", fmtData(i.data_scadenza_certificato), "LOM-BS0905"];
   });
   const wsElenco = XLSX.utils.aoa_to_sheet([intestazioneASI, ...righeASI]);
-
-  const wsFirme = foglioFirme(iscritti, "BS0905", stagione?.nome || "");
-
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, wsElenco, "File ASI");
-  XLSX.utils.book_append_sheet(wb, wsFirme, "Assicurazione (ASI)");
-  scaricaWorkbook(wb, `ASI_${corso.codice_corso}.xlsx`);
+  scaricaCSV(wsElenco, `ASI_${corso.codice_corso}.csv`);
 }
 
 export function generaFileLibertas(corso, iscritti, stagione) {
@@ -122,10 +70,7 @@ export function generaFileLibertas(corso, iscritti, stagione) {
   });
   const wsElenco = XLSX.utils.aoa_to_sheet([intestazioneLib, ...righeLib]);
 
-  const wsFirme = foglioFirme(iscritti, "BS481", stagione?.nome || "");
-
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, wsElenco, "Elenco LIBERTAS");
-  XLSX.utils.book_append_sheet(wb, wsFirme, "Assicurazione Libertas Firma");
   scaricaWorkbook(wb, `Libertas_${corso.codice_corso}.xlsx`);
 }

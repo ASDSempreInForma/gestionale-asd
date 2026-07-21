@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { generaFileASI, generaFileLibertas } from "./esportaAssicurazioni.js";
+import { generaRegistroFirmeASI, generaRegistroFirmeLibertas } from "./registroFirme.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -117,7 +118,10 @@ export default function EsportaAssicurazioni() {
                     <p style={{ fontSize: 13, color: GR, marginBottom: 16 }}>
                       <b style={{ color: TX }}>{iscritti.length}</b> iscritti su questo corso.
                     </p>
-                    <div style={{ display: "flex", gap: 10 }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: GR, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>
+                      Elenco dati (per il portale)
+                    </div>
+                    <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
                       <button
                         onClick={() => generaFileASI(corso, iscritti, stagione)}
                         disabled={iscritti.length === 0}
@@ -127,7 +131,7 @@ export default function EsportaAssicurazioni() {
                           fontSize: 13, fontWeight: 600, cursor: iscritti.length ? "pointer" : "not-allowed",
                         }}
                       >
-                        📄 Registro ASI
+                        📊 Elenco dati ASI
                       </button>
                       <button
                         onClick={() => generaFileLibertas(corso, iscritti, stagione)}
@@ -138,7 +142,35 @@ export default function EsportaAssicurazioni() {
                           fontSize: 13, fontWeight: 600, cursor: iscritti.length ? "pointer" : "not-allowed",
                         }}
                       >
-                        📄 Registro Libertas
+                        📊 Elenco dati Libertas
+                      </button>
+                    </div>
+
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: GR, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>
+                      Registro firme (da stampare)
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button
+                        onClick={() => generaRegistroFirmeASI(corso, iscritti, stagione)}
+                        disabled={iscritti.length === 0}
+                        style={{
+                          flex: 1, padding: "12px 10px", borderRadius: 10, border: "none",
+                          background: iscritti.length ? GL : "#F3F4F6", color: iscritti.length ? G : "#9CA3AF",
+                          fontSize: 13, fontWeight: 600, cursor: iscritti.length ? "pointer" : "not-allowed",
+                        }}
+                      >
+                        🖨️ Registro firme ASI
+                      </button>
+                      <button
+                        onClick={() => generaRegistroFirmeLibertas(corso, iscritti, stagione)}
+                        disabled={iscritti.length === 0}
+                        style={{
+                          flex: 1, padding: "12px 10px", borderRadius: 10, border: "none",
+                          background: iscritti.length ? GL : "#F3F4F6", color: iscritti.length ? G : "#9CA3AF",
+                          fontSize: 13, fontWeight: 600, cursor: iscritti.length ? "pointer" : "not-allowed",
+                        }}
+                      >
+                        🖨️ Registro firme Libertas
                       </button>
                     </div>
                   </>
