@@ -87,14 +87,15 @@ async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile
     riga(fmtData(s.data_nascita), xTot + 80, yTop - rigaH - 13, true);
     riga("a:", xTot + 220, yTop - rigaH - 13, false);
     riga(s.comune_nascita || "", xTot + 235, yTop - rigaH - 13, true);
-    riga("Firma ______________ ______________", xTot + 380, yTop - rigaH - 13, false, 9);
+    riga("Firma ____________________", xTot + 380, yTop - rigaH - 13, false, 9);
 
-    // Riga 3: Tipo tessera / Codice tessera / Data emissione
+    // Riga 3: Tipo tessera / Codice tessera / Data emissione (sempre la data odierna, ossia la data di stampa)
     riga("Tipo Tessera:", xTot + 8, yTop - rigaH * 2 - 13, false);
     riga(ente === "ASI" ? "A" : "APR", xTot + 80, yTop - rigaH * 2 - 13, true);
     riga("Codice tessera:", xTot + 150, yTop - rigaH * 2 - 13, false);
     riga(s.numero_tessera ? String(s.numero_tessera) : "", xTot + 250, yTop - rigaH * 2 - 13, true);
     riga("Data emissione:", xTot + 380, yTop - rigaH * 2 - 13, false);
+    riga(fmtData(new Date()), xTot + 460, yTop - rigaH * 2 - 13, true);
 
     return yTop - rigaH * 3 - 6;
   }

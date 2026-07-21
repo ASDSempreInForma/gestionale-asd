@@ -23,7 +23,7 @@ function scaricaWorkbook(wb, nomeFile) {
 }
 
 function scaricaCSV(ws, nomeFile) {
-  const csv = XLSX.utils.sheet_to_csv(ws);
+  const csv = XLSX.utils.sheet_to_csv(ws, { FS: ";" });
   const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" }); // BOM per gli accenti in Excel
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
