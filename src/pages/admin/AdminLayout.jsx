@@ -12,6 +12,7 @@ import VerificaDocumenti from './VerificaDocumenti.jsx'
 import ImportTessere from './ImportTessere.jsx'
 import AnagraficaSoci from './AnagraficaSoci.jsx'
 import EsportaAssicurazioni from './EsportaAssicurazioni.jsx'
+import ElencoPersonalizzato from './ElencoPersonalizzato.jsx'
 
 const VOCI = [
   { id: 'verifica-documenti', icon: '📥', label: 'Verifica documenti' },
@@ -23,6 +24,7 @@ const VOCI = [
   { id: 'gestione-stagioni', icon: '🗓️', label: 'Stagioni' },
   { id: 'corsi',        icon: '📱', label: 'Vista corso' },
   { id: 'esporta-assicurazioni', icon: '📄', label: 'Esporta Assicurazioni' },
+  { id: 'elenco-personalizzato', icon: '📋', label: 'Elenco personalizzato' },
   { id: 'certificati',  icon: '📷', label: 'Scanner certificati' },
   { id: 'checkin',      icon: '✅', label: 'Check-in' },
   { id: 'assistente',   icon: '🤖', label: 'Assistente AI' },
@@ -133,6 +135,7 @@ export default function AdminLayout({ user, onLogout }) {
         {pagina === 'gestione-stagioni' && <GestioneStagioni />}
         {pagina === 'corsi'       && <VistaCorsomobile />}
         {pagina === 'esporta-assicurazioni' && <EsportaAssicurazioni />}
+        {pagina === 'elenco-personalizzato' && <ElencoPersonalizzato />}
         {pagina === 'certificati' && <ScannerCertificati />}
         {pagina === 'checkin'     && <ScannerCheckin />}
         {pagina === 'assistente'  && <AssistenteAi />}
