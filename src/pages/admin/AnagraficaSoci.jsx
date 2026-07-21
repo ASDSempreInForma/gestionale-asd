@@ -294,9 +294,16 @@ function SezioneEmail({ socio }) {
     if (selezionatoId === m.id) { setSelezionatoId(null); setSelezionato(null); return } // riclicco = chiudo
     setSelezionatoId(m.id)
     if (m.id.startsWith('brevo_')) {
-      setSelezionato({ brevo: true, oggetto: m.oggetto, data: m.data, stato: m.stato })
-      setRisposta('')
-      setEsito('')
+      setCaricandoMsg(true)
+      setSelezionato(null)
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/email-brevo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
+        body: JSON.stringify({ action: 'leggi_email_brevo', messageId: m.messageId }),
+      }).then(r => r.json()).catch(() => ({ ok: false }))
+      setCaricandoMsg(false)
+      if (r.ok) setSelezionato({ brevo: true, oggetto: r.messaggio.oggetto, corpo: r.messaggio.corpo, stato: m.stato })
+      else setSelezionato({ brevo: true, oggetto: m.oggetto, corpo: null, stato: m.stato })
       return
     }
     setCaricandoMsg(true)
@@ -401,11 +408,19 @@ function SezioneEmail({ socio }) {
 
                   {selezionatoId === m.id && selezionato && selezionato.brevo && (
                     <div style={{ background: '#FAFAF8', borderRadius: 8, padding: 12, marginTop: 4, border: `1px solid ${BD}` }}>
-                      <div style={{ fontSize: 11.5, color: SUB }}>
+                      <div style={{ fontSize: 11.5, color: SUB, marginBottom: 8 }}>
                         Stato: {selezionato.stato || 'sconosciuto'}
                       </div>
-                      <div style={{ fontSize: 11.5, color: SUB, marginTop: 8, fontStyle: 'italic' }}>
-                        È un'email automatica inviata dal gestionale — il contenuto completo si può controllare su app.brevo.com. Non è possibile rispondere direttamente da qui.
+                      {selezionato.corpo ? (
+                        <div style={{ fontSize: 12.5, maxHeight: 260, overflowY: 'auto', border: `1px solid ${BD}`, borderRadius: 6, padding: 8, background: 'white' }}
+                          dangerouslySetInnerHTML={{ __html: selezionato.corpo }} />
+                      ) : (
+                        <div style={{ fontSize: 11.5, color: SUB, fontStyle: 'italic' }}>
+                          Non è stato possibile recuperare il contenuto completo da Brevo. Puoi controllarlo su app.brevo.com.
+                        </div>
+                      )}
+                      <div style={{ fontSize: 11, color: SUB, marginTop: 8, fontStyle: 'italic' }}>
+                        Email automatica — non è possibile rispondere direttamente da qui.
                       </div>
                     </div>
                   )}
