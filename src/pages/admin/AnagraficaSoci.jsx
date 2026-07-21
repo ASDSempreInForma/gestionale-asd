@@ -270,19 +270,37 @@ function SezioneEmail({ socio }) {
     if (!messaggi && !aperto) {
       setCaricando(true)
       setErrore('')
-      const r = await chiamaEmailFn({ action: 'cerca_email', email: socio.email })
+      const [rOutlook, rBrevo] = await Promise.all([
+        chiamaEmailFn({ action: 'cerca_email', email: socio.email }),
+        fetch(`${SUPABASE_URL}/functions/v1/email-brevo`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
+          body: JSON.stringify({ action: 'cerca_email_brevo', email: socio.email }),
+        }).then(r => r.json()).catch(() => ({ ok: false, messaggi: [] })),
+      ])
       setCaricando(false)
-      if (r.ok) setMessaggi(r.messaggi)
-      else setErrore(r.error || 'Errore nel caricamento delle email.')
+      if (rOutlook.ok || rBrevo.ok) {
+        const uniti = [...(rOutlook.messaggi || []), ...(rBrevo.messaggi || [])]
+          .sort((a, b) => (a.data < b.data ? 1 : -1))
+        setMessaggi(uniti)
+      } else {
+        setErrore(rOutlook.error || 'Errore nel caricamento delle email.')
+      }
     }
   }
 
-  const apriMessaggio = async (id) => {
+  const apriMessaggio = async (m) => {
+    if (m.id.startsWith('brevo_')) {
+      setSelezionato({ brevo: true, oggetto: m.oggetto, data: m.data, stato: m.stato })
+      setRisposta('')
+      setEsito('')
+      return
+    }
     setCaricandoMsg(true)
     setSelezionato(null)
     setRisposta('')
     setEsito('')
-    const r = await chiamaEmailFn({ action: 'leggi_email', id })
+    const r = await chiamaEmailFn({ action: 'leggi_email', id: m.id })
     setCaricandoMsg(false)
     if (r.ok) setSelezionato(r.messaggio)
     else setErrore(r.error || 'Errore nel leggere il messaggio.')
@@ -359,13 +377,18 @@ function SezioneEmail({ socio }) {
           {messaggi && messaggi.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {messaggi.map(m => (
-                <div key={m.id} onClick={() => apriMessaggio(m.id)}
+                <div key={m.id} onClick={() => apriMessaggio(m)}
                   style={{ background: 'white', borderRadius: 7, padding: '8px 10px', cursor: 'pointer', border: `1px solid ${BD}` }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, fontWeight: m.letta ? 400 : 700 }}>
-                    <span>{m.oggetto || '(nessun oggetto)'}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, fontWeight: m.letta === false ? 700 : 400 }}>
+                    <span>
+                      {m.id.startsWith('brevo_') && (
+                        <span style={{ fontSize: 9.5, fontWeight: 700, color: '#0E7C7B', background: '#E6FAF8', padding: '1px 6px', borderRadius: 5, marginRight: 6 }}>AUTOMATICA</span>
+                      )}
+                      {m.oggetto || '(nessun oggetto)'}
+                    </span>
                     <span style={{ color: SUB, fontWeight: 400 }}>{fmtData(m.data?.slice(0, 10))}</span>
                   </div>
-                  <div style={{ fontSize: 11.5, color: SUB, marginTop: 2 }}>{m.anteprima}</div>
+                  {m.anteprima && <div style={{ fontSize: 11.5, color: SUB, marginTop: 2 }}>{m.anteprima}</div>}
                 </div>
               ))}
             </div>
@@ -373,7 +396,22 @@ function SezioneEmail({ socio }) {
 
           {caricandoMsg && <p style={{ fontSize: 12.5, color: SUB, marginTop: 8 }}>Apro il messaggio...</p>}
 
-          {selezionato && (
+          {selezionato && selezionato.brevo && (
+            <div style={{ background: 'white', borderRadius: 8, padding: 12, marginTop: 10, border: `1px solid ${BD}` }}>
+              <div style={{ fontSize: 9.5, fontWeight: 700, color: '#0E7C7B', background: '#E6FAF8', padding: '2px 7px', borderRadius: 5, display: 'inline-block', marginBottom: 6 }}>
+                EMAIL AUTOMATICA (Brevo)
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{selezionato.oggetto}</div>
+              <div style={{ fontSize: 11.5, color: SUB, marginTop: 4 }}>
+                Inviata il {fmtData(selezionato.data?.slice(0, 10))} · Stato: {selezionato.stato || 'sconosciuto'}
+              </div>
+              <div style={{ fontSize: 11.5, color: SUB, marginTop: 8, fontStyle: 'italic' }}>
+                È un'email automatica inviata dal gestionale — il contenuto completo si può controllare su app.brevo.com. Non è possibile rispondere direttamente da qui.
+              </div>
+            </div>
+          )}
+
+          {selezionato && !selezionato.brevo && (
             <div style={{ background: 'white', borderRadius: 8, padding: 12, marginTop: 10, border: `1px solid ${BD}` }}>
               <div style={{ fontSize: 13, fontWeight: 600 }}>{selezionato.oggetto}</div>
               <div style={{ fontSize: 11.5, color: SUB, marginBottom: 8 }}>
