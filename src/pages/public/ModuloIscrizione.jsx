@@ -211,7 +211,20 @@ function importoCorso(corso, frequenza, pagamento, isolato) {
     return { mesi, puro: null, totaleConIscrizione: null }; // dato mancante
   }
   const iscrizioneCorso = pagamento === "q2" ? 0 : Number(corso.quota_adesione || 0);
-  const puro = pagamento === "q2" ? Number(totaleConIscrizione) : Number(totaleConIscrizione) - iscrizioneCorso;
+  let puro = pagamento === "q2" ? Number(totaleConIscrizione) : Number(totaleConIscrizione) - iscrizioneCorso;
+
+  // Se il corso parte a settembre (e non stiamo già usando la promo Villaggio
+  // Badia, che è una tariffa flat a sé), il prezzo salvato a DB corrisponde al
+  // periodo standard (8 mesi annuale / 4 mesi quadrimestre): aggiungiamo un
+  // mese extra proporzionale, altrimenti il mese in più non verrebbe mai
+  // fatturato davvero (bug corretto il 21/07/2026).
+  if (settembre && !usaPromoBadia) {
+    const mesiStandard = pagamento === "annuale" ? 8 : 4;
+    const meseAggiuntivo = puro / mesiStandard;
+    puro += meseAggiuntivo;
+    totaleConIscrizione = Number(totaleConIscrizione) + meseAggiuntivo;
+  }
+
   return { mesi, puro, totaleConIscrizione: Number(totaleConIscrizione) };
 }
 
