@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { generaFileASI, generaFileLibertas } from "./esportaAssicurazioni.js";
 
 /* =====================================================================
    VISTA CORSO MOBILE — A.S.D. Sempre In Forma
@@ -427,7 +428,10 @@ export default function App() {
         .from("iscrizioni")
         .select(`
           id, stato_pagamento, stato_certificato, corso_id, frequenza, giorno_scelto,
-          soci ( cf, nome, cognome )
+          tipo_pagamento, data_scadenza_certificato, note,
+          soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita,
+                 comune_residenza, provincia_residenza, cap, indirizzo, sesso,
+                 telefono, email, numero_tessera, ente_tessera )
         `)
         .eq("stagione_id", stag.id)
         .not("stato_pagamento", "eq", "annullata");
@@ -578,6 +582,18 @@ export default function App() {
               <div style={{ fontSize: 9, color: GR, textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 3 }}>{l}</div>
             </div>
           ))}
+        </div>
+
+        {/* EXPORT ASSICURAZIONI */}
+        <div style={{ display: "flex", gap: 8, padding: "0 14px 12px" }}>
+          <button onClick={() => generaFileASI(corso, corsoIscritti, stagione)}
+            style={{ flex: 1, fontSize: 11.5, fontWeight: 600, background: "white", color: TX, border: `0.5px solid ${BD}`, borderRadius: 10, padding: "8px 6px", cursor: "pointer" }}>
+            📄 Registro ASI
+          </button>
+          <button onClick={() => generaFileLibertas(corso, corsoIscritti, stagione)}
+            style={{ flex: 1, fontSize: 11.5, fontWeight: 600, background: "white", color: TX, border: `0.5px solid ${BD}`, borderRadius: 10, padding: "8px 6px", cursor: "pointer" }}>
+            📄 Registro Libertas
+          </button>
         </div>
 
         {/* FILTRI */}
