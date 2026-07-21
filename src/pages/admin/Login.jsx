@@ -48,7 +48,6 @@ export default function Login({ onLogin }) {
             <label style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', display: 'block',
               textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>Email</label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
-              placeholder="info@asdsempreinforma.it"
               style={{ width: '100%', padding: '10px 12px', border: '1px solid #E8E4DC',
                 borderRadius: 9, fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
           </div>

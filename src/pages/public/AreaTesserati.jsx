@@ -495,7 +495,7 @@ export default function AreaTesserati() {
               style={styles.input}
               value={cf}
               onChange={(e) => setCf(e.target.value.toUpperCase())}
-              placeholder="RSSMRA80A01B157X"
+              placeholder=""
               maxLength={16}
               name="username"
               autoComplete="username"
@@ -505,7 +505,7 @@ export default function AreaTesserati() {
               style={styles.input}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="nome.cognome@email.it"
+              placeholder=""
               type="email"
               name="email"
               autoComplete="email"
