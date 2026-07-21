@@ -891,11 +891,10 @@ export default function ModuloIscrizione() {
   // ------------------------------------------------------------------
   return (
     <div className="max-w-2xl mx-auto p-4">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-800">Modulo di Adesione ai Corsi</h1>
-        <p className="text-slate-500 text-sm">
-          A.S.D. Sempre In Forma — stagione {stagione?.nome ?? "2025/2026"}
-        </p>
+      <div className="bg-[#181818] rounded-2xl px-6 py-5 mb-6">
+        <div className="text-white text-sm font-bold tracking-wide">A.S.D. SEMPRE IN FORMA</div>
+        <div className="text-[#E8590C] text-xs font-semibold tracking-wide mt-1">MODULO DI ADESIONE AI CORSI</div>
+        <div className="text-slate-400 text-xs mt-1">Stagione {stagione?.nome ?? "2025/2026"}</div>
       </div>
 
       {iscrizioniChiuse && (
@@ -910,7 +909,7 @@ export default function ModuloIscrizione() {
         {Array.from({ length: totaleSteps }).map((_, i) => (
           <div
             key={i}
-            className={`h-1.5 flex-1 rounded-full ${i + 1 <= step ? "bg-teal-600" : "bg-slate-200"}`}
+            className={`h-1.5 flex-1 rounded-full ${i + 1 <= step ? "bg-[#E8590C]" : "bg-slate-200"}`}
           />
         ))}
       </div>
@@ -1149,7 +1148,7 @@ export default function ModuloIscrizione() {
                       )}
 
                       {corso?.mese_inizio === "settembre" && (
-                        <p className="mt-2 text-xs text-teal-700">
+                        <p className="mt-2 text-xs text-[#C24709]">
                           ✨ Questo corso inizia a settembre (soglia minima raggiunta).
                         </p>
                       )}
@@ -1160,7 +1159,7 @@ export default function ModuloIscrizione() {
                 <button
                   type="button"
                   onClick={aggiungiCorso}
-                  className="text-teal-700 text-sm font-medium border border-teal-300 rounded-lg px-3 py-2 hover:bg-teal-50"
+                  className="text-[#C24709] text-sm font-medium border border-[#F4B384] rounded-lg px-3 py-2 hover:bg-[#FDF1E9]"
                 >
                   + Aggiungi un altro corso
                 </button>
@@ -1314,7 +1313,7 @@ export default function ModuloIscrizione() {
                 {prezzoTotale.incompleto ? (
                   <span className="text-amber-600 font-medium">Da verificare in segreteria</span>
                 ) : (
-                  <span className="font-semibold text-teal-700 text-base">{prezzoTotale.totale}€</span>
+                  <span className="font-semibold text-[#C24709] text-base">{prezzoTotale.totale}€</span>
                 )}
               </div>
               {mostraNotaMesiTrascorsi && (
@@ -1357,7 +1356,7 @@ export default function ModuloIscrizione() {
               type="button"
               disabled={!puoiProseguire()}
               onClick={() => setStep((s) => s + 1)}
-              className="px-5 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg disabled:bg-slate-300"
+              className="px-5 py-2 text-sm font-medium text-white bg-[#E8590C] rounded-lg disabled:bg-slate-300"
             >
               Avanti →
             </button>
@@ -1366,7 +1365,7 @@ export default function ModuloIscrizione() {
               type="button"
               disabled={!puoiProseguire() || inviando}
               onClick={inviaIscrizione}
-              className="px-5 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg disabled:bg-slate-300"
+              className="px-5 py-2 text-sm font-medium text-white bg-[#E8590C] rounded-lg disabled:bg-slate-300"
             >
               {inviando ? "Invio in corso…" : "Invia iscrizione"}
             </button>
@@ -1413,7 +1412,7 @@ function RadioPill({ active, onClick, label, disabled }) {
         disabled
           ? "bg-slate-100 text-slate-350 border-slate-200 cursor-not-allowed opacity-60"
           : active
-          ? "bg-teal-600 text-white border-teal-600"
+          ? "bg-[#E8590C] text-white border-[#E8590C]"
           : "bg-white text-slate-600 border-slate-300"
       }`}
     >
