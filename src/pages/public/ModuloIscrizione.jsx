@@ -229,15 +229,27 @@ function importoCorso(corso, frequenza, pagamento, isolato) {
   // Sconto per stagione già iniziata: si tolgono i mesi già trascorsi dal
   // riferimento del periodo — per annuale/1°quadrimestre il riferimento è
   // l'inizio corso (settembre o ottobre), per il 2°quadrimestre è SEMPRE
-  // gennaio (indipendentemente da quando è partita la stagione). Regola
+  // gennaio (dell'anno successivo a quello di inizio stagione). Regola
   // confermata da Solomon il 21/07/2026: vale anche per la promo Villaggio
   // Badia; NON riguarda i rinnovi, che non passano da questo modulo pubblico.
+  // Si usano DATE VERE (non solo il numero del mese): prima che la stagione
+  // sia effettivamente iniziata, i mesi trascorsi devono essere 0 — un
+  // confronto basato solo sul numero del mese sbagliava questo caso (bug
+  // corretto il 21/07/2026, es. luglio veniva letto come "10 mesi dopo
+  // settembre" invece di "prima che settembre inizi").
   const mesiRiferimento = pagamento === "q2" ? 5 : mesi;
+  const annoBase = corso.annoInizioStagione || new Date().getFullYear();
   const meseInizioRiferimento = pagamento === "q2" ? 1 : (settembre ? 9 : 10);
+  const annoRiferimento = pagamento === "q2" ? annoBase + 1 : annoBase; // il 2° quadrimestre è sempre a gennaio dell'anno dopo
+  const dataInizioPeriodo = new Date(annoRiferimento, meseInizioRiferimento - 1, 1);
   const oggi = new Date();
-  let mesiTrascorsi = (oggi.getMonth() + 1) - meseInizioRiferimento;
-  if (mesiTrascorsi < 0) mesiTrascorsi += 12; // cambio anno
+
+  let mesiTrascorsi = 0;
+  if (oggi >= dataInizioPeriodo) {
+    mesiTrascorsi = (oggi.getFullYear() - dataInizioPeriodo.getFullYear()) * 12 + (oggi.getMonth() - dataInizioPeriodo.getMonth());
+  }
   mesiTrascorsi = Math.min(Math.max(mesiTrascorsi, 0), mesiRiferimento - 1); // si paga sempre almeno 1 mese
+
   if (mesiTrascorsi > 0) {
     const meseUnitario = puro / mesiRiferimento;
     puro -= meseUnitario * mesiTrascorsi;
@@ -539,6 +551,7 @@ export default function ModuloIscrizione() {
             codice_corso: c.codice_corso,
             ha_variante_frequenza: c.ha_variante_frequenza,
             mese_inizio: c.mese_inizio,
+            annoInizioStagione: new Date(stagioni.data_inizio).getFullYear(),
             quota_annuale: c.quota_annuale,
             quota_quad1: c.quota_quad1,
             quota_quad2: c.quota_quad2,
@@ -617,10 +630,12 @@ export default function ModuloIscrizione() {
     const oggi = new Date();
     return corsiConCodice.some((c) => {
       if (!c.corso || !["annuale", "q1", "q2"].includes(c.pagamento)) return false;
-      const meseInizioNum = c.pagamento === "q2" ? 1 : (c.corso.mese_inizio === "settembre" ? 9 : 10);
-      let mesiTrascorsi = (oggi.getMonth() + 1) - meseInizioNum;
-      if (mesiTrascorsi < 0) mesiTrascorsi += 12;
-      return mesiTrascorsi > 0;
+      const annoBase = c.corso.annoInizioStagione || oggi.getFullYear();
+      const settembre = c.corso.mese_inizio === "settembre";
+      const meseInizioNum = c.pagamento === "q2" ? 1 : (settembre ? 9 : 10);
+      const annoRiferimento = c.pagamento === "q2" ? annoBase + 1 : annoBase;
+      const dataInizioPeriodo = new Date(annoRiferimento, meseInizioNum - 1, 1);
+      return oggi >= dataInizioPeriodo;
     });
   }, [corsiConCodice]);
 
