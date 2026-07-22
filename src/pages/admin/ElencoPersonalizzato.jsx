@@ -41,8 +41,8 @@ const GRUPPI_COLONNE = [
   {
     titolo: "Assicurazione e certificato",
     colonne: [
-      { id: "assicurazione", label: "Assicurazione", calc: (r) => ((r.soci && r.soci.numero_tessera) ? "Si" : "No") },
-      { id: "cert_scadenza", label: "Scadenza certificato medico", calc: (r) => fmtData(r.data_scadenza_certificato) },
+      { id: "assicurazione", label: "Assicurazione", calc: (r) => ((r.soci && r.soci.numero_tessera) ? "Si" : "") },
+      { id: "cert_scadenza", label: "Scadenza certificato medico", calc: (r) => (r.stato_certificato === "ok" ? fmtData(r.data_scadenza_certificato) : "") },
       { id: "cert_consegnato", label: "Certificato consegnato", calc: (r) => (r.stato_certificato === "ok" ? "Si" : "No") },
       { id: "cert_appuntamento", label: "Data appuntamento visita medica", calc: () => "" },
     ],
