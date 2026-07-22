@@ -10,10 +10,36 @@ function IconaSocial({ href, label, children }) {
     <a href={href} aria-label={label} style={{
       width: 36, height: 36, borderRadius: "50%", background: ARANCIO,
       display: "flex", alignItems: "center", justifyContent: "center",
-      color: "white", textDecoration: "none", fontSize: 15,
+      color: "white", textDecoration: "none", flexShrink: 0,
     }}>
       {children}
     </a>
+  );
+}
+
+function IconaFacebook() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+      <path d="M22 12a10 10 0 1 0-11.56 9.88v-6.99H7.9V12h2.54V9.8c0-2.5 1.49-3.89 3.77-3.89 1.09 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56V12h2.78l-.44 2.89h-2.34v6.99A10 10 0 0 0 22 12Z"/>
+    </svg>
+  );
+}
+
+function IconaYouTube() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="white">
+      <path d="M23.5 6.19a3.02 3.02 0 0 0-2.12-2.14C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.38.55A3.02 3.02 0 0 0 .5 6.19 31.6 31.6 0 0 0 0 12a31.6 31.6 0 0 0 .5 5.81 3.02 3.02 0 0 0 2.12 2.14C4.5 20.5 12 20.5 12 20.5s7.5 0 9.38-.55a3.02 3.02 0 0 0 2.12-2.14A31.6 31.6 0 0 0 24 12a31.6 31.6 0 0 0-.5-5.81ZM9.6 15.6V8.4l6.27 3.6-6.27 3.6Z"/>
+    </svg>
+  );
+}
+
+function IconaInstagram() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8">
+      <rect x="2.5" y="2.5" width="19" height="19" rx="5"/>
+      <circle cx="12" cy="12" r="4.6"/>
+      <circle cx="17.4" cy="6.6" r="1.1" fill="white" stroke="none"/>
+    </svg>
   );
 }
 
@@ -55,9 +81,9 @@ export default function SiteFooter() {
           </div>
 
           <div style={{ display: "flex", gap: 12 }}>
-            <IconaSocial href="https://www.facebook.com/asdsempreinforma/" label="Facebook">f</IconaSocial>
-            <IconaSocial href="https://www.youtube.com/channel/UCGqoz4PoctnsEIIpWouvZYw" label="YouTube">▶</IconaSocial>
-            <IconaSocial href="https://www.instagram.com/a.s.d._sempre_in_forma/" label="Instagram">◎</IconaSocial>
+            <IconaSocial href="https://www.facebook.com/asdsempreinforma/" label="Facebook"><IconaFacebook /></IconaSocial>
+            <IconaSocial href="https://www.youtube.com/channel/UCGqoz4PoctnsEIIpWouvZYw" label="YouTube"><IconaYouTube /></IconaSocial>
+            <IconaSocial href="https://www.instagram.com/a.s.d._sempre_in_forma/" label="Instagram"><IconaInstagram /></IconaSocial>
           </div>
         </div>
       </div>
