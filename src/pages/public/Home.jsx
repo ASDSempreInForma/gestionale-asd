@@ -1,4 +1,6 @@
 import { Link } from 'react-router-dom'
+import SiteHeader from '../../SiteHeader.jsx'
+import SiteFooter from '../../SiteFooter.jsx'
 
 const ARANCIO = "#E8501F", ARANCIO_L = "#FBE4D9", ARANCIO_D = "#B23D16"
 const AZZURRO = "#2CA8E0", AZZURRO_L = "#DFF3FC", AZZURRO_D = "#1D7BA3"
@@ -86,12 +88,7 @@ export default function Home() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", background: "#F8F7F4", minHeight: "100vh" }}>
 
       {/* Header */}
-      <div style={{ background: "#181818", padding: "22px 24px", textAlign: "center" }}>
-        <div style={{ fontSize: 22, fontWeight: 700, color: "white" }}>A.S.D. SEMPRE IN FORMA</div>
-        <div style={{ fontSize: 13, color: "rgba(255,255,255,.6)", marginTop: 4 }}>
-          Associazione Sportiva Dilettantistica
-        </div>
-      </div>
+      <SiteHeader />
 
       {/* Contenuto */}
       <div style={{ maxWidth: 680, margin: "0 auto", padding: "36px 20px 48px" }}>
@@ -211,6 +208,7 @@ export default function Home() {
         </div>
 
       </div>
+      <SiteFooter />
     </div>
   )
 }
