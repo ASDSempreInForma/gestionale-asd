@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useState } from "react";
 
-const LOGO_URL = "https://ebsuqdxflygxhuptnnun.supabase.co/storage/v1/object/public/assets/logo_wide.png";
+const LOGO_URL = "https://ebsuqdxflygxhuptnnun.supabase.co/storage/v1/object/public/assets/logo_icona.png";
 const SITO = "https://www.asdsempreinforma.it";
 
 const VOCI_MENU = [
@@ -28,10 +28,10 @@ export default function SiteHeader() {
   const [palestreAperto, setPalestreAperto] = useState(false);
 
   return (
-    <header style={{ background: "rgba(0,0,0,0.8)", position: "relative", zIndex: 40 }}>
+    <header style={{ background: "rgba(0,0,0,0.6)", position: "relative", zIndex: 40 }}>
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "14px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <a href={SITO} style={{ display: "flex", alignItems: "center" }}>
-          <img src={LOGO_URL} alt="A.S.D. Sempre In Forma" style={{ height: 52, width: "auto" }} />
+          <img src={LOGO_URL} alt="A.S.D. Sempre In Forma" style={{ height: 42, width: "auto" }} />
         </a>
 
         {/* Nav desktop */}
@@ -45,7 +45,7 @@ export default function SiteHeader() {
                 {v.label}
               </a>
               {v.sotto && palestreAperto && (
-                <div style={{ position: "absolute", top: "100%", left: 0, background: "rgba(0,0,0,0.8)", padding: "8px 0", minWidth: 180, borderRadius: 6, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>
+                <div style={{ position: "absolute", top: "100%", left: 0, background: "rgba(0,0,0,0.6)", padding: "8px 0", minWidth: 180, borderRadius: 6, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>
                   {v.sotto.map((s) => (
                     <a key={s.label} href={s.href} style={{ display: "block", padding: "6px 16px", color: "rgba(255,255,255,.8)", textDecoration: "none", fontSize: 12.5 }}>
                       {s.label}
@@ -69,7 +69,7 @@ export default function SiteHeader() {
 
       {/* Menu mobile a tendina */}
       {menuMobile && (
-        <div style={{ background: "rgba(0,0,0,0.8)", padding: "8px 20px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ background: "rgba(0,0,0,0.6)", padding: "8px 20px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
           {VOCI_MENU.map((v) => (
             <a key={v.label} href={v.href} style={{ color: "white", textDecoration: "none", fontSize: 14, fontWeight: 600, padding: "8px 0" }}>
               {v.label}
