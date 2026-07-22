@@ -42,8 +42,8 @@ const GRUPPI_COLONNE = [
     titolo: "Assicurazione e certificato",
     colonne: [
       { id: "assicurazione", label: "Assicurazione", calc: (r) => ((r.soci && r.soci.numero_tessera) ? "Si" : "") },
-      { id: "cert_scadenza", label: "Scadenza certificato medico", calc: (r) => (r.stato_certificato === "ok" ? fmtData(r.data_scadenza_certificato) : "") },
-      { id: "cert_consegnato", label: "Certificato consegnato", calc: (r) => (r.stato_certificato === "ok" ? "Si" : "No") },
+      { id: "cert_scadenza", label: "Scadenza certificato medico", calc: (r) => (r.stato_certificato === "valido" ? fmtData(r.data_scadenza_certificato) : "") },
+      { id: "cert_consegnato", label: "Certificato consegnato", calc: (r) => (r.stato_certificato === "valido" ? "Si" : "No") },
       { id: "cert_appuntamento", label: "Data appuntamento visita medica", calc: () => "" },
     ],
   },
@@ -53,7 +53,7 @@ const GRUPPI_COLONNE = [
       { id: "data_stampa", label: "Data", calc: () => "" },
       { id: "firma", label: "Firma", calc: () => "" },
       { id: "presenza", label: "Presenza", calc: () => "" },
-      { id: "note_manuali", label: "Note", calc: (r) => r.note || "" },
+      { id: "note_manuali", label: "Note", calc: () => "" },
     ],
   },
 ];
@@ -69,14 +69,25 @@ function fmtData(d) {
 
 function labelTipoPagamento(t) {
   if (t === "annuale") return "Annuale";
-  if (t === "q1") return "1 Quadrimestre";
-  if (t === "q2") return "2 Quadrimestre";
-  if (t === "rinnovo") return "Rinnovo";
+  if (t === "quadrimestrale") return "Quadrimestrale";
+  if (t === "quad1") return "1° Quadrimestre";
+  if (t === "quad2") return "2° Quadrimestre";
+  if (t === "rinnovo_gratuito") return "Rinnovo gratuito";
   return t || "";
 }
 
+// Estrae i nomi dei giorni dalla stringa "Lunedì/Giovedì 18:10-19:00" -> ["Lunedì","Giovedì"]
+function estraiGiorni(giorniOrari) {
+  if (!giorniOrari) return [];
+  const soloGiorni = giorniOrari.split(/\s+\d/)[0]; // taglia via l'orario
+  return soloGiorni.split("/").map((g) => g.trim()).filter(Boolean);
+}
+
 function labelFrequenza(r) {
-  if (r.frequenza === "2x") return "2 giorni/settimana";
+  if (r.frequenza === "2x") {
+    const giorni = estraiGiorni(r._giorniOrari);
+    return giorni.length === 2 ? giorni.join(" + ") : "2 giorni/settimana";
+  }
   if (r.frequenza === "1x") return r.giorno_scelto || "1 giorno/settimana";
   return r.frequenza || "";
 }
@@ -139,7 +150,11 @@ export default function ElencoPersonalizzato() {
       const arricchite = (iscDB || []).map((r) => {
         const cf = r.soci && r.soci.cf;
         const altri = (corsiPerSocio[cf] || []).filter((cid) => cid !== r.corso_id);
-        return Object.assign({}, r, { _combinazione: altri.map(nomeCorso).join(" + ") });
+        const corsoRiga = (corsiDB || []).find((cc) => cc.id === r.corso_id);
+        return Object.assign({}, r, {
+          _combinazione: altri.map(nomeCorso).join(" + "),
+          _giorniOrari: corsoRiga ? corsoRiga.giorni_orari : "",
+        });
       });
 
       setIscrizioni(arricchite);
