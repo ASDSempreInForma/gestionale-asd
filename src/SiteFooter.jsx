@@ -63,8 +63,7 @@ export default function SiteFooter() {
       </div>
 
       <div style={{ maxWidth: 1200, margin: "28px auto 0", borderTop: "1px solid rgba(255,255,255,.15)", paddingTop: 18, fontSize: 11.5, color: "rgba(255,255,255,.55)" }}>
-        © COPYRIGHT {new Date().getFullYear()} || ASD Sempre in Forma || Tutti i diritti riservati || Credits:{" "}
-        <a href="https://adelinapinzari.it/" style={{ color: ARANCIO, textDecoration: "none" }}>Adelina Pinzari Web Designer &amp; Developer</a>
+        © COPYRIGHT {new Date().getFullYear()} || ASD Sempre in Forma || Tutti i diritti riservati
       </div>
     </footer>
   );
