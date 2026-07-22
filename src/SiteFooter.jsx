@@ -4,7 +4,7 @@ const SITO = "https://www.asdsempreinforma.it";
 
 export default function SiteFooter() {
   return (
-    <footer style={{ background: "#181818", color: "rgba(255,255,255,.75)", padding: "40px 20px 24px", marginTop: 40 }}>
+    <footer style={{ background: "#2B2B2B", color: "rgba(255,255,255,.75)", padding: "40px 20px 24px", marginTop: 40 }}>
       <div style={{ maxWidth: 1200, margin: "0 auto" }}>
         <h3 style={{ color: "white", fontSize: 16, fontWeight: 700, marginBottom: 10 }}>A.S.D. Sempre In Forma</h3>
         <p style={{ fontSize: 13, lineHeight: 1.6, maxWidth: 560, marginBottom: 20 }}>
