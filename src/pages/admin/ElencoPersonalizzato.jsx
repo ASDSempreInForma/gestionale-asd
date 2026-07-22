@@ -77,7 +77,7 @@ function labelTipoPagamento(t) {
 
 function labelFrequenza(r) {
   if (r.frequenza === "2x") return "2 giorni/settimana";
-  if (r.frequenza === "1x") return "1 giorno/settimana" + (r.giorno_scelto ? " - " + r.giorno_scelto : "");
+  if (r.frequenza === "1x") return r.giorno_scelto || "1 giorno/settimana";
   return r.frequenza || "";
 }
 

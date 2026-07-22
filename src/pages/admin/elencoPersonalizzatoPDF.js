@@ -55,7 +55,8 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
     if (id === "combinazione" || id === "note_manuali") return 140;
     if (id === "tipo_iscrizione" || id === "frequenza" || id === "cert_scadenza" || id === "cert_appuntamento") return 90;
     if (id === "assicurazione" || id === "cert_consegnato") return 80;
-    if (id === "firma" || id === "presenza") return 60;
+    if (id === "firma") return 130;
+    if (id === "presenza") return 60;
     return 75;
   };
   const largTot = colonne.reduce((s, c) => s + largCol(c.id), 0);
