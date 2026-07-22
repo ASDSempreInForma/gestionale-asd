@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
 import { generaFileASI, generaFileLibertas } from "./esportaAssicurazioni.js";
 import { generaRegistroFirmeASI, generaRegistroFirmeLibertas } from "./registroFirme.js";
+import { generaElencoPDF, ORDINE_STAMPA } from "./elencoPersonalizzatoPDF.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -196,17 +197,43 @@ export default function ElencoPersonalizzato() {
     });
   }
 
-  function generaEsportazione() {
-    const colonne = TUTTE_LE_COLONNE.filter((c) => colonneScelte.has(c.id));
+  // Colonne scelte, ma sempre nello stesso ordine fisso (indipendente dall'ordine di spunta)
+  const colonneOrdinate = useMemo(() => {
+    const scelte = TUTTE_LE_COLONNE.filter((c) => colonneScelte.has(c.id));
+    return scelte.sort((a, b) => ORDINE_STAMPA.indexOf(a.id) - ORDINE_STAMPA.indexOf(b.id));
+  }, [colonneScelte]);
 
-    const intestazione = colonne.map((c) => c.label);
-    const righe = iscrizioniSelezionate.map((r) => colonne.map((c) => c.calc(r)));
+  // Se tutte le persone selezionate sono dello stesso corso, i dati del corso da mettere in alto nel PDF
+  const corsoUnico = useMemo(() => {
+    if (iscrizioniSelezionate.length === 0) return null;
+    const primoId = iscrizioniSelezionate[0].corso_id;
+    const tuttiUguali = iscrizioniSelezionate.every((r) => r.corso_id === primoId);
+    if (!tuttiUguali) return null;
+    const c = corsi.find((cc) => cc.id === primoId);
+    if (!c) return null;
+    return { disciplina: c.disciplina, sedeNome: c.sedi?.nome || "", giorni_orari: c.giorni_orari };
+  }, [iscrizioniSelezionate, corsi]);
+
+  function generaEsportazione() {
+    const intestazione = colonneOrdinate.map((c) => c.label);
+    const righe = iscrizioniSelezionate.map((r) => colonneOrdinate.map((c) => c.calc(r)));
 
     const ws = XLSX.utils.aoa_to_sheet([intestazione, ...righe]);
-    ws["!cols"] = colonne.map(() => ({ wch: 20 }));
+    ws["!cols"] = colonneOrdinate.map(() => ({ wch: 20 }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Elenco");
     XLSX.writeFile(wb, "Elenco_personalizzato_" + new Date().toISOString().slice(0, 10) + ".xlsx");
+  }
+
+  function generaEsportazionePDF() {
+    const righe = iscrizioniSelezionate.map((r) => colonneOrdinate.map((c) => c.calc(r)));
+    generaElencoPDF({
+      colonne: colonneOrdinate,
+      righe,
+      corsoUnico,
+      stagioneNome: stagione?.nome || "",
+      nomeFile: "Elenco_personalizzato_" + new Date().toISOString().slice(0, 10) + ".pdf",
+    });
   }
 
   return (
@@ -293,18 +320,39 @@ export default function ElencoPersonalizzato() {
                 ))}
               </div>
 
-              <button
-                onClick={generaEsportazione}
-                disabled={selezionati.size === 0 || colonneScelte.size === 0}
-                style={{
-                  width: "100%", marginTop: 14, padding: "12px 10px", borderRadius: 10, border: "none",
-                  background: selezionati.size && colonneScelte.size ? G : "#F3F4F6",
-                  color: selezionati.size && colonneScelte.size ? "white" : "#9CA3AF",
-                  fontSize: 13, fontWeight: 600, cursor: selezionati.size && colonneScelte.size ? "pointer" : "not-allowed",
-                }}
-              >
-                Genera Excel ({selezionati.size} persone, {colonneScelte.size} colonne)
-              </button>
+              {selezionati.size > 0 && (
+                <p style={{ fontSize: 11.5, color: GR, marginTop: 10, marginBottom: 0 }}>
+                  {corsoUnico
+                    ? `Nel PDF compariranno i dati del corso (${corsoUnico.disciplina} — ${corsoUnico.sedeNome}) in alto, come nei vecchi fogli.`
+                    : "Persone di corsi diversi tra loro: nel PDF non compariranno i dati di un singolo corso in alto."}
+                </p>
+              )}
+              <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+                <button
+                  onClick={generaEsportazione}
+                  disabled={selezionati.size === 0 || colonneScelte.size === 0}
+                  style={{
+                    flex: 1, padding: "12px 10px", borderRadius: 10, border: "none",
+                    background: selezionati.size && colonneScelte.size ? G : "#F3F4F6",
+                    color: selezionati.size && colonneScelte.size ? "white" : "#9CA3AF",
+                    fontSize: 13, fontWeight: 600, cursor: selezionati.size && colonneScelte.size ? "pointer" : "not-allowed",
+                  }}
+                >
+                  📊 Excel ({selezionati.size} persone)
+                </button>
+                <button
+                  onClick={generaEsportazionePDF}
+                  disabled={selezionati.size === 0 || colonneScelte.size === 0}
+                  style={{
+                    flex: 1, padding: "12px 10px", borderRadius: 10, border: "none",
+                    background: selezionati.size && colonneScelte.size ? "#1B4332" : "#F3F4F6",
+                    color: selezionati.size && colonneScelte.size ? "white" : "#9CA3AF",
+                    fontSize: 13, fontWeight: 600, cursor: selezionati.size && colonneScelte.size ? "pointer" : "not-allowed",
+                  }}
+                >
+                  🖨️ PDF da stampare
+                </button>
+              </div>
             </div>
           </div>
 
