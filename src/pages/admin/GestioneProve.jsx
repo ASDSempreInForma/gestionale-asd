@@ -83,6 +83,7 @@ export default function GestioneProve() {
   const [filtroCorsoStampa, setFiltroCorsoStampa] = useState("");
   const [selezionatiStampa, setSelezionatiStampa] = useState(new Set());
   const [righeVuoteExtra, setRigheVuoteExtra] = useState(4);
+  const [mostraNonAttiveStampa, setMostraNonAttiveStampa] = useState(false);
 
   // ── Caricamento iniziale ─────────────────────────────────────────────────
   useEffect(() => { caricaDati(); }, []);
@@ -293,6 +294,7 @@ export default function GestioneProve() {
   // ── Tab "Stampa registro": filtro, selezione persone, corso unico ────────
   const risultatiStampa = useMemo(() => {
     return prove.filter((p) => {
+      if (!mostraNonAttiveStampa && ["annullata", "scaduta"].includes(p.stato)) return false;
       if (filtroCorsoStampa && p.corso_id !== filtroCorsoStampa) return false;
       if (ricercaStampa) {
         const testo = `${p.nome || ""} ${p.cognome || ""} ${p.cf || ""}`.toLowerCase();
@@ -300,7 +302,7 @@ export default function GestioneProve() {
       }
       return true;
     });
-  }, [prove, filtroCorsoStampa, ricercaStampa]);
+  }, [prove, filtroCorsoStampa, ricercaStampa, mostraNonAttiveStampa]);
 
   function toggleSelezionatoStampa(id) {
     setSelezionatiStampa((prev) => {
@@ -731,6 +733,11 @@ export default function GestioneProve() {
               style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13, marginBottom: 10 }}
             />
 
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: SUB, marginBottom: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={mostraNonAttiveStampa} onChange={(e) => setMostraNonAttiveStampa(e.target.checked)} />
+              Mostra anche le richieste annullate/scadute
+            </label>
+
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <div style={{ fontSize: 12, color: SUB }}>
                 <b style={{ color: TX }}>{selezionatiStampa.size}</b> selezionate in totale
@@ -753,6 +760,7 @@ export default function GestioneProve() {
                 <label key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "7px 10px", borderBottom: `1px solid ${BD}`, cursor: "pointer" }}>
                   <input type="checkbox" checked={selezionatiStampa.has(p.id)} onChange={() => toggleSelezionatoStampa(p.id)} />
                   <span style={{ flex: 1 }}>{p.cognome} {p.nome}</span>
+                  {["annullata", "scaduta"].includes(p.stato) && badgeStato(p.stato)}
                   <span style={{ fontSize: 11, color: SUB }}>{p.corsi?.disciplina}</span>
                 </label>
               ))}

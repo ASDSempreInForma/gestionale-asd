@@ -108,14 +108,26 @@ export async function generaRegistroProvaPDF({ prove, corsoUnico, stagione, righ
 
   function disegnaRiga(page, y, indice, richiesta) {
     const xTab = MARGINE;
-    const nomeCompleto = richiesta.cognome || richiesta.nome
+    const rigaVuota = !richiesta.cognome && !richiesta.nome;
+    const nomeCompleto = !rigaVuota
       ? `${(richiesta.cognome || "").toUpperCase()}  ${(richiesta.nome || "").toUpperCase()}`
       : "";
+
     page.drawText(`${indice + 1}.`, { x: xTab, y, size: 10, font: fontRegular, color: nero });
-    page.drawText(troncaTesto(fontRegular, nomeCompleto, 10, corsoUnico ? 250 : 155), { x: xTab + 24, y, size: 10, font: fontRegular, color: nero });
-    if (!corsoUnico && richiesta.corsoNome) {
-      page.drawText(troncaTesto(fontRegular, richiesta.corsoNome, 8.5, 95), { x: xTab + 190, y, size: 8.5, font: fontRegular, color: grigio });
+
+    if (!rigaVuota) {
+      page.drawText(troncaTesto(fontRegular, nomeCompleto, 10, corsoUnico ? 250 : 155), { x: xTab + 24, y, size: 10, font: fontRegular, color: nero });
+      if (!corsoUnico && richiesta.corsoNome) {
+        page.drawText(troncaTesto(fontRegular, richiesta.corsoNome, 8.5, 95), { x: xTab + 190, y, size: 8.5, font: fontRegular, color: grigio });
+      }
+    } else {
+      // Riga vuota extra: linee da compilare a mano anche per Nome e Corso
+      page.drawLine({ start: { x: xTab + 24, y: y - 3 }, end: { x: xTab + 24 + (corsoUnico ? 250 : 155), y: y - 3 }, thickness: 0.6, color: grigioLinea });
+      if (!corsoUnico) {
+        page.drawLine({ start: { x: xTab + 190, y: y - 3 }, end: { x: xTab + 190 + 90, y: y - 3 }, thickness: 0.6, color: grigioLinea });
+      }
     }
+
     // Linee vuote vere da compilare a mano: Data e Firma
     page.drawLine({ start: { x: xTab + 288, y: y - 3 }, end: { x: xTab + 288 + 100, y: y - 3 }, thickness: 0.6, color: grigioLinea });
     page.drawLine({ start: { x: xTab + 398, y: y - 3 }, end: { x: xTab + 398 + 110, y: y - 3 }, thickness: 0.6, color: grigioLinea });
