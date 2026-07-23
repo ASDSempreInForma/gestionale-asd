@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { generaFileASI, generaFileLibertas } from "./esportaAssicurazioni.js";
 import { generaRegistroFirmeASI, generaRegistroFirmeLibertas } from "./registroFirme.js";
-import { generaRegistroProva } from "./elencoProvaPDF.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -16,7 +15,6 @@ export default function EsportaAssicurazioni() {
   const [corsi, setCorsi] = useState([]);
   const [corsoId, setCorsoId] = useState("");
   const [iscritti, setIscritti] = useState([]);
-  const [prove, setProve] = useState([]);
   const [caricando, setCaricando] = useState(true);
   const [caricandoIscritti, setCaricandoIscritti] = useState(false);
   const [errore, setErrore] = useState(null);
@@ -52,7 +50,6 @@ export default function EsportaAssicurazioni() {
   async function selezionaCorso(id) {
     setCorsoId(id);
     setIscritti([]);
-    setProve([]);
     if (!id) return;
     setCaricandoIscritti(true);
     try {
@@ -69,15 +66,6 @@ export default function EsportaAssicurazioni() {
         .order("id");
       if (error) throw error;
       setIscritti(data || []);
-
-      const { data: dataProve, error: errProve } = await supabase
-        .from("prove")
-        .select("id, nome, cognome, cf, telefono, email, note, stato, data_richiesta")
-        .eq("corso_id", id)
-        .neq("stato", "annullata")
-        .order("data_richiesta");
-      if (errProve) throw errProve;
-      setProve(dataProve || []);
     } catch (err) {
       console.error(err);
       setErrore("Impossibile caricare i dati di questo corso.");
@@ -185,24 +173,6 @@ export default function EsportaAssicurazioni() {
                         🖨️ Registro firme Libertas
                       </button>
                     </div>
-
-                    <div style={{ fontSize: 11.5, fontWeight: 700, color: GR, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8, marginTop: 18 }}>
-                      Lezioni di prova
-                    </div>
-                    <p style={{ fontSize: 13, color: GR, marginBottom: 10 }}>
-                      <b style={{ color: TX }}>{prove.length}</b> richieste di prova per questo corso.
-                    </p>
-                    <button
-                      onClick={() => generaRegistroProva({ ...corso, sedeNome: corso.sedi?.nome }, prove, stagione)}
-                      disabled={prove.length === 0}
-                      style={{
-                        width: "100%", padding: "12px 10px", borderRadius: 10, border: "none",
-                        background: prove.length ? GL : "#F3F4F6", color: prove.length ? G : "#9CA3AF",
-                        fontSize: 13, fontWeight: 600, cursor: prove.length ? "pointer" : "not-allowed",
-                      }}
-                    >
-                      🖨️ Registro Prova
-                    </button>
                   </>
                 )}
               </>

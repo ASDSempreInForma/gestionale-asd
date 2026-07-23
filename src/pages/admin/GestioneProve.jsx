@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { generaPdfLiberatoria } from "../../pdfModuli.js";
+import { generaRegistroProvaPDF, generaRegistroProvaExcel } from "../../elencoProvaPDF.js";
 
 /* =====================================================================
    GESTIONE PROVE — A.S.D. Sempre In Forma (pannello admin)
@@ -76,6 +77,12 @@ export default function GestioneProve() {
   const [saving, setSaving] = useState({});
   const [dataProvaScelta, setDataProvaScelta] = useState({});
   const [eccezioni, setEccezioni] = useState({}); // {cf: motivo}
+
+  // Tab "Stampa registro"
+  const [ricercaStampa, setRicercaStampa] = useState("");
+  const [filtroCorsoStampa, setFiltroCorsoStampa] = useState("");
+  const [selezionatiStampa, setSelezionatiStampa] = useState(new Set());
+  const [righeVuoteExtra, setRigheVuoteExtra] = useState(4);
 
   // ── Caricamento iniziale ─────────────────────────────────────────────────
   useEffect(() => { caricaDati(); }, []);
@@ -283,6 +290,56 @@ export default function GestioneProve() {
     return "ok";
   };
 
+  // ── Tab "Stampa registro": filtro, selezione persone, corso unico ────────
+  const risultatiStampa = useMemo(() => {
+    return prove.filter((p) => {
+      if (filtroCorsoStampa && p.corso_id !== filtroCorsoStampa) return false;
+      if (ricercaStampa) {
+        const testo = `${p.nome || ""} ${p.cognome || ""} ${p.cf || ""}`.toLowerCase();
+        if (!testo.includes(ricercaStampa.toLowerCase())) return false;
+      }
+      return true;
+    });
+  }, [prove, filtroCorsoStampa, ricercaStampa]);
+
+  function toggleSelezionatoStampa(id) {
+    setSelezionatiStampa((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function selezionaFiltratiStampa() {
+    setSelezionatiStampa((prev) => {
+      const next = new Set(prev);
+      risultatiStampa.forEach((p) => next.add(p.id));
+      return next;
+    });
+  }
+  function svuotaSelezioneStampa() {
+    setSelezionatiStampa(new Set());
+  }
+
+  const proveSelezionate = prove.filter((p) => selezionatiStampa.has(p.id));
+  const corsoUnicoStampa = (() => {
+    if (proveSelezionate.length === 0) return null;
+    const primoId = proveSelezionate[0].corso_id;
+    const tuttiUguali = proveSelezionate.every((p) => p.corso_id === primoId);
+    if (!tuttiUguali) return null;
+    const p0 = proveSelezionate[0];
+    return { disciplina: p0.corsi?.disciplina, sedeNome: p0.corsi?.sedi?.nome, giorni_orari: p0.corsi?.giorni_orari };
+  })();
+
+  function datiPerStampa() {
+    return proveSelezionate.map((p) => ({
+      nome: p.nome,
+      cognome: p.cognome,
+      note: p.note,
+      corsoNome: p.corsi ? `${p.corsi.disciplina} (${p.corsi.sedi?.nome})` : "",
+    }));
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily:"'Segoe UI',system-ui,sans-serif", background:"#F8F7F4", minHeight:"100vh" }}>
@@ -303,7 +360,7 @@ export default function GestioneProve() {
 
       {/* Tab */}
       <div style={{ display:"flex", borderBottom:`1px solid ${BD}`, background:"white" }}>
-        {[["prove","📋 Richieste prove"],["capienza","⚙️ Capienza corsi"]].map(([v,l]) => (
+        {[["prove","📋 Richieste prove"],["capienza","⚙️ Capienza corsi"],["stampa","🖨️ Stampa registro"]].map(([v,l]) => (
           <button key={v} onClick={() => setTab(v)}
             style={{ flex:1, padding:"11px", background:tab===v?GL:"white",
               border:"none", borderBottom:`2px solid ${tab===v?G:"transparent"}`,
@@ -647,6 +704,104 @@ export default function GestioneProve() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* ── TAB STAMPA REGISTRO ────────────────────────────────────── */}
+        {!loading && tab === "stampa" && (
+          <div>
+            <p style={{ fontSize: 12.5, color: SUB, marginBottom: 14 }}>
+              Scegli le persone da mettere nel registro — anche da corsi diversi tra loro — e genera il PDF da
+              stampare o il file Excel.
+            </p>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+              <select value={filtroCorsoStampa} onChange={(e) => setFiltroCorsoStampa(e.target.value)}
+                style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13 }}>
+                <option value="">Tutti i corsi</option>
+                {corsi.map((c) => (
+                  <option key={c.id} value={c.id}>{c.codice} — {c.nome} ({c.sede})</option>
+                ))}
+              </select>
+            </div>
+            <input
+              type="text" placeholder="Cerca per nome, cognome o CF…"
+              value={ricercaStampa} onChange={(e) => setRicercaStampa(e.target.value)}
+              style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13, marginBottom: 10 }}
+            />
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: SUB }}>
+                <b style={{ color: TX }}>{selezionatiStampa.size}</b> selezionate in totale
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={selezionaFiltratiStampa} style={{ fontSize: 11.5, background: GL, color: GD, border: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontWeight: 600 }}>
+                  Seleziona filtrati
+                </button>
+                <button onClick={svuotaSelezioneStampa} style={{ fontSize: 11.5, background: "#F3F4F6", color: SUB, border: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontWeight: 600 }}>
+                  Svuota
+                </button>
+              </div>
+            </div>
+
+            <div style={{ maxHeight: 320, overflowY: "auto", border: `1px solid ${BD}`, borderRadius: 8, marginBottom: 16 }}>
+              {risultatiStampa.length === 0 && (
+                <p style={{ fontSize: 12, color: SUB, padding: 12, margin: 0 }}>Nessun risultato con questi filtri.</p>
+              )}
+              {risultatiStampa.map((p) => (
+                <label key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "7px 10px", borderBottom: `1px solid ${BD}`, cursor: "pointer" }}>
+                  <input type="checkbox" checked={selezionatiStampa.has(p.id)} onChange={() => toggleSelezionatoStampa(p.id)} />
+                  <span style={{ flex: 1 }}>{p.cognome} {p.nome}</span>
+                  <span style={{ fontSize: 11, color: SUB }}>{p.corsi?.disciplina}</span>
+                </label>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+              <label style={{ fontSize: 12.5, color: TX }}>Righe vuote extra in fondo (per chi si presenta senza risultare tra le prove):</label>
+              <input type="number" min={0} max={20} value={righeVuoteExtra}
+                onChange={(e) => setRigheVuoteExtra(Math.max(0, parseInt(e.target.value) || 0))}
+                style={{ width: 60, padding: "6px 8px", border: `1px solid ${BD}`, borderRadius: 7, fontSize: 13, textAlign: "center" }} />
+            </div>
+
+            {selezionatiStampa.size > 0 && (
+              <p style={{ fontSize: 11.5, color: SUB, marginBottom: 10 }}>
+                {corsoUnicoStampa
+                  ? `Nel PDF/Excel compariranno i dati del corso (${corsoUnicoStampa.disciplina}) in alto.`
+                  : "Persone di corsi diversi tra loro: non comparirà un singolo corso in alto, ma il nome del corso accanto a ciascuna persona."}
+              </p>
+            )}
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={() => generaRegistroProvaExcel({
+                  prove: datiPerStampa(), corsoUnico: corsoUnicoStampa, righeVuoteExtra,
+                  nomeFile: `Registro_Prova_${new Date().toISOString().slice(0, 10)}.xlsx`,
+                })}
+                disabled={selezionatiStampa.size === 0}
+                style={{
+                  flex: 1, padding: "12px 10px", borderRadius: 10, border: "none",
+                  background: selezionatiStampa.size ? GL : "#F3F4F6", color: selezionatiStampa.size ? GD : "#9CA3AF",
+                  fontSize: 13, fontWeight: 600, cursor: selezionatiStampa.size ? "pointer" : "not-allowed",
+                }}
+              >
+                📊 Excel
+              </button>
+              <button
+                onClick={() => generaRegistroProvaPDF({
+                  prove: datiPerStampa(), corsoUnico: corsoUnicoStampa, stagione, righeVuoteExtra,
+                  nomeFile: `Registro_Prova_${new Date().toISOString().slice(0, 10)}.pdf`,
+                })}
+                disabled={selezionatiStampa.size === 0}
+                style={{
+                  flex: 1, padding: "12px 10px", borderRadius: 10, border: "none",
+                  background: selezionatiStampa.size ? GL : "#F3F4F6", color: selezionatiStampa.size ? GD : "#9CA3AF",
+                  fontSize: 13, fontWeight: 600, cursor: selezionatiStampa.size ? "pointer" : "not-allowed",
+                }}
+              >
+                🖨️ PDF da stampare
+              </button>
             </div>
           </div>
         )}
