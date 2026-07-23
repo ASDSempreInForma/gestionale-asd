@@ -62,7 +62,7 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
     return 75;
   };
   const largTot = colonne.reduce((s, c) => s + largCol(c.id), 0);
-  const scala = Math.min(1, (W - 2 * MARGINE) / largTot);
+  const scala = (W - 2 * MARGINE) / largTot; // sempre riempie tutta la larghezza pagina, sia allargando che restringendo
 
   function disegnaIntestazionePagina(page, numeroPagina, totalePagine) {
     page.drawImage(logoImage, { x: MARGINE, y: H - MARGINE - logoDims.height, width: logoDims.width, height: logoDims.height });
@@ -97,8 +97,8 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
     return yTop - altezzaRiga;
   }
 
-  function disegnaRiga(page, yTop, riga, indice, altezzaRiga) {
-    const xTab = MARGINE;
+  function disegnaRiga(page, yTop, riga, indice) {
+    const xTab = MARGINE, altezzaRiga = ALTEZZA_RIGA;
     if (indice % 2 === 1) {
       page.drawRectangle({ x: xTab, y: yTop - altezzaRiga, width: largTot * scala, height: altezzaRiga, color: grigioChiaro });
     }
@@ -107,7 +107,7 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
       const w = largCol(c.id) * scala;
       const valore = String(riga[i] ?? "");
       const testo = troncaTesto(fontRegular, valore, 8.5, w - 8);
-      page.drawText(testo, { x: x + 4, y: yTop - 15, size: 8.5, font: fontRegular, color: nero });
+      page.drawText(testo, { x: x + 4, y: yTop - altezzaRiga + 7, size: 8.5, font: fontRegular, color: nero });
       x += w;
     });
     page.drawLine({ start: { x: xTab, y: yTop - altezzaRiga }, end: { x: xTab + largTot * scala, y: yTop - altezzaRiga }, thickness: 0.4, color: rgb(0.8, 0.8, 0.8) });
@@ -130,15 +130,21 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
   for (let i = 0; i < tutteLeRighe.length; i += righePerPagina) gruppi.push(tutteLeRighe.slice(i, i + righePerPagina));
   if (gruppi.length === 0) gruppi.push([]);
 
+  // Se nell'ultima pagina resta spazio libero, aggiungo altre righe vuote della
+  // STESSA altezza normale (non allungo le righe esistenti) per usare tutto lo spazio.
+  const ultimoGruppo = gruppi[gruppi.length - 1];
+  const spazioResiduo = altezzaUtile - ultimoGruppo.length * ALTEZZA_RIGA;
+  const righeAutoRiempimento = Math.floor(spazioResiduo / ALTEZZA_RIGA);
+  for (let i = 0; i < righeAutoRiempimento; i++) {
+    ultimoGruppo.push(colonne.map(() => ""));
+  }
+
   gruppi.forEach((gruppo, idxPagina) => {
     const page = pdfDoc.addPage([W, H]);
     let y = disegnaIntestazionePagina(page, idxPagina + 1, gruppi.length);
     y = disegnaIntestazioneTabella(page, y);
-    // Se in questa pagina ci sono meno righe di quante ce ne starebbero, le allungo
-    // per riempire tutto lo spazio disponibile invece di lasciare vuoto in fondo.
-    const altezzaRigaPagina = gruppo.length > 0 ? Math.max(ALTEZZA_RIGA, altezzaUtile / gruppo.length) : ALTEZZA_RIGA;
     gruppo.forEach((riga, i) => {
-      y = disegnaRiga(page, y, riga, i, altezzaRigaPagina);
+      y = disegnaRiga(page, y, riga, i);
     });
   });
 
