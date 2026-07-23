@@ -97,8 +97,8 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
     return yTop - altezzaRiga;
   }
 
-  function disegnaRiga(page, yTop, riga, indice) {
-    const xTab = MARGINE, altezzaRiga = ALTEZZA_RIGA;
+  function disegnaRiga(page, yTop, riga, indice, altezzaRiga) {
+    const xTab = MARGINE;
     if (indice % 2 === 1) {
       page.drawRectangle({ x: xTab, y: yTop - altezzaRiga, width: largTot * scala, height: altezzaRiga, color: grigioChiaro });
     }
@@ -107,7 +107,7 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
       const w = largCol(c.id) * scala;
       const valore = String(riga[i] ?? "");
       const testo = troncaTesto(fontRegular, valore, 8.5, w - 8);
-      page.drawText(testo, { x: x + 4, y: yTop - altezzaRiga + 7, size: 8.5, font: fontRegular, color: nero });
+      page.drawText(testo, { x: x + 4, y: yTop - 15, size: 8.5, font: fontRegular, color: nero });
       x += w;
     });
     page.drawLine({ start: { x: xTab, y: yTop - altezzaRiga }, end: { x: xTab + largTot * scala, y: yTop - altezzaRiga }, thickness: 0.4, color: rgb(0.8, 0.8, 0.8) });
@@ -134,8 +134,11 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
     const page = pdfDoc.addPage([W, H]);
     let y = disegnaIntestazionePagina(page, idxPagina + 1, gruppi.length);
     y = disegnaIntestazioneTabella(page, y);
+    // Se in questa pagina ci sono meno righe di quante ce ne starebbero, le allungo
+    // per riempire tutto lo spazio disponibile invece di lasciare vuoto in fondo.
+    const altezzaRigaPagina = gruppo.length > 0 ? Math.max(ALTEZZA_RIGA, altezzaUtile / gruppo.length) : ALTEZZA_RIGA;
     gruppo.forEach((riga, i) => {
-      y = disegnaRiga(page, y, riga, i);
+      y = disegnaRiga(page, y, riga, i, altezzaRigaPagina);
     });
   });
 
