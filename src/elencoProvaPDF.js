@@ -30,7 +30,7 @@ function troncaTesto(font, testo, dimFont, larghezzaMax) {
   return t + "…";
 }
 
-const RIGHE_PER_PAGINA = 20;
+export const RIGHE_PER_PAGINA = 20;
 
 /**
  * @param {object}  opzioni
@@ -62,10 +62,15 @@ export async function generaRegistroProvaPDF({ prove, corsoUnico, stagione, righ
     page.drawText(titolo, { x: (W - wTitolo) / 2, y, size: 15, font: fontBold, color: nero });
     y -= 18;
 
-    const sotto = "(iscrizione da confermare tramite email entro 2 giorni)";
+    const sotto = "Compilare il modulo per confermare l'iscrizione entro 2 giorni";
     const wSotto = fontRegular.widthOfTextAtSize(sotto, 10);
     page.drawText(sotto, { x: (W - wSotto) / 2, y, size: 10, font: fontRegular, color: grigio });
     y -= 14;
+
+    const link = "app.asdsempreinforma.it";
+    const wLink = fontRegular.widthOfTextAtSize(link, 10);
+    page.drawText(link, { x: (W - wLink) / 2, y, size: 10, font: fontRegular, color: grigio });
+    y -= 13;
 
     const email = "info@asdsempreinforma.it";
     const wEmail = fontRegular.widthOfTextAtSize(email, 10);
@@ -83,7 +88,9 @@ export async function generaRegistroProvaPDF({ prove, corsoUnico, stagione, righ
       page.drawText(orario, { x: (W - wOrario) / 2, y, size: 10, font: fontRegular, color: nero });
       y -= 20;
     } else {
-      const info = `Anno: ${stagione?.nome || ""}     Persone selezionate da corsi diversi`;
+      const info = prove.length === 0
+        ? `Anno: ${stagione?.nome || ""}`
+        : `Anno: ${stagione?.nome || ""}     Persone selezionate da corsi diversi`;
       const wInfo = fontBold.widthOfTextAtSize(info, 11);
       page.drawText(info, { x: (W - wInfo) / 2, y, size: 11, font: fontBold, color: nero });
       y -= 20;
@@ -133,9 +140,9 @@ export async function generaRegistroProvaPDF({ prove, corsoUnico, stagione, righ
     page.drawLine({ start: { x: xTab + 398, y: y - 3 }, end: { x: xTab + 398 + 110, y: y - 3 }, thickness: 0.6, color: grigioLinea });
 
     let prossimaY = y - 15;
-    if (richiesta.note) {
-      page.drawText(troncaTesto(fontRegular, richiesta.note, 8.5, 460), { x: xTab + 24, y: prossimaY, size: 8.5, font: fontRegular, color: rgb(0.75, 0.2, 0.1) });
-      prossimaY -= 13;
+    if (richiesta.dataCompilazione) {
+      page.drawText(`Modulo compilato il: ${richiesta.dataCompilazione}`, { x: xTab + 24, y: prossimaY, size: 8, font: fontRegular, color: grigio });
+      prossimaY -= 12;
     }
     return prossimaY - 6;
   }
@@ -175,12 +182,12 @@ export async function generaRegistroProvaPDF({ prove, corsoUnico, stagione, righ
  */
 export function generaRegistroProvaExcel({ prove, corsoUnico, righeVuoteExtra = 4, nomeFile }) {
   const intestazione = corsoUnico
-    ? ["#", "Cognome", "Nome", "Data", "Firma", "Note"]
-    : ["#", "Cognome", "Nome", "Corso", "Data", "Firma", "Note"];
+    ? ["#", "Cognome", "Nome", "Data", "Firma", "Modulo compilato il"]
+    : ["#", "Cognome", "Nome", "Corso", "Data", "Firma", "Modulo compilato il"];
 
   const righeDati = prove.map((p, i) => corsoUnico
-    ? [i + 1, p.cognome || "", p.nome || "", "", "", p.note || ""]
-    : [i + 1, p.cognome || "", p.nome || "", p.corsoNome || "", "", "", p.note || ""]
+    ? [i + 1, p.cognome || "", p.nome || "", "", "", p.dataCompilazione || ""]
+    : [i + 1, p.cognome || "", p.nome || "", p.corsoNome || "", "", "", p.dataCompilazione || ""]
   );
 
   const righeExtra = Array.from({ length: Math.max(0, righeVuoteExtra) }).map((_, i) => corsoUnico

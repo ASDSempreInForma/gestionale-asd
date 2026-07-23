@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { generaPdfLiberatoria } from "../../pdfModuli.js";
-import { generaRegistroProvaPDF, generaRegistroProvaExcel } from "../../elencoProvaPDF.js";
+import { generaRegistroProvaPDF, generaRegistroProvaExcel, RIGHE_PER_PAGINA } from "../../elencoProvaPDF.js";
 
 /* =====================================================================
    GESTIONE PROVE — A.S.D. Sempre In Forma (pannello admin)
@@ -333,11 +333,18 @@ export default function GestioneProve() {
     return { disciplina: p0.corsi?.disciplina, sedeNome: p0.corsi?.sedi?.nome, giorni_orari: p0.corsi?.giorni_orari };
   })();
 
+  function fmtDataStampa(d) {
+    if (!d) return "";
+    const dt = new Date(d);
+    if (isNaN(dt)) return "";
+    return `${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}/${dt.getFullYear()}`;
+  }
+
   function datiPerStampa() {
     return proveSelezionate.map((p) => ({
       nome: p.nome,
       cognome: p.cognome,
-      note: p.note,
+      dataCompilazione: fmtDataStampa(p.data_richiesta),
       corsoNome: p.corsi ? `${p.corsi.disciplina} (${p.corsi.sedi?.nome})` : "",
     }));
   }
@@ -809,6 +816,24 @@ export default function GestioneProve() {
                 }}
               >
                 🖨️ PDF da stampare
+              </button>
+            </div>
+
+            <div style={{ borderTop: `1px solid ${BD}`, marginTop: 20, paddingTop: 16 }}>
+              <p style={{ fontSize: 12.5, color: SUB, marginBottom: 10 }}>
+                Foglio completamente in bianco (nessun nome), da tenere in palestra per chi si presenta senza essere in elenco.
+              </p>
+              <button
+                onClick={() => generaRegistroProvaPDF({
+                  prove: [], corsoUnico: null, stagione, righeVuoteExtra: RIGHE_PER_PAGINA,
+                  nomeFile: `Registro_Prova_foglio_bianco_${new Date().toISOString().slice(0, 10)}.pdf`,
+                })}
+                style={{
+                  width: "100%", padding: "12px 10px", borderRadius: 10, border: `1px solid ${BD}`,
+                  background: "white", color: TX, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                📄 Foglio bianco da stampare
               </button>
             </div>
           </div>
