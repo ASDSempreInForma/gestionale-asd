@@ -107,6 +107,17 @@ export default function ElencoPersonalizzato() {
     new Set(["cognome", "nome", "tipo_iscrizione", "assicurazione", "telefono"])
   );
 
+  const OPZIONI_TITOLO = [
+    "SOCI E TESSERATI",
+    "ELENCO CERTIFICATI MEDICI",
+    "FIRMA PRESENZA",
+    "CONFERMA ISCRIZIONE SECONDO QUADRIMESTRE",
+    "ALTRO",
+  ];
+  const [titoloPDF, setTitoloPDF] = useState(OPZIONI_TITOLO[0]);
+  const [titoloPersonalizzato, setTitoloPersonalizzato] = useState("");
+  const [righeVuoteExtra, setRigheVuoteExtra] = useState(4);
+
   useEffect(() => {
     caricaDati();
   }, []);
@@ -232,8 +243,9 @@ export default function ElencoPersonalizzato() {
   function generaEsportazione() {
     const intestazione = colonneOrdinate.map((c) => c.label);
     const righe = iscrizioniSelezionate.map((r) => colonneOrdinate.map((c) => c.calc(r)));
+    const righeExtra = Array.from({ length: Math.max(0, righeVuoteExtra) }).map(() => colonneOrdinate.map(() => ""));
 
-    const ws = XLSX.utils.aoa_to_sheet([intestazione, ...righe]);
+    const ws = XLSX.utils.aoa_to_sheet([intestazione, ...righe, ...righeExtra]);
     ws["!cols"] = colonneOrdinate.map(() => ({ wch: 20 }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Elenco");
@@ -242,11 +254,14 @@ export default function ElencoPersonalizzato() {
 
   function generaEsportazionePDF() {
     const righe = iscrizioniSelezionate.map((r) => colonneOrdinate.map((c) => c.calc(r)));
+    const titolo = titoloPDF === "ALTRO" ? (titoloPersonalizzato || "SOCI E TESSERATI") : titoloPDF;
     generaElencoPDF({
       colonne: colonneOrdinate,
       righe,
       corsoUnico,
       stagioneNome: stagione?.nome || "",
+      titolo,
+      righeVuoteExtra,
       nomeFile: "Elenco_personalizzato_" + new Date().toISOString().slice(0, 10) + ".pdf",
     });
   }
@@ -342,6 +357,34 @@ export default function ElencoPersonalizzato() {
                     : "Persone di corsi diversi tra loro: nel PDF non compariranno i dati di un singolo corso in alto."}
                 </p>
               )}
+
+              <div style={{ marginTop: 14 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: GR, display: "block", marginBottom: 6 }}>Titolo del PDF (in alto)</label>
+                <select
+                  value={titoloPDF}
+                  onChange={(e) => setTitoloPDF(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13, marginBottom: titoloPDF === "ALTRO" ? 8 : 0 }}
+                >
+                  {OPZIONI_TITOLO.map((t) => (
+                    <option key={t} value={t}>{t === "ALTRO" ? "Altro (scrivi tu)" : t}</option>
+                  ))}
+                </select>
+                {titoloPDF === "ALTRO" && (
+                  <input
+                    type="text" placeholder="Scrivi il titolo…"
+                    value={titoloPersonalizzato} onChange={(e) => setTitoloPersonalizzato(e.target.value)}
+                    style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13 }}
+                  />
+                )}
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
+                <label style={{ fontSize: 12.5, color: TX }}>Righe vuote extra in fondo:</label>
+                <input type="number" min={0} max={20} value={righeVuoteExtra}
+                  onChange={(e) => setRigheVuoteExtra(Math.max(0, parseInt(e.target.value) || 0))}
+                  style={{ width: 60, padding: "6px 8px", border: `1px solid ${BD}`, borderRadius: 7, fontSize: 13, textAlign: "center" }} />
+              </div>
+
               <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
                 <button
                   onClick={generaEsportazione}

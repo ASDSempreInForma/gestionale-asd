@@ -34,9 +34,11 @@ function troncaTesto(font, testo, dimFont, larghezzaMax) {
   return t + "…";
 }
 
-const RIGHE_PER_PAGINA = 18;
+const ALTEZZA_RIGA = 22; // leggermente più alta di prima (era 18), per compilare a mano più comodamente
+const ALTEZZA_INTESTAZIONE_TABELLA = 22;
+const MARGINE_INFERIORE_SICUREZZA = 40;
 
-export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome, nomeFile }) {
+export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome, titolo = "SOCI E TESSERATI", righeVuoteExtra = 0, nomeFile }) {
   const pdfDoc = await PDFDocument.create();
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -65,7 +67,6 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
   function disegnaIntestazionePagina(page, numeroPagina, totalePagine) {
     page.drawImage(logoImage, { x: MARGINE, y: H - MARGINE - logoDims.height, width: logoDims.width, height: logoDims.height });
 
-    const titolo = "SOCI E TESSERATI";
     const wTitolo = fontBold.widthOfTextAtSize(titolo, 18);
     page.drawText(titolo, { x: (W - wTitolo) / 2, y: H - MARGINE - 22, size: 18, font: fontBold, color: nero });
 
@@ -84,20 +85,20 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
   }
 
   function disegnaIntestazioneTabella(page, yTop) {
-    const xTab = MARGINE, altezzaRiga = 20;
+    const xTab = MARGINE, altezzaRiga = ALTEZZA_INTESTAZIONE_TABELLA;
     let x = xTab;
     page.drawRectangle({ x: xTab, y: yTop - altezzaRiga, width: largTot * scala, height: altezzaRiga, color: scuro });
     colonne.forEach((c) => {
       const w = largCol(c.id) * scala;
       const testo = troncaTesto(fontBold, c.label, 8.5, w - 8);
-      page.drawText(testo, { x: x + 4, y: yTop - altezzaRiga + 6, size: 8.5, font: fontBold, color: rgb(1, 1, 1) });
+      page.drawText(testo, { x: x + 4, y: yTop - altezzaRiga + 7, size: 8.5, font: fontBold, color: rgb(1, 1, 1) });
       x += w;
     });
     return yTop - altezzaRiga;
   }
 
   function disegnaRiga(page, yTop, riga, indice) {
-    const xTab = MARGINE, altezzaRiga = 18;
+    const xTab = MARGINE, altezzaRiga = ALTEZZA_RIGA;
     if (indice % 2 === 1) {
       page.drawRectangle({ x: xTab, y: yTop - altezzaRiga, width: largTot * scala, height: altezzaRiga, color: grigioChiaro });
     }
@@ -106,15 +107,27 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
       const w = largCol(c.id) * scala;
       const valore = String(riga[i] ?? "");
       const testo = troncaTesto(fontRegular, valore, 8.5, w - 8);
-      page.drawText(testo, { x: x + 4, y: yTop - altezzaRiga + 5, size: 8.5, font: fontRegular, color: nero });
+      page.drawText(testo, { x: x + 4, y: yTop - altezzaRiga + 7, size: 8.5, font: fontRegular, color: nero });
       x += w;
     });
     page.drawLine({ start: { x: xTab, y: yTop - altezzaRiga }, end: { x: xTab + largTot * scala, y: yTop - altezzaRiga }, thickness: 0.4, color: rgb(0.8, 0.8, 0.8) });
     return yTop - altezzaRiga;
   }
 
+  // Righe vuote extra in fondo, per chi si presenta senza essere in elenco
+  const righeExtra = Array.from({ length: Math.max(0, righeVuoteExtra) }).map(() => colonne.map(() => ""));
+  const tutteLeRighe = [...righe, ...righeExtra];
+
+  // ── Calcolo la vera altezza disponibile per le righe (pagina di prova, poi scartata) ──
+  const paginaMisurazione = pdfDoc.addPage([W, H]);
+  let yMisurato = disegnaIntestazionePagina(paginaMisurazione, 1, 1);
+  yMisurato = disegnaIntestazioneTabella(paginaMisurazione, yMisurato);
+  pdfDoc.removePage(pdfDoc.getPageCount() - 1);
+  const altezzaUtile = yMisurato - MARGINE_INFERIORE_SICUREZZA;
+  const righePerPagina = Math.max(1, Math.floor(altezzaUtile / ALTEZZA_RIGA));
+
   const gruppi = [];
-  for (let i = 0; i < righe.length; i += RIGHE_PER_PAGINA) gruppi.push(righe.slice(i, i + RIGHE_PER_PAGINA));
+  for (let i = 0; i < tutteLeRighe.length; i += righePerPagina) gruppi.push(tutteLeRighe.slice(i, i + righePerPagina));
   if (gruppi.length === 0) gruppi.push([]);
 
   gruppi.forEach((gruppo, idxPagina) => {
