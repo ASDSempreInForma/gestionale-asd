@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import ComboComune from "../../ComboComune.jsx";
+import SiteHeader from "../../SiteHeader.jsx";
+import SiteFooter from "../../SiteFooter.jsx";
 
 /* =====================================================================
    MODULO DI ISCRIZIONE — A.S.D. Sempre In Forma
@@ -890,10 +892,11 @@ export default function ModuloIscrizione() {
   // RENDER PRINCIPALE
   // ------------------------------------------------------------------
   return (
+    <>
+    <SiteHeader />
     <div className="max-w-2xl mx-auto p-4">
-      <div className="bg-[#181818] rounded-2xl px-6 py-5 mb-6">
-        <div className="text-white text-sm font-bold tracking-wide">A.S.D. SEMPRE IN FORMA</div>
-        <div className="text-[#E8590C] text-xs font-semibold tracking-wide mt-1">MODULO DI ADESIONE AI CORSI</div>
+      <div className="bg-white border border-slate-200 rounded-2xl px-6 py-4 mb-6">
+        <div className="text-[#E8501F] text-xs font-bold tracking-wide">MODULO DI ADESIONE AI CORSI</div>
         <div className="text-slate-400 text-xs mt-1">Stagione {stagione?.nome ?? "2025/2026"}</div>
       </div>
 
@@ -1373,6 +1376,8 @@ export default function ModuloIscrizione() {
         </div>
       </div>
     </div>
+    <SiteFooter />
+    </>
   );
 }
 

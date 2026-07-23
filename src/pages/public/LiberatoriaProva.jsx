@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import ComboComune from "../../ComboComune.jsx";
+import SiteHeader from "../../SiteHeader.jsx";
+import SiteFooter from "../../SiteFooter.jsx";
 
 /* =====================================================================
    LIBERATORIA PER LEZIONE DI PROVA — A.S.D. Sempre In Forma
@@ -386,9 +388,9 @@ export default function LiberatoriaProva() {
   // ------------------------------------------------------------------
   return (
     <div style={{ fontFamily: "'Segoe UI',system-ui,sans-serif", background: "#F8F7F4", minHeight: "100vh" }}>
-      <div style={{ background: "#181818", padding: "18px 20px", textAlign: "left" }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: "white", letterSpacing: "0.02em" }}>A.S.D. SEMPRE IN FORMA</div>
-        <div style={{ fontSize: 11, color: G, fontWeight: 600, letterSpacing: "0.02em", marginTop: 3 }}>
+      <SiteHeader />
+      <div style={{ background: "white", borderBottom: "1px solid #E5E7EB", padding: "14px 20px", textAlign: "left" }}>
+        <div style={{ fontSize: 11, color: G, fontWeight: 700, letterSpacing: "0.02em" }}>
           LIBERATORIA PER LEZIONE DI PROVA
         </div>
         <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 2 }}>
@@ -647,6 +649,7 @@ export default function LiberatoriaProva() {
           Hai bisogno di aiuto? <a href="https://wa.me/393278681393" style={{ color: G, fontWeight: 600 }}>WhatsApp 327 868 1393</a>
         </p>
       </div>
+      <SiteFooter />
     </div>
   );
 }

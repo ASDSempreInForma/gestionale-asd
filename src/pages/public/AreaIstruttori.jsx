@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
+import SiteHeader from "../../SiteHeader.jsx";
+import SiteFooter from "../../SiteFooter.jsx";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const ANON_KEY =
@@ -15,10 +17,12 @@ const G = "#2A6F86";
 
 function IntestazioneScura({ sottotitolo }) {
   return (
-    <div style={{ background: "#181818", padding: "18px 20px" }}>
-      <div style={{ fontSize: 14, fontWeight: 700, color: "white", letterSpacing: "0.02em" }}>A.S.D. SEMPRE IN FORMA</div>
-      <div style={{ fontSize: 11, color: G, fontWeight: 600, letterSpacing: "0.02em", marginTop: 3 }}>{sottotitolo}</div>
-    </div>
+    <>
+      <SiteHeader />
+      <div style={{ background: "white", borderBottom: "1px solid #E5E7EB", padding: "14px 20px" }}>
+        <div style={{ fontSize: 11, color: G, fontWeight: 700, letterSpacing: "0.02em" }}>{sottotitolo}</div>
+      </div>
+    </>
   );
 }
 
@@ -704,6 +708,7 @@ export default function AreaIstruttori() {
           </p>
         </div>
         </div>
+        <SiteFooter />
       </>
     );
   }
@@ -756,6 +761,7 @@ export default function AreaIstruttori() {
         ))}
       </div>
     </div>
+    <SiteFooter />
     </>
   );
 }
