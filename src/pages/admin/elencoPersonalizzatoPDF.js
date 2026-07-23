@@ -130,15 +130,6 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
   for (let i = 0; i < tutteLeRighe.length; i += righePerPagina) gruppi.push(tutteLeRighe.slice(i, i + righePerPagina));
   if (gruppi.length === 0) gruppi.push([]);
 
-  // Se nell'ultima pagina resta spazio libero, aggiungo altre righe vuote della
-  // STESSA altezza normale (non allungo le righe esistenti) per usare tutto lo spazio.
-  const ultimoGruppo = gruppi[gruppi.length - 1];
-  const spazioResiduo = altezzaUtile - ultimoGruppo.length * ALTEZZA_RIGA;
-  const righeAutoRiempimento = Math.floor(spazioResiduo / ALTEZZA_RIGA);
-  for (let i = 0; i < righeAutoRiempimento; i++) {
-    ultimoGruppo.push(colonne.map(() => ""));
-  }
-
   gruppi.forEach((gruppo, idxPagina) => {
     const page = pdfDoc.addPage([W, H]);
     let y = disegnaIntestazionePagina(page, idxPagina + 1, gruppi.length);
