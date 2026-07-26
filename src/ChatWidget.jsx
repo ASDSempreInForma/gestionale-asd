@@ -317,7 +317,10 @@ async function chiediAClaude(systemPrompt, userPrompt) {
       apikey: ANON_KEY,
       Authorization: `Bearer ${ANON_KEY}`,
     },
-    body: JSON.stringify({ systemPrompt, userPrompt }),
+    // Il chatbot pubblico usa Haiku: domande semplici (orari/prezzi/documenti),
+    // costa 1/3 di Sonnet. OCR certificati e assistente risposte (uso interno)
+    // restano su Sonnet di default, dove la qualità conta di più.
+    body: JSON.stringify({ systemPrompt, userPrompt, modello: "claude-haiku-4-5-20251001" }),
   });
   const data = await response.json();
   if (!data.ok) throw new Error(data.error || "Errore nella generazione della risposta.");
