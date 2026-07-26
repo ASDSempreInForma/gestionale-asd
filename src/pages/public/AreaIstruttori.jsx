@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
 import SiteHeader from "../../SiteHeader.jsx";
 import SiteFooter from "../../SiteFooter.jsx";
+import ChatWidget from "../../ChatWidget.jsx";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const ANON_KEY =
@@ -709,6 +710,7 @@ export default function AreaIstruttori() {
         </div>
         </div>
         <SiteFooter />
+        <ChatWidget />
       </>
     );
   }
@@ -762,6 +764,7 @@ export default function AreaIstruttori() {
       </div>
     </div>
     <SiteFooter />
+    <ChatWidget />
     </>
   );
 }

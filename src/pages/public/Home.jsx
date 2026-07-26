@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import SiteHeader from '../../SiteHeader.jsx'
 import SiteFooter from '../../SiteFooter.jsx'
+import ChatWidget from '../../ChatWidget.jsx'
 
 const ARANCIO = "#E8501F", ARANCIO_L = "#FBE4D9", ARANCIO_D = "#B23D16"
 const AZZURRO = "#2CA8E0", AZZURRO_L = "#DFF3FC", AZZURRO_D = "#1D7BA3"
@@ -209,6 +210,7 @@ export default function Home() {
 
       </div>
       <SiteFooter />
+      <ChatWidget />
     </div>
   )
 }

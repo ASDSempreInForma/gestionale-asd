@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import ComboComune from "../../ComboComune.jsx";
 import SiteHeader from "../../SiteHeader.jsx";
 import SiteFooter from "../../SiteFooter.jsx";
+import ChatWidget from "../../ChatWidget.jsx";
 
 /* =====================================================================
    MODULO DI ISCRIZIONE — A.S.D. Sempre In Forma
@@ -1377,6 +1378,7 @@ export default function ModuloIscrizione() {
       </div>
     </div>
     <SiteFooter />
+    <ChatWidget />
     </>
   );
 }

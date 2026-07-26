@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import SiteHeader from "../../SiteHeader.jsx";
 import SiteFooter from "../../SiteFooter.jsx";
+import ChatWidget from "../../ChatWidget.jsx";
 
 // ─── Configurazione Supabase ────────────────────────────────────────────────
 // Chiave pubblica (anon/publishable): è normale e sicuro tenerla nel codice frontend,
@@ -541,6 +542,7 @@ export default function AreaTesserati() {
         </div>
         </div>
         <SiteFooter />
+        <ChatWidget />
       </>
     );
   }
@@ -728,6 +730,7 @@ export default function AreaTesserati() {
       )}
     </div>
     <SiteFooter />
+    <ChatWidget />
     </>
   );
 }

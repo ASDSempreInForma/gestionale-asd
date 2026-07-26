@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import ComboComune from "../../ComboComune.jsx";
 import SiteHeader from "../../SiteHeader.jsx";
 import SiteFooter from "../../SiteFooter.jsx";
+import ChatWidget from "../../ChatWidget.jsx";
 
 /* =====================================================================
    LIBERATORIA PER LEZIONE DI PROVA — A.S.D. Sempre In Forma
@@ -650,6 +651,7 @@ export default function LiberatoriaProva() {
         </p>
       </div>
       <SiteFooter />
+      <ChatWidget />
     </div>
   );
 }
