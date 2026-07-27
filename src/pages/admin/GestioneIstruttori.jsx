@@ -118,6 +118,22 @@ export default function GestioneIstruttori(){
       });
   },[meseSelIdx]);
 
+  // Riepilogo compensi SEDE (Via del Brolo) del mese selezionato — le lezioni sono
+  // registrate a parte nell'Area SEDE (login separato), qui mostriamo solo il totale.
+  const [sedeRiepilogo,setSedeRiepilogo]=useState([]);
+  const [caricandoSede,setCaricandoSede]=useState(false);
+  useEffect(()=>{
+    const m=MESI_STAGIONE[meseSelIdx];
+    if(!m) return;
+    setCaricandoSede(true);
+    supabase.functions.invoke("area-sede",{body:{action:"riepilogo_compensi",payload:{anno:m.anno,mese:m.mese}}})
+      .then(({data,error})=>{
+        if(error){ console.error("Errore riepilogo SEDE:",error); setSedeRiepilogo([]); }
+        else setSedeRiepilogo(data?.riepilogo||[]);
+      })
+      .finally(()=>setCaricandoSede(false));
+  },[meseSelIdx]);
+
   async function salvaOreCollaboratore(istruttoreId, ore){
     const m=MESI_STAGIONE[meseSelIdx];
     setSalvandoOre(p=>({...p,[istruttoreId]:true}));
@@ -147,6 +163,7 @@ export default function GestioneIstruttori(){
         .from("istruttori")
         .select(`
           id,nome,cognome,telefono,email,compenso_lezione_default,attivo,tipo,tariffa_oraria,
+          sede_attivo,accesso_sede,tariffa_sede_1,tariffa_sede_2_3,tariffa_sede_4_5,
           istruttori_corsi(
             id,
             corsi(id,disciplina,giorni_orari,sedi(nome))
@@ -174,6 +191,8 @@ export default function GestioneIstruttori(){
           nome:t.nome, cognome:t.cognome, telefono:t.telefono, email:t.email,
           tipo:t.tipo||"istruttore", tariffaOraria:t.tariffa_oraria||0,
           compenso:t.compenso_lezione_default||0,
+          sedeAttivo:t.sede_attivo||false, accessoSede:t.accesso_sede||false,
+          tariffaSede1:t.tariffa_sede_1, tariffaSede23:t.tariffa_sede_2_3, tariffaSede45:t.tariffa_sede_4_5,
           colore:COLORI_DISPONIBILI[idx%COLORI_DISPONIBILI.length],
           corsi_nomi:corsiNomi,
           corsi_ids:corsiAssegnati.map(c=>c.id),
@@ -294,6 +313,26 @@ export default function GestioneIstruttori(){
     await supabase.from("istruttori").update({tariffa_oraria:nuovaTariffa}).eq("id",id);
     setIstruttori(prev=>prev.map(t=>t.id===id?{...t,tariffaOraria:nuovaTariffa}:t));
     setSaving(p=>({...p,["tar_"+id]:false}));
+  }
+
+  // ── Aggiorna flag SEDE (insegna alla SEDE / accesso Area SEDE) ──
+  async function aggiornaFlagSede(id, campo, valore){
+    const chiaveStato = campo==="sede_attivo" ? "sedeAttivo" : "accessoSede";
+    setSaving(p=>({...p,[campo+"_"+id]:true}));
+    const {error}=await supabase.from("istruttori").update({[campo]:valore}).eq("id",id);
+    setIstruttori(prev=>prev.map(t=>t.id===id?{...t,[chiaveStato]:valore}:t));
+    setSaving(p=>({...p,[campo+"_"+id]:false}));
+    if(error) alert("Errore nel salvataggio: "+error.message);
+  }
+
+  // ── Aggiorna tariffa SEDE per scaglione (1 / 2-3 / 4-5 persone) ──
+  async function aggiornaTariffaSede(id, campo, valore){
+    const mappaChiavi={tariffa_sede_1:"tariffaSede1",tariffa_sede_2_3:"tariffaSede23",tariffa_sede_4_5:"tariffaSede45"};
+    setSaving(p=>({...p,[campo+"_"+id]:true}));
+    const {error}=await supabase.from("istruttori").update({[campo]:valore}).eq("id",id);
+    setIstruttori(prev=>prev.map(t=>t.id===id?{...t,[mappaChiavi[campo]]:valore}:t));
+    setSaving(p=>({...p,[campo+"_"+id]:false}));
+    if(error) alert("Errore nel salvataggio: "+error.message);
   }
 
   // ── Aggiungi istruttore ─────────────────────────────────────────
@@ -596,6 +635,37 @@ export default function GestioneIstruttori(){
                     <option key={c.id} value={c.id}>{c.disciplina} — {c.sedi?.nome} ({c.giorni_orari})</option>
                   ))}
                 </select>
+                {/* SEDE (Via del Brolo) — compensi a scaglione, registrati nell'Area SEDE separata */}
+                <div style={{fontSize:11,fontWeight:700,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.06em",marginTop:16,marginBottom:10}}>
+                  SEDE (Via del Brolo)
+                </div>
+                <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:C.text,marginBottom:8,cursor:"pointer"}}>
+                  <input type="checkbox" checked={!!t.sedeAttivo}
+                    onChange={e=>aggiornaFlagSede(t.id,"sede_attivo",e.target.checked)}/>
+                  Insegna alla SEDE
+                </label>
+                <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:C.text,marginBottom:10,cursor:"pointer"}}>
+                  <input type="checkbox" checked={!!t.accessoSede}
+                    onChange={e=>aggiornaFlagSede(t.id,"accesso_sede",e.target.checked)}/>
+                  Accesso Area SEDE (login separato, stessa email+telefono)
+                </label>
+                {t.sedeAttivo&&(
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:6}}>
+                    {[["tariffa_sede_1","tariffaSede1","1 persona"],
+                      ["tariffa_sede_2_3","tariffaSede23","2-3 persone"],
+                      ["tariffa_sede_4_5","tariffaSede45","4-5 persone"]].map(([campo,chiave,label])=>(
+                      <div key={campo}>
+                        <input type="number" placeholder="€/ora" value={t[chiave]??""}
+                          onClick={e=>e.stopPropagation()}
+                          onChange={e=>setIstruttori(prev=>prev.map(x=>x.id===t.id?{...x,[chiave]:e.target.value}:x))}
+                          onBlur={e=>aggiornaTariffaSede(t.id,campo,e.target.value===""?null:parseFloat(e.target.value)||0)}
+                          style={{width:"100%",padding:"6px 8px",border:`1px solid ${C.border}`,borderRadius:7,fontSize:12,textAlign:"center",boxSizing:"border-box"}}/>
+                        <div style={{fontSize:9,color:C.textSub,textAlign:"center",marginTop:2}}>{label}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {/* Riepilogo mese (solo istruttori, i collaboratori sono a ore — vedi tab Pagamenti) */}
                 {t.tipo==="istruttore" && (()=>{const r=reportInstr(t.id);return r&&(
                   <div style={{marginTop:12,background:"#FAFAF8",borderRadius:9,padding:"10px 12px",
@@ -785,6 +855,37 @@ export default function GestioneIstruttori(){
           </div>
           <div style={{fontSize:26,fontWeight:700,color:C.greenD}}>{fmtEuro(totMese)}</div>
         </div>
+
+        {(caricandoSede||sedeRiepilogo.length>0)&&(
+          <div style={{background:"white",border:`1px solid ${C.border}`,borderRadius:13,marginBottom:14,overflow:"hidden"}}>
+            <div style={{padding:"12px 15px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{fontSize:12,fontWeight:600,color:C.text}}>🏋️ Compensi SEDE (Via del Brolo)</div>
+              <div style={{fontSize:10,color:C.textSub}}>inserite nell'Area SEDE separata</div>
+            </div>
+            <div style={{padding:"9px 15px"}}>
+              {caricandoSede?(
+                <div style={{fontSize:12,color:C.textSub,padding:"6px 0"}}>Caricamento…</div>
+              ):sedeRiepilogo.length===0?(
+                <div style={{fontSize:12,color:C.textSub,padding:"6px 0"}}>Nessuna lezione SEDE registrata per {meseSel.labelFull}.</div>
+              ):sedeRiepilogo.map(r=>(
+                <div key={r.istruttore_id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
+                  <div style={{fontSize:12,color:C.text}}>
+                    {r.cognome} {r.nome}
+                    <span style={{fontSize:11,color:C.textSub}}> · {r.lezioni_totali} lezioni · {r.ore_totali} ore</span>
+                    {r.tariffa_mancante&&<span style={{fontSize:10,color:C.amber,marginLeft:6}}>⚠️ tariffa mancante</span>}
+                  </div>
+                  <div style={{fontSize:13,fontWeight:700,color:C.greenD}}>{fmtEuro(r.compenso_totale)}</div>
+                </div>
+              ))}
+              {sedeRiepilogo.length>0&&(
+                <div style={{display:"flex",justifyContent:"space-between",paddingTop:8,marginTop:2}}>
+                  <div style={{fontSize:11,fontWeight:600,color:C.textSub}}>Totale SEDE {meseSel.labelFull}</div>
+                  <div style={{fontSize:14,fontWeight:700,color:C.greenD}}>{fmtEuro(sedeRiepilogo.reduce((a,r)=>a+r.compenso_totale,0))}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {istruttori.map(t=>{
           const rep=reportInstr(t.id);
