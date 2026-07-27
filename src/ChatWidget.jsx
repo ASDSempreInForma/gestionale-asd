@@ -357,6 +357,17 @@ async function chiediAClaude(systemPrompt, userPrompt) {
 
 const ARANCIO = "#E8501F";
 
+// Rete di sicurezza: anche se il prompt chiede di non usare markdown, un modello
+// può comunque scriverlo (successo osservato in produzione il 26/07/2026, tipico
+// soprattutto con Haiku) — questa funzione lo ripulisce prima di mostrarlo.
+function pulisciMarkdown(testo) {
+  return testo
+    .replace(/\*\*(.+?)\*\*/g, "$1") // **grassetto** -> grassetto
+    .replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, "$1") // *corsivo* -> corsivo
+    .replace(/^[ \t]*[-•][ \t]+/gm, "• ") // normalizza gli elenchi puntati
+    .replace(/^#{1,6}[ \t]+/gm, ""); // ## Titoli -> testo semplice
+}
+
 export default function ChatWidget() {
   const [aperto, setAperto] = useState(false);
   const [messaggi, setMessaggi] = useState([
@@ -391,7 +402,7 @@ export default function ChatWidget() {
         .map((m) => `${m.ruolo === "utente" ? "Socio" : "Assistente"}: ${m.testo}`)
         .join("\n");
       const risposta = await chiediAClaude(systemPrompt, storico);
-      setMessaggi((prev) => [...prev, { ruolo: "assistente", testo: risposta }]);
+      setMessaggi((prev) => [...prev, { ruolo: "assistente", testo: pulisciMarkdown(risposta) }]);
     } catch (e) {
       setMessaggi((prev) => [
         ...prev,
@@ -437,7 +448,7 @@ export default function ChatWidget() {
             {messaggi.map((m, i) => (
               <div key={i} style={{ display: "flex", justifyContent: m.ruolo === "utente" ? "flex-end" : "flex-start" }}>
                 <div style={{
-                  maxWidth: "82%", borderRadius: 14, padding: "8px 12px", fontSize: 13, lineHeight: 1.4,
+                  maxWidth: "82%", borderRadius: 14, padding: "8px 12px", fontSize: 13, lineHeight: 1.4, whiteSpace: "pre-wrap",
                   background: m.ruolo === "utente" ? "#181818" : "white",
                   color: m.ruolo === "utente" ? "white" : "#111827",
                   border: m.ruolo === "utente" ? "none" : "1px solid #E5E7EB",
