@@ -65,7 +65,10 @@ CONTATTI UFFICIALI
   completo corretto nella causale.
   L'assistente non deve mai inventare un codice corso: se non lo conosce con
   certezza, deve dire di verificarlo nel gestionale o chiedere alla segreteria.
-- La ricevuta di pagamento va sempre inviata via email a info@asdsempreinforma.it
+- Ricevute di pagamento e certificati medici NON si inviano via email: si caricano
+  direttamente nella propria AREA TESSERATI (accesso con codice fiscale + email usati
+  in fase di iscrizione), sezione documenti. La segreteria li verifica da lì e il
+  socio vede lo stato (in attesa / confermato / rifiutato) direttamente nella sua area.
 - Sede amministrativa per invio materiale cartaceo: Via del Brolo, Brescia
 
 Quando suggerisci un contatto, indica SEMPRE per primo il WhatsApp Business
@@ -124,6 +127,8 @@ CERTIFICATO MEDICO
   - In entrambi i casi la tessera/segnalazione viene fatta solo su richiesta
     esplicita del socio, non automaticamente a tutti.
 - Senza certificato valido non si può essere riconfermati alla stagione successiva.
+- Una volta ottenuto il certificato (da questi centri o dal proprio medico), va
+  CARICATO nell'Area Tesserati del socio (mai via email) — vedi indicazione sopra.
 
 LEZIONE DI PROVA
 - Chi vuole provare un corso prima di iscriversi compila la liberatoria online
@@ -283,7 +288,9 @@ async function getDisponibilitaCorsi() {
     const { data: corsi } = await supabase
       .from("corsi")
       .select(`
-        disciplina, giorni_orari, capienza_max, prove_attive,
+        disciplina, giorni_orari, capienza_max, prove_attive, ha_variante_frequenza,
+        quota_annuale, quota_quad1, quota_quad2, quota_adesione,
+        quota_annuale_1x, quota_annuale_under65, quota_annuale_badia,
         sedi(nome),
         iscrizioni(id),
         prove(id, stato)
@@ -292,18 +299,39 @@ async function getDisponibilitaCorsi() {
       .order("codice_corso");
     if (!corsi) return "";
 
+    const euro = (v) => (v == null ? null : `€${Number(v).toFixed(0)}`);
+
     const righe = corsi.map(c => {
       const iscritti = c.iscrizioni?.length || 0;
       const proveAttive = (c.prove || []).filter(p =>
         ["in_attesa","confermata","effettuata"].includes(p.stato)
       ).length;
-      const cap = c.capienza_max || 999;
-      const liberi = Math.max(0, cap - iscritti - proveAttive);
-      const stato = liberi === 0 ? "AL COMPLETO" : !c.prove_attive ? "prove sospese" : liberi <= 3 ? `quasi pieno (${liberi} post${liberi===1?"o":"i"} liberi)` : `disponibile (${liberi} posti liberi)`;
-      return `• ${c.disciplina} — ${c.sedi?.nome} (${c.giorni_orari}): ${stato}`;
+      let stato;
+      if (c.capienza_max == null) {
+        stato = "capienza non impostata nel gestionale, verifica con la segreteria";
+      } else {
+        const liberi = Math.max(0, c.capienza_max - iscritti - proveAttive);
+        stato = liberi === 0 ? "AL COMPLETO" : !c.prove_attive ? "prove sospese" : liberi <= 3 ? `quasi pieno (${liberi} post${liberi===1?"o":"i"} liberi)` : `disponibile (${liberi} posti liberi)`;
+      }
+
+      const prezzi = [];
+      if (euro(c.quota_annuale)) prezzi.push(`annuale ${euro(c.quota_annuale)}`);
+      if (euro(c.quota_quad1)) prezzi.push(`1°quad ${euro(c.quota_quad1)}`);
+      if (euro(c.quota_quad2)) prezzi.push(`2°quad ${euro(c.quota_quad2)}`);
+      if (euro(c.quota_adesione)) prezzi.push(`iscrizione ${euro(c.quota_adesione)}`);
+      let extra = "";
+      if (c.ha_variante_frequenza && euro(c.quota_annuale_1x)) extra += ` [1x/sett. annuale ${euro(c.quota_annuale_1x)}]`;
+      // ATTENZIONE naming DB: "quota_annuale" è già la tariffa ridotta over65+Bovezzo quando applicabile;
+      // "quota_annuale_under65" è la tariffa STANDARD per chi non ha lo sconto (non il contrario).
+      if (euro(c.quota_annuale_under65) && c.quota_annuale_under65 != c.quota_annuale) {
+        extra += ` [tariffa standard (non over65 Bovezzo) annuale ${euro(c.quota_annuale_under65)}, la ${euro(c.quota_annuale)} sopra è già quella ridotta per over65 residenti a Bovezzo]`;
+      }
+      if (euro(c.quota_annuale_badia)) extra += ` [promo Villaggio Badia se unico corso: annuale ${euro(c.quota_annuale_badia)}]`;
+
+      return `• ${c.disciplina} — ${c.sedi?.nome} (${c.giorni_orari}): ${stato} | Prezzi: ${prezzi.join(", ") || "non impostati, verifica con la segreteria"}${extra}`;
     });
 
-    return `\nDISPONIBILITÀ CORSI IN TEMPO REALE (dati aggiornati ora dal gestionale):\n${righe.join("\n")}\nQuando un socio chiede se c'è posto a un corso, usa questi dati per rispondere in modo preciso invece di rimandare sempre alla segreteria. Se un corso risulta "AL COMPLETO" o "prove sospese", comunicalo chiaramente.`;
+    return `\nDISPONIBILITÀ E PREZZI CORSI IN TEMPO REALE (dati aggiornati ora dal gestionale):\n${righe.join("\n")}\nQuando un socio chiede se c'è posto a un corso o quanto costa, usa SEMPRE questi dati reali per rispondere con precisione invece di rimandare alla segreteria — i prezzi qui sono quelli veri e vanno comunicati direttamente. Ricorda che il prezzo di combinazioni tra discipline diverse ha uno sconto aggiuntivo (vedi regole sotto): se il socio chiede il costo di PIÙ corsi insieme, calcola la combinazione secondo quelle regole invece di sommare semplicemente i prezzi singoli, oppure se il calcolo è complesso invita a verificare il totale esatto nel modulo di iscrizione online. Se un corso mostra sia il prezzo "annuale" che una nota tra parentesi quadre su una "tariffa standard (non over65 Bovezzo)", significa che quel corso ha due tariffe diverse in base all'età/residenza: il prezzo "annuale" mostrato per primo è GIÀ quello ridotto (per chi ha più di 65 anni ed è residente a Bovezzo), mentre il prezzo tra parentesi è quello che paga chiunque altro — chiedi sempre età e residenza prima di indicare il prezzo esatto in questi casi, invece di dare per scontato quale dei due si applica. Se un corso risulta "AL COMPLETO" o "prove sospese", comunicalo chiaramente. Se risulta "capienza non impostata" o "prezzi non impostati", non inventare un numero: di' semplicemente che per quel turno specifico conviene verificare con la segreteria. ATTENZIONE: molte discipline (es. Pilates) hanno più turni in sedi/orari diversi con prezzi anche diversi — se il socio non specifica quale, NON scegliere un turno a caso: elenca le opzioni disponibili per quella disciplina con sede, orario e prezzo, oppure chiedi in quale sede è interessato.`;
   } catch {
     return ""; // se Supabase non è raggiungibile, il chatbot funziona comunque senza dati live
   }
