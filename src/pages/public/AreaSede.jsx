@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../supabase.js';
+import { supabase } from '../../supabase.js';
 
 // Area SEDE — accesso separato (email+telefono) per chi gestisce i compensi
 // istruttori della sede Via del Brolo. NON sostituisce il sistema esistente di
