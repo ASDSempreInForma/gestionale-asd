@@ -812,9 +812,9 @@ function ModaleImportaExcel({ istruttoriSede, onChiudi, onImportato }) {
 
       const parse = [];
       for (const r of grezze) {
-        const giornoTesto = r[2];
-        const trainer = r[5];
-        const slot = r[4];
+        const giornoTesto = r[1];
+        const trainer = r[4];
+        const slot = r[3];
         if (!giornoTesto || !trainer || !slot) continue; // slot vuoto/non assegnato: salta
         const giornoNum = GIORNO_TESTO_A_NUMERO[String(giornoTesto).toUpperCase().trim()];
         if (giornoNum === undefined) continue;
