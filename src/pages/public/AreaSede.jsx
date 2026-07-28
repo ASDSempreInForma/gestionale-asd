@@ -149,7 +149,7 @@ function Dashboard({ sessione }) {
   const [errore, setErrore] = useState('');
   const [modaleAperta, setModaleAperta] = useState(false);
   const [lezioneInModifica, setLezioneInModifica] = useState(null);
-  const [modaleRicorrenteAperta, setModaleRicorrenteAperta] = useState(false);
+  const [mostraCalendario, setMostraCalendario] = useState(true);
   const [modaleAssenzeAperta, setModaleAssenzeAperta] = useState(false);
 
   const caricaTutto = useCallback(async () => {
@@ -200,9 +200,9 @@ function Dashboard({ sessione }) {
           style={{ background: '#fff', color: C, border: `1px solid ${C}`, borderRadius: 8, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
           ✍️ Assenze/sostituzioni da testo
         </button>
-        <button onClick={() => setModaleRicorrenteAperta(true)}
-          style={{ background: '#fff', color: C, border: `1px solid ${C}`, borderRadius: 8, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          📅 Genera ricorrenti
+        <button onClick={() => setMostraCalendario((v) => !v)}
+          style={{ background: mostraCalendario ? C : '#fff', color: mostraCalendario ? '#fff' : C, border: `1px solid ${C}`, borderRadius: 8, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          📅 Calendario turni
         </button>
         <button onClick={() => { setLezioneInModifica(null); setModaleAperta(true); }}
           style={{ background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
@@ -211,6 +211,10 @@ function Dashboard({ sessione }) {
       </div>
 
       {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '10px 14px', borderRadius: 8, marginBottom: 16 }}>{errore}</div>}
+
+      {mostraCalendario && (
+        <CalendarioSettimanale sessione={sessione} istruttoriSede={istruttoriSede} onCambiamenti={caricaTutto} />
+      )}
 
       {/* Riepilogo compensi del mese */}
       <div style={{ background: '#fff', borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
@@ -259,7 +263,7 @@ function Dashboard({ sessione }) {
               const stato = STATI.find((s) => s.value === l.stato);
               return (
                 <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: C_LIGHT, borderRadius: 8, fontSize: 13 }}>
-                  <div style={{ width: 90, color: '#555' }}>{new Date(l.data).toLocaleDateString('it-IT')}</div>
+                  <div style={{ width: 90, color: '#555' }}>{new Date(l.data).toLocaleDateString('it-IT')}{l.orario ? ` · ${l.orario.slice(0,5)}` : ''}</div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 600 }}>{l.titolare?.nome} {l.titolare?.cognome}
                       {l.sostituto && <span style={{ color: '#777', fontWeight: 400 }}> → sostituito da {l.sostituto.nome} {l.sostituto.cognome}</span>}
@@ -291,15 +295,6 @@ function Dashboard({ sessione }) {
         />
       )}
 
-      {modaleRicorrenteAperta && (
-        <ModaleRicorrente
-          sessione={sessione}
-          istruttoriSede={istruttoriSede}
-          onChiudi={() => setModaleRicorrenteAperta(false)}
-          onGenerate={() => { setModaleRicorrenteAperta(false); caricaTutto(); }}
-        />
-      )}
-
       {modaleAssenzeAperta && (
         <ModaleAssenzeTesto
           sessione={sessione}
@@ -319,6 +314,7 @@ function ModaleLezione({ sessione, istruttoriSede, lezioneEsistente, annoDefault
   const [istruttoreId, setIstruttoreId] = useState(lezioneEsistente?.istruttore_id || '');
   const [sostitutoId, setSostitutoId] = useState(lezioneEsistente?.istruttore_sostituto_id || '');
   const [data, setData] = useState(dataDefault);
+  const [orario, setOrario] = useState(lezioneEsistente?.orario || '');
   const [ore, setOre] = useState(lezioneEsistente?.ore || 1);
   const [numeroPersone, setNumeroPersone] = useState(lezioneEsistente?.numero_persone || 1);
   const [stato, setStato] = useState(lezioneEsistente?.stato || 'svolta');
@@ -337,6 +333,7 @@ function ModaleLezione({ sessione, istruttoriSede, lezioneEsistente, annoDefault
         istruttore_id: istruttoreId,
         istruttore_sostituto_id: sostitutoId || null,
         data,
+        orario: orario || null,
         ore: Number(ore),
         numero_persone: Number(numeroPersone),
         stato,
@@ -365,6 +362,10 @@ function ModaleLezione({ sessione, istruttoriSede, lezioneEsistente, annoDefault
 
           <Campo label="Data">
             <input type="date" required value={data} onChange={(e) => setData(e.target.value)} style={campoStile} />
+          </Campo>
+
+          <Campo label="Orario (facoltativo)">
+            <input type="time" value={orario} onChange={(e) => setOrario(e.target.value)} style={campoStile} />
           </Campo>
 
           <div style={{ display: 'flex', gap: 12 }}>
@@ -416,14 +417,165 @@ function ModaleLezione({ sessione, istruttoriSede, lezioneEsistente, annoDefault
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Genera lezioni ricorrenti: un istruttore, un giorno fisso della
-// settimana, un periodo dal-al, e periodi da escludere (festività).
+// Calendario settimanale: i turni fissi (istruttore + giorno + orario)
+// da cui si generano le lezioni reali per un periodo scelto.
 // ─────────────────────────────────────────────────────────────────
-function ModaleRicorrente({ sessione, istruttoriSede, onChiudi, onGenerate }) {
-  const [istruttoreId, setIstruttoreId] = useState('');
-  const [giorno, setGiorno] = useState(1);
-  const [ore, setOre] = useState(1);
-  const [numeroPersone, setNumeroPersone] = useState(1);
+const GIORNI_CALENDARIO = [1, 2, 3, 4, 5, 6, 0]; // Lun...Dom
+
+function CalendarioSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
+  const [turni, setTurni] = useState([]);
+  const [caricando, setCaricando] = useState(true);
+  const [errore, setErrore] = useState('');
+  const [modaleTurno, setModaleTurno] = useState(null); // { turno: null|obj, giornoDefault } oppure null = chiuso
+  const [modaleGenera, setModaleGenera] = useState(false);
+
+  const caricaTurni = useCallback(async () => {
+    setCaricando(true);
+    try {
+      const dati = await chiamaAreaSede('lista_turni', {});
+      setTurni(dati.turni || []);
+    } catch (err) { setErrore(err.message); }
+    finally { setCaricando(false); }
+  }, []);
+
+  useEffect(() => { caricaTurni(); }, [caricaTurni]);
+
+  async function eliminaTurno(id) {
+    if (!window.confirm('Rimuovere questo turno fisso dal calendario? (le lezioni già generate restano)')) return;
+    try { await chiamaAreaSede('elimina_turno', { id }); caricaTurni(); } catch (err) { alert(err.message); }
+  }
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 15, color: '#333' }}>Calendario settimanale (turni fissi)</h3>
+        <button onClick={() => setModaleGenera(true)}
+          style={{ background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+          Genera lezioni per un periodo →
+        </button>
+      </div>
+
+      {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{errore}</div>}
+
+      {caricando ? (
+        <div style={{ color: '#999', fontSize: 13 }}>Caricamento…</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, overflowX: 'auto' }}>
+          {GIORNI_CALENDARIO.map((g) => {
+            const label = GIORNI_SETTIMANA.find((gs) => gs.value === g)?.label;
+            const turniDelGiorno = turni.filter((t) => t.giorno_settimana === g);
+            return (
+              <div key={g} style={{ minWidth: 110 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', marginBottom: 6, textAlign: 'center' }}>{label}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {turniDelGiorno.map((t) => (
+                    <div key={t.id} onClick={() => setModaleTurno({ turno: t, giornoDefault: g })}
+                      style={{ background: t.attivo ? C_LIGHT : '#f5f5f5', opacity: t.attivo ? 1 : 0.5, borderRadius: 8, padding: '6px 8px', fontSize: 11, cursor: 'pointer' }}>
+                      <div style={{ fontWeight: 700 }}>{t.orario?.slice(0, 5)}</div>
+                      <div>{t.istruttore?.nome} {t.istruttore?.cognome}</div>
+                      <div style={{ color: '#777' }}>{t.ore}h · {t.numero_persone_default}p</div>
+                    </div>
+                  ))}
+                  <button onClick={() => setModaleTurno({ turno: null, giornoDefault: g })}
+                    style={{ background: 'transparent', border: `1px dashed ${C}`, color: C, borderRadius: 8, padding: '5px 0', fontSize: 16, cursor: 'pointer' }}>+</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {modaleTurno && (
+        <ModaleTurno
+          istruttoriSede={istruttoriSede}
+          turno={modaleTurno.turno}
+          giornoDefault={modaleTurno.giornoDefault}
+          onChiudi={() => setModaleTurno(null)}
+          onEliminaRichiesto={modaleTurno.turno ? () => { eliminaTurno(modaleTurno.turno.id); setModaleTurno(null); } : null}
+          onSalvato={() => { setModaleTurno(null); caricaTurni(); }}
+        />
+      )}
+
+      {modaleGenera && (
+        <ModaleGeneraDaTurni
+          sessione={sessione}
+          onChiudi={() => setModaleGenera(false)}
+          onGenerate={() => { setModaleGenera(false); onCambiamenti(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ModaleTurno({ istruttoriSede, turno, giornoDefault, onChiudi, onEliminaRichiesto, onSalvato }) {
+  const [istruttoreId, setIstruttoreId] = useState(turno?.istruttore_id || '');
+  const [giorno, setGiorno] = useState(turno?.giorno_settimana ?? giornoDefault);
+  const [orario, setOrario] = useState(turno?.orario?.slice(0, 5) || '');
+  const [ore, setOre] = useState(turno?.ore || 1);
+  const [numeroPersone, setNumeroPersone] = useState(turno?.numero_persone_default || 1);
+  const [attivo, setAttivo] = useState(turno?.attivo !== false);
+  const [note, setNote] = useState(turno?.note || '');
+  const [errore, setErrore] = useState('');
+  const [salvando, setSalvando] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!istruttoreId || !orario) { setErrore('Seleziona istruttore e orario'); return; }
+    setErrore(''); setSalvando(true);
+    try {
+      await chiamaAreaSede('salva_turno', {
+        id: turno?.id, istruttore_id: istruttoreId, giorno_settimana: Number(giorno), orario,
+        ore: Number(ore), numero_persone_default: Number(numeroPersone), attivo, note,
+      });
+      onSalvato();
+    } catch (err) { setErrore(err.message); }
+    finally { setSalvando(false); }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16 }}>
+      <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 380, maxWidth: '95vw' }}>
+        <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>{turno ? 'Modifica turno' : 'Nuovo turno fisso'}</h3>
+        <form onSubmit={submit}>
+          <Campo label="Istruttore">
+            <select required value={istruttoreId} onChange={(e) => setIstruttoreId(e.target.value)} style={campoStile}>
+              <option value="">Seleziona…</option>
+              {istruttoriSede.map((i) => <option key={i.id} value={i.id}>{i.nome} {i.cognome}</option>)}
+            </select>
+          </Campo>
+          <Campo label="Giorno della settimana">
+            <select value={giorno} onChange={(e) => setGiorno(e.target.value)} style={campoStile}>
+              {GIORNI_SETTIMANA.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
+            </select>
+          </Campo>
+          <Campo label="Orario">
+            <input type="time" required value={orario} onChange={(e) => setOrario(e.target.value)} style={campoStile} />
+          </Campo>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div style={{ flex: 1 }}><Campo label="Ore"><input type="number" min="0.25" step="0.25" required value={ore} onChange={(e) => setOre(e.target.value)} style={campoStile} /></Campo></div>
+            <div style={{ flex: 1 }}><Campo label="Persone (default)"><select required value={numeroPersone} onChange={(e) => setNumeroPersone(e.target.value)} style={campoStile}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}</select></Campo></div>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#444', margin: '10px 0', cursor: 'pointer' }}>
+            <input type="checkbox" checked={attivo} onChange={(e) => setAttivo(e.target.checked)} /> Turno attivo
+          </label>
+          <Campo label="Note (facoltative)"><input type="text" value={note} onChange={(e) => setNote(e.target.value)} style={campoStile} /></Campo>
+
+          {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, margin: '10px 0' }}>{errore}</div>}
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+            <button type="button" onClick={onChiudi} style={{ flex: 1, background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, cursor: 'pointer' }}>Annulla</button>
+            {onEliminaRichiesto && <button type="button" onClick={onEliminaRichiesto} style={{ flex: 1, background: 'transparent', border: '1px solid #e0b4b4', color: '#c0392b', borderRadius: 8, padding: '10px 0', fontSize: 14, cursor: 'pointer' }}>Elimina</button>}
+            <button type="submit" disabled={salvando} style={{ flex: 1, background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: salvando ? 0.6 : 1 }}>
+              {salvando ? 'Salvataggio…' : 'Salva'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ModaleGeneraDaTurni({ sessione, onChiudi, onGenerate }) {
   const [dataInizio, setDataInizio] = useState('');
   const [dataFine, setDataFine] = useState('');
   const [esclusioni, setEsclusioni] = useState([{ dal: '', al: '', desc: '' }]);
@@ -431,23 +583,20 @@ function ModaleRicorrente({ sessione, istruttoriSede, onChiudi, onGenerate }) {
   const [risultato, setRisultato] = useState(null);
   const [generando, setGenerando] = useState(false);
 
-  function aggiornaEsclusione(i, campo, valore) {
-    setEsclusioni((prev) => prev.map((e, idx) => (idx === i ? { ...e, [campo]: valore } : e)));
-  }
+  function aggiornaEsclusione(i, campo, valore) { setEsclusioni((prev) => prev.map((e, idx) => (idx === i ? { ...e, [campo]: valore } : e))); }
   function aggiungiEsclusione() { setEsclusioni((prev) => [...prev, { dal: '', al: '', desc: '' }]); }
   function rimuoviEsclusione(i) { setEsclusioni((prev) => prev.filter((_, idx) => idx !== i)); }
 
   async function submit(e) {
     e.preventDefault();
     setErrore(''); setRisultato(null);
-    if (!istruttoreId || !dataInizio || !dataFine) { setErrore('Compila istruttore, data inizio e data fine'); return; }
+    if (!dataInizio || !dataFine) { setErrore('Indica data inizio e data fine'); return; }
     setGenerando(true);
     try {
       const esclValide = esclusioni.filter((ex) => ex.dal && ex.al);
-      const dati = await chiamaAreaSede('genera_lezioni_ricorrenti', {
-        istruttore_id: istruttoreId, giorno_settimana: Number(giorno), ore: Number(ore),
-        numero_persone: Number(numeroPersone), data_inizio: dataInizio, data_fine: dataFine,
-        esclusioni: esclValide, inserito_da: `${sessione.nome} ${sessione.cognome}`,
+      const dati = await chiamaAreaSede('genera_da_turni', {
+        data_inizio: dataInizio, data_fine: dataFine, esclusioni: esclValide,
+        inserito_da: `${sessione.nome} ${sessione.cognome}`,
       });
       setRisultato(dati);
     } catch (err) { setErrore(err.message); }
@@ -455,46 +604,31 @@ function ModaleRicorrente({ sessione, istruttoriSede, onChiudi, onGenerate }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16 }}>
       <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 480, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' }}>
-        <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>Genera lezioni ricorrenti</h3>
-        <p style={{ margin: '0 0 16px', fontSize: 12, color: '#777' }}>Crea in un colpo solo tutte le lezioni di un giorno fisso della settimana, in un periodo. Le date già presenti non vengono duplicate.</p>
+        <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>Genera lezioni per un periodo</h3>
+        <p style={{ margin: '0 0 16px', fontSize: 12, color: '#777' }}>Usa TUTTI i turni fissi attivi del calendario per creare le lezioni del periodo scelto. Le date già presenti non vengono duplicate.</p>
 
         {risultato ? (
           <div>
             <div style={{ background: '#eafaf0', color: '#1f8a52', padding: '12px 14px', borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
-              ✅ Create <b>{risultato.inserite}</b> nuove lezioni su {risultato.totale_date} date trovate
+              ✅ Create <b>{risultato.inserite}</b> nuove lezioni su {risultato.totale_date} previste dal calendario
               {risultato.saltate > 0 && <> · {risultato.saltate} già esistenti, saltate</>}.
+              {risultato.avviso && <div style={{ marginTop: 6 }}>{risultato.avviso}</div>}
             </div>
             <button onClick={onGenerate} style={{ width: '100%', background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Chiudi</button>
           </div>
         ) : (
           <form onSubmit={submit}>
-            <Campo label="Istruttore">
-              <select required value={istruttoreId} onChange={(e) => setIstruttoreId(e.target.value)} style={campoStile}>
-                <option value="">Seleziona…</option>
-                {istruttoriSede.map((i) => <option key={i.id} value={i.id}>{i.nome} {i.cognome}</option>)}
-              </select>
-            </Campo>
-            <Campo label="Giorno della settimana">
-              <select value={giorno} onChange={(e) => setGiorno(e.target.value)} style={campoStile}>
-                {GIORNI_SETTIMANA.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
-              </select>
-            </Campo>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <div style={{ flex: 1 }}><Campo label="Ore per lezione"><input type="number" min="0.25" step="0.25" required value={ore} onChange={(e) => setOre(e.target.value)} style={campoStile} /></Campo></div>
-              <div style={{ flex: 1 }}><Campo label="Persone (di default)"><select required value={numeroPersone} onChange={(e) => setNumeroPersone(e.target.value)} style={campoStile}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}</select></Campo></div>
-            </div>
             <div style={{ display: 'flex', gap: 12 }}>
               <div style={{ flex: 1 }}><Campo label="Dal"><input type="date" required value={dataInizio} onChange={(e) => setDataInizio(e.target.value)} style={campoStile} /></Campo></div>
               <div style={{ flex: 1 }}><Campo label="Al"><input type="date" required value={dataFine} onChange={(e) => setDataFine(e.target.value)} style={campoStile} /></Campo></div>
             </div>
-
             <div style={{ fontSize: 13, color: '#444', marginBottom: 6, marginTop: 10 }}>Periodi da escludere (festività, sospensioni…)</div>
             {esclusioni.map((ex, i) => (
               <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-                <input type="date" value={ex.dal} onChange={(e) => aggiornaEsclusione(i, 'dal', e.target.value)} style={{ ...campoStile, flex: 1 }} placeholder="dal" />
-                <input type="date" value={ex.al} onChange={(e) => aggiornaEsclusione(i, 'al', e.target.value)} style={{ ...campoStile, flex: 1 }} placeholder="al" />
+                <input type="date" value={ex.dal} onChange={(e) => aggiornaEsclusione(i, 'dal', e.target.value)} style={{ ...campoStile, flex: 1 }} />
+                <input type="date" value={ex.al} onChange={(e) => aggiornaEsclusione(i, 'al', e.target.value)} style={{ ...campoStile, flex: 1 }} />
                 <input type="text" value={ex.desc} onChange={(e) => aggiornaEsclusione(i, 'desc', e.target.value)} style={{ ...campoStile, flex: 1 }} placeholder="es. Natale" />
                 <button type="button" onClick={() => rimuoviEsclusione(i)} style={{ background: 'transparent', border: '1px solid #e0b4b4', color: '#c0392b', borderRadius: 6, padding: '6px 8px', fontSize: 12, cursor: 'pointer' }}>✕</button>
               </div>
@@ -502,7 +636,6 @@ function ModaleRicorrente({ sessione, istruttoriSede, onChiudi, onGenerate }) {
             <button type="button" onClick={aggiungiEsclusione} style={{ background: 'transparent', border: `1px dashed ${C}`, color: C, borderRadius: 8, padding: '6px 10px', fontSize: 12, cursor: 'pointer', marginBottom: 14 }}>+ Aggiungi periodo da escludere</button>
 
             {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{errore}</div>}
-
             <div style={{ display: 'flex', gap: 10 }}>
               <button type="button" onClick={onChiudi} style={{ flex: 1, background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, cursor: 'pointer' }}>Annulla</button>
               <button type="submit" disabled={generando} style={{ flex: 1, background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: generando ? 0.6 : 1 }}>
