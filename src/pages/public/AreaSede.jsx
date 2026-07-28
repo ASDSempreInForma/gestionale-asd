@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import * as XLSX from 'xlsx';
 import { supabase } from '../../supabase.js';
 
 // Area SEDE — accesso separato (email+telefono) per chi gestisce i compensi
@@ -428,6 +429,7 @@ function CalendarioSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
   const [errore, setErrore] = useState('');
   const [modaleTurno, setModaleTurno] = useState(null); // { turno: null|obj, giornoDefault } oppure null = chiuso
   const [modaleGenera, setModaleGenera] = useState(false);
+  const [modaleImporta, setModaleImporta] = useState(false);
 
   const caricaTurni = useCallback(async () => {
     setCaricando(true);
@@ -449,10 +451,16 @@ function CalendarioSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
     <div style={{ background: '#fff', borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h3 style={{ margin: 0, fontSize: 15, color: '#333' }}>Calendario settimanale (turni fissi)</h3>
-        <button onClick={() => setModaleGenera(true)}
-          style={{ background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-          Genera lezioni per un periodo →
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setModaleImporta(true)}
+            style={{ background: '#fff', color: C, border: `1px solid ${C}`, borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+            📤 Importa da Excel
+          </button>
+          <button onClick={() => setModaleGenera(true)}
+            style={{ background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+            Genera lezioni per un periodo →
+          </button>
+        </div>
       </div>
 
       {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{errore}</div>}
@@ -501,6 +509,14 @@ function CalendarioSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
           sessione={sessione}
           onChiudi={() => setModaleGenera(false)}
           onGenerate={() => { setModaleGenera(false); onCambiamenti(); }}
+        />
+      )}
+
+      {modaleImporta && (
+        <ModaleImportaExcel
+          istruttoriSede={istruttoriSede}
+          onChiudi={() => setModaleImporta(false)}
+          onImportato={() => { setModaleImporta(false); caricaTurni(); }}
         />
       )}
     </div>
@@ -758,6 +774,152 @@ function ModaleAssenzeTesto({ sessione, istruttoriSede, onChiudi, onApplicate })
               <button type="button" onClick={applica} disabled={applicando || proposte.length === 0 || !tutteRisolte}
                 style={{ flex: 1, background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: (applicando || proposte.length === 0 || !tutteRisolte) ? 0.5 : 1 }}>
                 {applicando ? 'Applico…' : 'Conferma e applica'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Importa turni da Excel (foglio "STRUTTURA SESSIONI" del file usato
+// quotidianamente per SEDE): una riga per ogni slot orario con
+// giorno/orario/istruttore assegnato.
+// ─────────────────────────────────────────────────────────────────
+const GIORNO_TESTO_A_NUMERO = { LUN: 1, MAR: 2, MER: 3, GIO: 4, VEN: 5, SAB: 6, DOM: 0 };
+
+function ModaleImportaExcel({ istruttoriSede, onChiudi, onImportato }) {
+  const [righe, setRighe] = useState(null); // null finché non si carica un file
+  const [numeroPersoneDefault, setNumeroPersoneDefault] = useState(1);
+  const [sostituisci, setSostituisci] = useState(true);
+  const [errore, setErrore] = useState('');
+  const [importando, setImportando] = useState(false);
+  const [risultato, setRisultato] = useState(null);
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErrore(''); setRighe(null); setRisultato(null);
+    try {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+      const nomeFoglio = wb.SheetNames.find((n) => n.toLowerCase().includes('struttura sessioni')) || wb.SheetNames.find((n) => n.toLowerCase().includes('struttura'));
+      if (!nomeFoglio) { setErrore(`Non trovo un foglio "STRUTTURA SESSIONI" in questo file. Fogli presenti: ${wb.SheetNames.join(', ')}`); return; }
+
+      const grezze = XLSX.utils.sheet_to_json(wb.Sheets[nomeFoglio], { header: 1, range: 6, defval: null });
+
+      const parse = [];
+      for (const r of grezze) {
+        const giornoTesto = r[2];
+        const trainer = r[5];
+        const slot = r[4];
+        if (!giornoTesto || !trainer || !slot) continue; // slot vuoto/non assegnato: salta
+        const giornoNum = GIORNO_TESTO_A_NUMERO[String(giornoTesto).toUpperCase().trim()];
+        if (giornoNum === undefined) continue;
+        const dt = slot instanceof Date ? slot : null;
+        if (!dt) continue;
+        const orario = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+
+        const nomeTrainer = String(trainer).trim();
+        const match = istruttoriSede.find((i) => i.nome.trim().toLowerCase() === nomeTrainer.toLowerCase());
+
+        parse.push({
+          giorno_settimana: giornoNum, giorno_label: GIORNI_SETTIMANA.find((g) => g.value === giornoNum)?.label,
+          orario, trainer_nome_originale: nomeTrainer, istruttore_id: match?.id || null,
+        });
+      }
+
+      if (parse.length === 0) { setErrore('Non ho trovato righe valide da importare in questo foglio.'); return; }
+      setRighe(parse);
+    } catch (err) {
+      setErrore('Errore nella lettura del file: ' + err.message);
+    }
+  }
+
+  function aggiornaRiga(i, istruttoreId) {
+    setRighe((prev) => prev.map((r, idx) => (idx === i ? { ...r, istruttore_id: istruttoreId } : r)));
+  }
+
+  const nonRisolte = righe ? righe.filter((r) => !r.istruttore_id).length : 0;
+
+  async function conferma() {
+    setErrore(''); setImportando(true);
+    try {
+      const daInviare = righe.filter((r) => r.istruttore_id).map((r) => ({
+        istruttore_id: r.istruttore_id, giorno_settimana: r.giorno_settimana, orario: r.orario,
+        ore: 1, numero_persone_default: numeroPersoneDefault,
+      }));
+      const dati = await chiamaAreaSede('importa_turni', { righe: daInviare, sostituisci });
+      setRisultato(dati);
+    } catch (err) { setErrore(err.message); }
+    finally { setImportando(false); }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16 }}>
+      <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 560, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>Importa calendario da Excel</h3>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#777' }}>Carica il file usato per la SEDE (foglio "STRUTTURA SESSIONI"): giorno, orario e istruttore per ogni slot vengono letti automaticamente. Ogni slot importato dura 1 ora — modificabile dopo, nel calendario.</p>
+
+        {risultato ? (
+          <div>
+            <div style={{ background: '#eafaf0', color: '#1f8a52', padding: '12px 14px', borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
+              ✅ Importati {risultato.inserite} turni nel calendario.
+            </div>
+            <button onClick={onImportato} style={{ width: '100%', background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Chiudi</button>
+          </div>
+        ) : !righe ? (
+          <div>
+            <input type="file" accept=".xlsx,.xls,.xlsm" onChange={handleFile}
+              style={{ width: '100%', padding: 10, border: `1px dashed ${C}`, borderRadius: 8, fontSize: 13, marginBottom: 14 }} />
+            {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{errore}</div>}
+            <button type="button" onClick={onChiudi} style={{ width: '100%', background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, cursor: 'pointer' }}>Annulla</button>
+          </div>
+        ) : (
+          <div>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+              <div style={{ flex: 1 }}>
+                <Campo label="Persone di default per i turni importati">
+                  <select value={numeroPersoneDefault} onChange={(e) => setNumeroPersoneDefault(Number(e.target.value))} style={campoStile}>
+                    {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </Campo>
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#444', marginBottom: 12, cursor: 'pointer' }}>
+              <input type="checkbox" checked={sostituisci} onChange={(e) => setSostituisci(e.target.checked)} />
+              Sostituisci eventuali turni già presenti negli stessi slot (giorno+orario)
+            </label>
+
+            <div style={{ fontSize: 12, color: '#555', marginBottom: 8 }}>
+              Trovati {righe.length} slot assegnati. {nonRisolte > 0 && <span style={{ color: '#c0392b' }}>{nonRisolte} istruttori non riconosciuti: selezionali a mano prima di importare.</span>}
+            </div>
+
+            <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid #eee', borderRadius: 8, padding: 8, marginBottom: 14 }}>
+              {righe.map((r, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px solid #f5f5f5', fontSize: 12 }}>
+                  <div style={{ width: 40, fontWeight: 600 }}>{r.giorno_label?.slice(0, 3)}</div>
+                  <div style={{ width: 45 }}>{r.orario}</div>
+                  {r.istruttore_id ? (
+                    <div style={{ flex: 1 }}>{istruttoriSede.find((i2) => i2.id === r.istruttore_id)?.nome} {istruttoriSede.find((i2) => i2.id === r.istruttore_id)?.cognome}</div>
+                  ) : (
+                    <select value="" onChange={(e) => aggiornaRiga(i, e.target.value)} style={{ ...campoStile, flex: 1, padding: '3px 6px', fontSize: 12 }}>
+                      <option value="">⚠️ "{r.trainer_nome_originale}" — scegli…</option>
+                      {istruttoriSede.map((ist) => <option key={ist.id} value={ist.id}>{ist.nome} {ist.cognome}</option>)}
+                    </select>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{errore}</div>}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" onClick={onChiudi} style={{ flex: 1, background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, cursor: 'pointer' }}>Annulla</button>
+              <button type="button" onClick={conferma} disabled={importando || nonRisolte > 0}
+                style={{ flex: 1, background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: (importando || nonRisolte > 0) ? 0.5 : 1 }}>
+                {importando ? 'Importazione…' : `Importa ${righe.length} turni`}
               </button>
             </div>
           </div>
