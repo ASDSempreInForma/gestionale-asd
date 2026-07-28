@@ -20,6 +20,12 @@ const STATI = [
 
 const MESI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
 
+// getDay() JS: 0=Domenica...6=Sabato
+const GIORNI_SETTIMANA = [
+  { value: 1, label: 'Lunedì' }, { value: 2, label: 'Martedì' }, { value: 3, label: 'Mercoledì' },
+  { value: 4, label: 'Giovedì' }, { value: 5, label: 'Venerdì' }, { value: 6, label: 'Sabato' }, { value: 0, label: 'Domenica' },
+];
+
 function euro(n) {
   if (n === null || n === undefined) return '—';
   return n.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
@@ -143,6 +149,8 @@ function Dashboard({ sessione }) {
   const [errore, setErrore] = useState('');
   const [modaleAperta, setModaleAperta] = useState(false);
   const [lezioneInModifica, setLezioneInModifica] = useState(null);
+  const [modaleRicorrenteAperta, setModaleRicorrenteAperta] = useState(false);
+  const [modaleAssenzeAperta, setModaleAssenzeAperta] = useState(false);
 
   const caricaTutto = useCallback(async () => {
     setCaricando(true);
@@ -188,6 +196,14 @@ function Dashboard({ sessione }) {
           {[oggi.getFullYear() - 1, oggi.getFullYear(), oggi.getFullYear() + 1].map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
         <div style={{ flex: 1 }} />
+        <button onClick={() => setModaleAssenzeAperta(true)}
+          style={{ background: '#fff', color: C, border: `1px solid ${C}`, borderRadius: 8, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          ✍️ Assenze/sostituzioni da testo
+        </button>
+        <button onClick={() => setModaleRicorrenteAperta(true)}
+          style={{ background: '#fff', color: C, border: `1px solid ${C}`, borderRadius: 8, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          📅 Genera ricorrenti
+        </button>
         <button onClick={() => { setLezioneInModifica(null); setModaleAperta(true); }}
           style={{ background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
           + Aggiungi lezione
@@ -272,6 +288,24 @@ function Dashboard({ sessione }) {
           meseDefault={mese}
           onChiudi={() => setModaleAperta(false)}
           onSalvata={() => { setModaleAperta(false); caricaTutto(); }}
+        />
+      )}
+
+      {modaleRicorrenteAperta && (
+        <ModaleRicorrente
+          sessione={sessione}
+          istruttoriSede={istruttoriSede}
+          onChiudi={() => setModaleRicorrenteAperta(false)}
+          onGenerate={() => { setModaleRicorrenteAperta(false); caricaTutto(); }}
+        />
+      )}
+
+      {modaleAssenzeAperta && (
+        <ModaleAssenzeTesto
+          sessione={sessione}
+          istruttoriSede={istruttoriSede}
+          onChiudi={() => setModaleAssenzeAperta(false)}
+          onApplicate={() => { setModaleAssenzeAperta(false); caricaTutto(); }}
         />
       )}
     </div>
@@ -376,6 +410,225 @@ function ModaleLezione({ sessione, istruttoriSede, lezioneEsistente, annoDefault
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Genera lezioni ricorrenti: un istruttore, un giorno fisso della
+// settimana, un periodo dal-al, e periodi da escludere (festività).
+// ─────────────────────────────────────────────────────────────────
+function ModaleRicorrente({ sessione, istruttoriSede, onChiudi, onGenerate }) {
+  const [istruttoreId, setIstruttoreId] = useState('');
+  const [giorno, setGiorno] = useState(1);
+  const [ore, setOre] = useState(1);
+  const [numeroPersone, setNumeroPersone] = useState(1);
+  const [dataInizio, setDataInizio] = useState('');
+  const [dataFine, setDataFine] = useState('');
+  const [esclusioni, setEsclusioni] = useState([{ dal: '', al: '', desc: '' }]);
+  const [errore, setErrore] = useState('');
+  const [risultato, setRisultato] = useState(null);
+  const [generando, setGenerando] = useState(false);
+
+  function aggiornaEsclusione(i, campo, valore) {
+    setEsclusioni((prev) => prev.map((e, idx) => (idx === i ? { ...e, [campo]: valore } : e)));
+  }
+  function aggiungiEsclusione() { setEsclusioni((prev) => [...prev, { dal: '', al: '', desc: '' }]); }
+  function rimuoviEsclusione(i) { setEsclusioni((prev) => prev.filter((_, idx) => idx !== i)); }
+
+  async function submit(e) {
+    e.preventDefault();
+    setErrore(''); setRisultato(null);
+    if (!istruttoreId || !dataInizio || !dataFine) { setErrore('Compila istruttore, data inizio e data fine'); return; }
+    setGenerando(true);
+    try {
+      const esclValide = esclusioni.filter((ex) => ex.dal && ex.al);
+      const dati = await chiamaAreaSede('genera_lezioni_ricorrenti', {
+        istruttore_id: istruttoreId, giorno_settimana: Number(giorno), ore: Number(ore),
+        numero_persone: Number(numeroPersone), data_inizio: dataInizio, data_fine: dataFine,
+        esclusioni: esclValide, inserito_da: `${sessione.nome} ${sessione.cognome}`,
+      });
+      setRisultato(dati);
+    } catch (err) { setErrore(err.message); }
+    finally { setGenerando(false); }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}>
+      <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 480, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>Genera lezioni ricorrenti</h3>
+        <p style={{ margin: '0 0 16px', fontSize: 12, color: '#777' }}>Crea in un colpo solo tutte le lezioni di un giorno fisso della settimana, in un periodo. Le date già presenti non vengono duplicate.</p>
+
+        {risultato ? (
+          <div>
+            <div style={{ background: '#eafaf0', color: '#1f8a52', padding: '12px 14px', borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
+              ✅ Create <b>{risultato.inserite}</b> nuove lezioni su {risultato.totale_date} date trovate
+              {risultato.saltate > 0 && <> · {risultato.saltate} già esistenti, saltate</>}.
+            </div>
+            <button onClick={onGenerate} style={{ width: '100%', background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Chiudi</button>
+          </div>
+        ) : (
+          <form onSubmit={submit}>
+            <Campo label="Istruttore">
+              <select required value={istruttoreId} onChange={(e) => setIstruttoreId(e.target.value)} style={campoStile}>
+                <option value="">Seleziona…</option>
+                {istruttoriSede.map((i) => <option key={i.id} value={i.id}>{i.nome} {i.cognome}</option>)}
+              </select>
+            </Campo>
+            <Campo label="Giorno della settimana">
+              <select value={giorno} onChange={(e) => setGiorno(e.target.value)} style={campoStile}>
+                {GIORNI_SETTIMANA.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
+              </select>
+            </Campo>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <div style={{ flex: 1 }}><Campo label="Ore per lezione"><input type="number" min="0.25" step="0.25" required value={ore} onChange={(e) => setOre(e.target.value)} style={campoStile} /></Campo></div>
+              <div style={{ flex: 1 }}><Campo label="Persone (di default)"><select required value={numeroPersone} onChange={(e) => setNumeroPersone(e.target.value)} style={campoStile}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}</select></Campo></div>
+            </div>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <div style={{ flex: 1 }}><Campo label="Dal"><input type="date" required value={dataInizio} onChange={(e) => setDataInizio(e.target.value)} style={campoStile} /></Campo></div>
+              <div style={{ flex: 1 }}><Campo label="Al"><input type="date" required value={dataFine} onChange={(e) => setDataFine(e.target.value)} style={campoStile} /></Campo></div>
+            </div>
+
+            <div style={{ fontSize: 13, color: '#444', marginBottom: 6, marginTop: 10 }}>Periodi da escludere (festività, sospensioni…)</div>
+            {esclusioni.map((ex, i) => (
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                <input type="date" value={ex.dal} onChange={(e) => aggiornaEsclusione(i, 'dal', e.target.value)} style={{ ...campoStile, flex: 1 }} placeholder="dal" />
+                <input type="date" value={ex.al} onChange={(e) => aggiornaEsclusione(i, 'al', e.target.value)} style={{ ...campoStile, flex: 1 }} placeholder="al" />
+                <input type="text" value={ex.desc} onChange={(e) => aggiornaEsclusione(i, 'desc', e.target.value)} style={{ ...campoStile, flex: 1 }} placeholder="es. Natale" />
+                <button type="button" onClick={() => rimuoviEsclusione(i)} style={{ background: 'transparent', border: '1px solid #e0b4b4', color: '#c0392b', borderRadius: 6, padding: '6px 8px', fontSize: 12, cursor: 'pointer' }}>✕</button>
+              </div>
+            ))}
+            <button type="button" onClick={aggiungiEsclusione} style={{ background: 'transparent', border: `1px dashed ${C}`, color: C, borderRadius: 8, padding: '6px 10px', fontSize: 12, cursor: 'pointer', marginBottom: 14 }}>+ Aggiungi periodo da escludere</button>
+
+            {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{errore}</div>}
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" onClick={onChiudi} style={{ flex: 1, background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, cursor: 'pointer' }}>Annulla</button>
+              <button type="submit" disabled={generando} style={{ flex: 1, background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: generando ? 0.6 : 1 }}>
+                {generando ? 'Generazione…' : 'Genera'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Assenze/sostituzioni da testo libero: l'AI propone, l'utente rivede
+// e corregge (istruttore, sostituto, ore parziali), poi conferma.
+// ─────────────────────────────────────────────────────────────────
+function ModaleAssenzeTesto({ sessione, istruttoriSede, onChiudi, onApplicate }) {
+  const [testo, setTesto] = useState('');
+  const [proposte, setProposte] = useState(null);
+  const [interpretando, setInterpretando] = useState(false);
+  const [applicando, setApplicando] = useState(false);
+  const [errore, setErrore] = useState('');
+  const [risultatoApplicazione, setRisultatoApplicazione] = useState(null);
+
+  async function interpreta() {
+    if (!testo.trim()) { setErrore('Scrivi prima il testo da interpretare'); return; }
+    setErrore(''); setInterpretando(true); setProposte(null);
+    try {
+      const dati = await chiamaAreaSede('interpreta_testo_assenze', {
+        testo,
+        istruttori_riferimento: istruttoriSede.map((i) => ({ id: i.id, nome: i.nome, cognome: i.cognome })),
+      });
+      setProposte((dati.proposte || []).map((p) => ({ ...p, numero_persone_manuale: p.lezione_esistente?.numero_persone || 1 })));
+    } catch (err) { setErrore(err.message); }
+    finally { setInterpretando(false); }
+  }
+
+  function aggiornaProposta(i, campo, valore) {
+    setProposte((prev) => prev.map((p, idx) => (idx === i ? { ...p, [campo]: valore } : p)));
+  }
+
+  async function applica() {
+    setErrore(''); setApplicando(true);
+    try {
+      const daInviare = proposte.map((p) => ({
+        istruttore_id: p.istruttore_id, data: p.data, ore_sostituite: p.ore_sostituite,
+        sostituto_id: p.sostituto_id || null, nota: p.nota, lezione_esistente: p.lezione_esistente,
+        numero_persone: p.numero_persone_manuale, inserito_da: `${sessione.nome} ${sessione.cognome}`,
+      }));
+      const dati = await chiamaAreaSede('applica_proposte_assenze', { proposte: daInviare });
+      setRisultatoApplicazione(dati.risultati || []);
+    } catch (err) { setErrore(err.message); }
+    finally { setApplicando(false); }
+  }
+
+  const tutteRisolte = proposte && proposte.every((p) => p.istruttore_id);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}>
+      <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 620, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>Assenze e sostituzioni da testo libero</h3>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#777' }}>
+          Scrivi la situazione come la racconteresti a voce (es. "Nadia sarà assente le sue prime due ore venerdì 17 e venerdì 24 luglio, sostituita da Monica"). L'AI propone le modifiche, tu le controlli prima di confermarle — non viene scritto nulla finché non premi "Conferma e applica".
+        </p>
+
+        {risultatoApplicazione ? (
+          <div>
+            <div style={{ background: '#eafaf0', color: '#1f8a52', padding: '12px 14px', borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
+              ✅ Applicate {risultatoApplicazione.filter((r) => r.ok).length} su {risultatoApplicazione.length} modifiche.
+              {risultatoApplicazione.some((r) => !r.ok) && <div style={{ marginTop: 6, color: '#c0392b' }}>Alcune non sono andate a buon fine: {risultatoApplicazione.filter((r) => !r.ok).map((r) => r.motivo).join('; ')}</div>}
+            </div>
+            <button onClick={onApplicate} style={{ width: '100%', background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Chiudi</button>
+          </div>
+        ) : !proposte ? (
+          <div>
+            <textarea value={testo} onChange={(e) => setTesto(e.target.value)} rows={5}
+              placeholder="Es. Nadia sarà assente le sue prime due ore venerdì 17 e venerdì 24 luglio, sostituita da Monica"
+              style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd', fontSize: 14, boxSizing: 'border-box', marginBottom: 14, fontFamily: 'inherit' }} />
+            {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{errore}</div>}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" onClick={onChiudi} style={{ flex: 1, background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, cursor: 'pointer' }}>Annulla</button>
+              <button type="button" onClick={interpreta} disabled={interpretando} style={{ flex: 1, background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: interpretando ? 0.6 : 1 }}>
+                {interpretando ? 'Interpretazione…' : 'Interpreta con AI'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            {proposte.length === 0 ? (
+              <div style={{ fontSize: 13, color: '#999', marginBottom: 14 }}>L'AI non ha trovato nulla da modificare in questo testo.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+                {proposte.map((p, i) => (
+                  <div key={i} style={{ border: `1px solid ${p.istruttore_id ? '#ddd' : '#e0b4b4'}`, borderRadius: 8, padding: 12 }}>
+                    {!p.istruttore_id && <div style={{ fontSize: 11, color: '#c0392b', marginBottom: 6 }}>⚠️ Non ho riconosciuto "{p.istruttore_nome_originale}" — selezionalo a mano</div>}
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <select value={p.istruttore_id || ''} onChange={(e) => aggiornaProposta(i, 'istruttore_id', e.target.value)} style={{ ...campoStile, width: 160 }}>
+                        <option value="">Istruttore…</option>
+                        {istruttoriSede.map((ist) => <option key={ist.id} value={ist.id}>{ist.nome} {ist.cognome}</option>)}
+                      </select>
+                      <input type="date" value={p.data || ''} onChange={(e) => aggiornaProposta(i, 'data', e.target.value)} style={{ ...campoStile, width: 140 }} />
+                      <input type="number" min="0" step="0.25" placeholder="ore (vuoto = tutta)" value={p.ore_sostituite ?? ''} onChange={(e) => aggiornaProposta(i, 'ore_sostituite', e.target.value === '' ? null : e.target.value)} style={{ ...campoStile, width: 140 }} />
+                      <select value={p.sostituto_id || ''} onChange={(e) => aggiornaProposta(i, 'sostituto_id', e.target.value)} style={{ ...campoStile, width: 160 }}>
+                        <option value="">Nessun sostituto</option>
+                        {istruttoriSede.filter((ist) => ist.id !== p.istruttore_id).map((ist) => <option key={ist.id} value={ist.id}>{ist.nome} {ist.cognome}</option>)}
+                      </select>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#888' }}>
+                      {p.lezione_esistente ? <>Trovata lezione esistente quel giorno: {p.lezione_esistente.ore} ore, {p.lezione_esistente.numero_persone} persone.</> : <>Nessuna lezione registrata per questa data/istruttore — verrà creata direttamente.</>}
+                      {p.nota && <> · "{p.nota}"</>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{errore}</div>}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" onClick={() => setProposte(null)} style={{ flex: 1, background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, cursor: 'pointer' }}>Indietro</button>
+              <button type="button" onClick={applica} disabled={applicando || proposte.length === 0 || !tutteRisolte}
+                style={{ flex: 1, background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: (applicando || proposte.length === 0 || !tutteRisolte) ? 0.5 : 1 }}>
+                {applicando ? 'Applico…' : 'Conferma e applica'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
