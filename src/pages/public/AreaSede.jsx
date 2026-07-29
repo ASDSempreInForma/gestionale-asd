@@ -430,6 +430,7 @@ function CalendarioSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
   const [modaleTurno, setModaleTurno] = useState(null); // { turno: null|obj, giornoDefault } oppure null = chiuso
   const [modaleGenera, setModaleGenera] = useState(false);
   const [modaleImporta, setModaleImporta] = useState(false);
+  const [modaleImportaGiornata, setModaleImportaGiornata] = useState(false);
 
   const caricaTurni = useCallback(async () => {
     setCaricando(true);
@@ -452,9 +453,13 @@ function CalendarioSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h3 style={{ margin: 0, fontSize: 15, color: '#333' }}>Calendario settimanale (turni fissi)</h3>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setModaleImportaGiornata(true)}
+            style={{ background: '#fff', color: '#1f8a52', border: '1px solid #1f8a52', borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+            📊 Importa settimana reale (paga)
+          </button>
           <button onClick={() => setModaleImporta(true)}
             style={{ background: '#fff', color: C, border: `1px solid ${C}`, borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-            📤 Importa da Excel
+            📤 Importa modello (turni teorici)
           </button>
           <button onClick={() => setModaleGenera(true)}
             style={{ background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
@@ -462,6 +467,10 @@ function CalendarioSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
           </button>
         </div>
       </div>
+
+      <p style={{ fontSize: 11, color: '#999', margin: '0 0 14px' }}>
+        ⚠️ "Importa modello" e "Genera lezioni per un periodo" usano lo schema teorico settimanale — utile per pianificare, ma non riflette chi ha davvero lavorato quell'ora. Per i compensi reali usa <b>"Importa settimana reale"</b> (dal foglio GIORNATA, dopo che la settimana è conclusa e le presenze sono compilate).
+      </p>
 
       {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{errore}</div>}
 
@@ -517,6 +526,15 @@ function CalendarioSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
           istruttoriSede={istruttoriSede}
           onChiudi={() => setModaleImporta(false)}
           onImportato={() => { setModaleImporta(false); caricaTurni(); }}
+        />
+      )}
+
+      {modaleImportaGiornata && (
+        <ModaleImportaGiornata
+          sessione={sessione}
+          istruttoriSede={istruttoriSede}
+          onChiudi={() => setModaleImportaGiornata(false)}
+          onImportato={() => { setModaleImportaGiornata(false); onCambiamenti(); }}
         />
       )}
     </div>
@@ -930,6 +948,154 @@ function ModaleImportaExcel({ istruttoriSede, onChiudi, onImportato }) {
 }
 
 const campoStile = { width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, boxSizing: 'border-box' };
+
+// ─────────────────────────────────────────────────────────────────
+// Importa SETTIMANA REALE dal foglio "GIORNATA" (pannello "PROGRAMMA
+// SETTIMANALE"): orario reale, trainer reale, presenze effettive.
+// Scrive DIRETTAMENTE lezioni pagabili (sede_lezioni), non un turno
+// ricorrente — è la fonte corretta per i compensi.
+// ─────────────────────────────────────────────────────────────────
+function ModaleImportaGiornata({ sessione, istruttoriSede, onChiudi, onImportato }) {
+  const [righe, setRighe] = useState(null);
+  const [errore, setErrore] = useState('');
+  const [importando, setImportando] = useState(false);
+  const [risultato, setRisultato] = useState(null);
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErrore(''); setRighe(null); setRisultato(null);
+    try {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+      const nomeFoglio = wb.SheetNames.find((n) => n.toLowerCase() === 'giornata') || wb.SheetNames.find((n) => n.toLowerCase().includes('giornata'));
+      if (!nomeFoglio) { setErrore(`Non trovo un foglio "GIORNATA" in questo file. Fogli presenti: ${wb.SheetNames.join(', ')}`); return; }
+
+      const grezze = XLSX.utils.sheet_to_json(wb.Sheets[nomeFoglio], { header: 1, defval: null });
+      const parse = [];
+
+      for (const r of grezze) {
+        // MATTINO: col31=orario reale, col32=trainer, col34=presenze, col35=assenze, col36=programmati "X / Y"
+        // POMERIGGIO: col43=orario reale, col44=trainer, col46=presenze, col47=assenze, col48=programmati "X / Y"
+        const blocchi = [
+          { dt: r[31], trainer: r[32], presenze: r[34], assenze: r[35], programmati: r[36] },
+          { dt: r[43], trainer: r[44], presenze: r[46], assenze: r[47], programmati: r[48] },
+        ];
+        for (const b of blocchi) {
+          if (!(b.dt instanceof Date) || !b.trainer) continue;
+          // Uso ora/data LOCALI (non UTC): il file non porta fuso orario, il valore
+          // corretto compare usando i metodi locali nel browser di chi importa (Italia).
+          const anno = b.dt.getFullYear(), mese = b.dt.getMonth() + 1, giorno = b.dt.getDate();
+          const dataStr = `${anno}-${String(mese).padStart(2, '0')}-${String(giorno).padStart(2, '0')}`;
+          const orario = `${String(b.dt.getHours()).padStart(2, '0')}:${String(b.dt.getMinutes()).padStart(2, '0')}`;
+
+          let numeroPersone = Number(b.presenze) || 0;
+          if (numeroPersone <= 0) {
+            const match = String(b.programmati || '').match(/(\d+)\s*\/\s*\d+/);
+            numeroPersone = match ? Number(match[1]) : 1;
+          }
+          numeroPersone = Math.min(5, Math.max(1, numeroPersone));
+
+          const nomeTrainer = String(b.trainer).trim();
+          const istr = istruttoriSede.find((i) => i.nome.trim().toLowerCase() === nomeTrainer.toLowerCase());
+
+          parse.push({
+            data: dataStr, data_label: new Date(anno, mese - 1, giorno).toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit' }),
+            orario, trainer_nome_originale: nomeTrainer, istruttore_id: istr?.id || null,
+            numero_persone: numeroPersone, presenze: b.presenze, assenze: b.assenze, programmati: b.programmati,
+          });
+        }
+      }
+
+      if (parse.length === 0) { setErrore('Non ho trovato sessioni reali (con trainer assegnato) in questo foglio.'); return; }
+      parse.sort((a, b) => (a.data + a.orario).localeCompare(b.data + b.orario));
+      setRighe(parse);
+    } catch (err) {
+      setErrore('Errore nella lettura del file: ' + err.message);
+    }
+  }
+
+  function aggiornaRiga(i, campo, valore) {
+    setRighe((prev) => prev.map((r, idx) => (idx === i ? { ...r, [campo]: valore } : r)));
+  }
+
+  const nonRisolte = righe ? righe.filter((r) => !r.istruttore_id).length : 0;
+
+  async function conferma() {
+    setErrore(''); setImportando(true);
+    try {
+      const daInviare = righe.filter((r) => r.istruttore_id).map((r) => ({
+        istruttore_id: r.istruttore_id, data: r.data, orario: r.orario, ore: 1,
+        numero_persone: r.numero_persone, inserito_da: `${sessione.nome} ${sessione.cognome}`,
+      }));
+      const dati = await chiamaAreaSede('importa_lezioni_reali', { righe: daInviare });
+      setRisultato(dati);
+    } catch (err) { setErrore(err.message); }
+    finally { setImportando(false); }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16 }}>
+      <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 640, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>Importa settimana reale (dal foglio GIORNATA)</h3>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#777' }}>
+          Legge il pannello "PROGRAMMA SETTIMANALE" del foglio GIORNATA: solo le sessioni con un trainer realmente assegnato, con orario vero e persone effettivamente presenti (o programmate, se le presenze non sono ancora compilate). Ogni riga diventa una lezione pagabile da 1 ora — modificabile dopo nell'elenco lezioni.
+        </p>
+
+        {risultato ? (
+          <div>
+            <div style={{ background: '#eafaf0', color: '#1f8a52', padding: '12px 14px', borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
+              ✅ Importate {risultato.inserite} lezioni{risultato.saltate > 0 && <> · {risultato.saltate} già presenti, saltate</>}.
+            </div>
+            <button onClick={onImportato} style={{ width: '100%', background: '#1f8a52', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Chiudi</button>
+          </div>
+        ) : !righe ? (
+          <div>
+            <input type="file" accept=".xlsx,.xls,.xlsm" onChange={handleFile}
+              style={{ width: '100%', padding: 10, border: '1px dashed #1f8a52', borderRadius: 8, fontSize: 13, marginBottom: 14 }} />
+            {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{errore}</div>}
+            <button type="button" onClick={onChiudi} style={{ width: '100%', background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, cursor: 'pointer' }}>Annulla</button>
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 12, color: '#555', marginBottom: 8 }}>
+              Trovate {righe.length} sessioni reali. {nonRisolte > 0 && <span style={{ color: '#c0392b' }}>{nonRisolte} istruttori non riconosciuti: selezionali a mano prima di importare.</span>}
+            </div>
+
+            <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid #eee', borderRadius: 8, padding: 8, marginBottom: 14 }}>
+              {righe.map((r, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px solid #f5f5f5', fontSize: 12 }}>
+                  <div style={{ width: 75, fontWeight: 600 }}>{r.data_label}</div>
+                  <div style={{ width: 45 }}>{r.orario}</div>
+                  {r.istruttore_id ? (
+                    <div style={{ width: 110 }}>{istruttoriSede.find((i2) => i2.id === r.istruttore_id)?.nome}</div>
+                  ) : (
+                    <select value="" onChange={(e) => aggiornaRiga(i, 'istruttore_id', e.target.value)} style={{ ...campoStile, width: 130, padding: '3px 6px', fontSize: 12 }}>
+                      <option value="">⚠️ "{r.trainer_nome_originale}"…</option>
+                      {istruttoriSede.map((ist) => <option key={ist.id} value={ist.id}>{ist.nome} {ist.cognome}</option>)}
+                    </select>
+                  )}
+                  <input type="number" min="1" max="5" value={r.numero_persone} onChange={(e) => aggiornaRiga(i, 'numero_persone', Math.min(5, Math.max(1, Number(e.target.value))))}
+                    style={{ width: 45, padding: '3px 6px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, textAlign: 'center' }} />
+                  <div style={{ color: '#999', fontSize: 11 }}>persone (presenze reali: {r.presenze ?? '—'}, prenotate: {r.programmati || '—'})</div>
+                </div>
+              ))}
+            </div>
+
+            {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{errore}</div>}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" onClick={onChiudi} style={{ flex: 1, background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, cursor: 'pointer' }}>Annulla</button>
+              <button type="button" onClick={conferma} disabled={importando || nonRisolte > 0}
+                style={{ flex: 1, background: '#1f8a52', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: (importando || nonRisolte > 0) ? 0.5 : 1 }}>
+                {importando ? 'Importazione…' : `Importa ${righe.length} lezioni`}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function Campo({ label, children }) {
   return (
