@@ -962,56 +962,71 @@ function ModaleImportaGiornata({ sessione, istruttoriSede, onChiudi, onImportato
   const [risultato, setRisultato] = useState(null);
 
   async function handleFile(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
     setErrore(''); setRighe(null); setRisultato(null);
     try {
-      const buffer = await file.arrayBuffer();
-      const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
-      const nomeFoglio = wb.SheetNames.find((n) => n.toLowerCase() === 'giornata') || wb.SheetNames.find((n) => n.toLowerCase().includes('giornata'));
-      if (!nomeFoglio) { setErrore(`Non trovo un foglio "GIORNATA" in questo file. Fogli presenti: ${wb.SheetNames.join(', ')}`); return; }
+      const parseCompleto = [];
+      const fogliMancanti = [];
 
-      const grezze = XLSX.utils.sheet_to_json(wb.Sheets[nomeFoglio], { header: 1, defval: null });
-      const parse = [];
+      for (const file of files) {
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+        const nomeFoglio = wb.SheetNames.find((n) => n.toLowerCase() === 'giornata') || wb.SheetNames.find((n) => n.toLowerCase().includes('giornata'));
+        if (!nomeFoglio) { fogliMancanti.push(file.name); continue; }
 
-      for (const r of grezze) {
-        // MATTINO: col31=orario reale, col32=trainer, col34=presenze, col35=assenze, col36=programmati "X / Y"
-        // POMERIGGIO: col43=orario reale, col44=trainer, col46=presenze, col47=assenze, col48=programmati "X / Y"
-        const blocchi = [
-          { dt: r[31], trainer: r[32], presenze: r[34], assenze: r[35], programmati: r[36] },
-          { dt: r[43], trainer: r[44], presenze: r[46], assenze: r[47], programmati: r[48] },
-        ];
-        for (const b of blocchi) {
-          if (!(b.dt instanceof Date) || !b.trainer) continue;
-          // Uso ora/data LOCALI (non UTC): il file non porta fuso orario, il valore
-          // corretto compare usando i metodi locali nel browser di chi importa (Italia).
-          const anno = b.dt.getFullYear(), mese = b.dt.getMonth() + 1, giorno = b.dt.getDate();
-          const dataStr = `${anno}-${String(mese).padStart(2, '0')}-${String(giorno).padStart(2, '0')}`;
-          const orario = `${String(b.dt.getHours()).padStart(2, '0')}:${String(b.dt.getMinutes()).padStart(2, '0')}`;
+        const grezze = XLSX.utils.sheet_to_json(wb.Sheets[nomeFoglio], { header: 1, defval: null });
 
-          let numeroPersone = Number(b.presenze) || 0;
-          if (numeroPersone <= 0) {
-            const match = String(b.programmati || '').match(/(\d+)\s*\/\s*\d+/);
-            numeroPersone = match ? Number(match[1]) : 1;
+        for (const r of grezze) {
+          // MATTINO: col31=orario reale, col32=trainer, col34=presenze, col35=assenze, col36=programmati "X / Y"
+          // POMERIGGIO: col43=orario reale, col44=trainer, col46=presenze, col47=assenze, col48=programmati "X / Y"
+          const blocchi = [
+            { dt: r[31], trainer: r[32], presenze: r[34], assenze: r[35], programmati: r[36] },
+            { dt: r[43], trainer: r[44], presenze: r[46], assenze: r[47], programmati: r[48] },
+          ];
+          for (const b of blocchi) {
+            if (!(b.dt instanceof Date) || !b.trainer) continue;
+            const anno = b.dt.getFullYear(), mese = b.dt.getMonth() + 1, giorno = b.dt.getDate();
+            const dataStr = `${anno}-${String(mese).padStart(2, '0')}-${String(giorno).padStart(2, '0')}`;
+            const orario = `${String(b.dt.getHours()).padStart(2, '0')}:${String(b.dt.getMinutes()).padStart(2, '0')}`;
+
+            let numeroPersone = Number(b.presenze) || 0;
+            if (numeroPersone <= 0) {
+              const match = String(b.programmati || '').match(/(\d+)\s*\/\s*\d+/);
+              numeroPersone = match ? Number(match[1]) : 1;
+            }
+            numeroPersone = Math.min(5, Math.max(1, numeroPersone));
+
+            const nomeTrainer = String(b.trainer).trim();
+            const istr = istruttoriSede.find((i) => i.nome.trim().toLowerCase() === nomeTrainer.toLowerCase());
+
+            parseCompleto.push({
+              data: dataStr, data_label: new Date(anno, mese - 1, giorno).toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit' }),
+              orario, trainer_nome_originale: nomeTrainer, istruttore_id: istr?.id || null,
+              numero_persone: numeroPersone, presenze: b.presenze, assenze: b.assenze, programmati: b.programmati,
+              file_origine: file.name,
+            });
           }
-          numeroPersone = Math.min(5, Math.max(1, numeroPersone));
-
-          const nomeTrainer = String(b.trainer).trim();
-          const istr = istruttoriSede.find((i) => i.nome.trim().toLowerCase() === nomeTrainer.toLowerCase());
-
-          parse.push({
-            data: dataStr, data_label: new Date(anno, mese - 1, giorno).toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit' }),
-            orario, trainer_nome_originale: nomeTrainer, istruttore_id: istr?.id || null,
-            numero_persone: numeroPersone, presenze: b.presenze, assenze: b.assenze, programmati: b.programmati,
-          });
         }
       }
 
-      if (parse.length === 0) { setErrore('Non ho trovato sessioni reali (con trainer assegnato) in questo foglio.'); return; }
-      parse.sort((a, b) => (a.data + a.orario).localeCompare(b.data + b.orario));
-      setRighe(parse);
+      if (fogliMancanti.length > 0) setErrore(`Attenzione: nei file ${fogliMancanti.join(', ')} non ho trovato un foglio "GIORNATA" — ignorati.`);
+
+      // Rimuove eventuali righe identiche importate due volte da file diversi (stessa data+orario+istruttore)
+      const viste = new Set();
+      const parseUnico = [];
+      for (const p of parseCompleto) {
+        const chiave = `${p.data}|${p.orario}|${p.istruttore_id || p.trainer_nome_originale}`;
+        if (viste.has(chiave)) continue;
+        viste.add(chiave);
+        parseUnico.push(p);
+      }
+
+      if (parseUnico.length === 0) { setErrore((prev) => prev || 'Non ho trovato sessioni reali (con trainer assegnato) in questi file.'); return; }
+      parseUnico.sort((a, b) => (a.data + a.orario).localeCompare(b.data + b.orario));
+      setRighe(parseUnico);
     } catch (err) {
-      setErrore('Errore nella lettura del file: ' + err.message);
+      setErrore('Errore nella lettura dei file: ' + err.message);
     }
   }
 
@@ -1040,6 +1055,8 @@ function ModaleImportaGiornata({ sessione, istruttoriSede, onChiudi, onImportato
         <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>Importa settimana reale (dal foglio GIORNATA)</h3>
         <p style={{ margin: '0 0 14px', fontSize: 12, color: '#777' }}>
           Legge il pannello "PROGRAMMA SETTIMANALE" del foglio GIORNATA: solo le sessioni con un trainer realmente assegnato, con orario vero e persone effettivamente presenti (o programmate, se le presenze non sono ancora compilate). Ogni riga diventa una lezione pagabile da 1 ora — modificabile dopo nell'elenco lezioni.
+          <br /><br />
+          <b>Per un mese intero:</b> in Excel naviga con ">> SETTIMANA" e salva una copia del file per ogni settimana del mese (di solito 4), poi seleziona qui tutti i file insieme — vengono uniti in un'unica anteprima.
         </p>
 
         {risultato ? (
@@ -1051,8 +1068,9 @@ function ModaleImportaGiornata({ sessione, istruttoriSede, onChiudi, onImportato
           </div>
         ) : !righe ? (
           <div>
-            <input type="file" accept=".xlsx,.xls,.xlsm" onChange={handleFile}
+            <input type="file" accept=".xlsx,.xls,.xlsm" multiple onChange={handleFile}
               style={{ width: '100%', padding: 10, border: '1px dashed #1f8a52', borderRadius: 8, fontSize: 13, marginBottom: 14 }} />
+            <div style={{ fontSize: 11, color: '#999', marginBottom: 14 }}>Puoi selezionare più file insieme (una settimana ciascuno) per importare un mese in un colpo solo.</div>
             {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{errore}</div>}
             <button type="button" onClick={onChiudi} style={{ width: '100%', background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, cursor: 'pointer' }}>Annulla</button>
           </div>
