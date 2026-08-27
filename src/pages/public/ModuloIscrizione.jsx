@@ -293,20 +293,51 @@ function calcolaPrezzoTotale(corsiSelezionati) {
     return { totale: incompleto ? null : totale, incompleto, dettaglio, soloGinnasticaDolce: true };
   }
 
-  // Caso 2: almeno un corso non-GD → formula generale + eventuale GD a parte
-  let sommaMensile = 0;
-  let mesiRiferimento = null;
-  altri.forEach((c) => {
-    const r = importoCorso(c.corso, c.frequenza, c.pagamento, isolato, c.inizioPersonalizzato === "ottobre");
-    if (!r || r.puro === null) { incompleto = true; return; }
-    sommaMensile += r.puro / r.mesi;
-    mesiRiferimento = r.mesi;
-    dettaglio.push({ corso: c.corso.corso, sede: c.corso.sede, mensile: r.puro / r.mesi });
+  // Caso 2: almeno un corso non-GD → formula generale + eventuale GD a parte.
+  // ATTENZIONE: i corsi combinati possono avere un numero di "mesi" diverso tra
+  // loro (es. uno parte a settembre in anticipo e l'altro no, oppure la persona
+  // ha scelto esplicitamente "dal 1° ottobre" per uno solo dei due). In quel
+  // caso lo sconto combinazione (-5€/mese dal 2° corso) si applica SOLO ai mesi
+  // in cui più corsi sono davvero attivi insieme (i mesi finali, comuni a tutti,
+  // dato che tutti i periodi terminano insieme a maggio/gennaio); il mese/i "in
+  // più" del corso che parte prima viene fatturato da solo, alla sua tariffa
+  // piena, perché in quel periodo la persona sta frequentando un solo corso.
+  // Bug scoperto e corretto il 27/08/2026: prima si usava un unico "mesi"
+  // condiviso (quello dell'ultimo corso elaborato), sottostimando il totale
+  // ogni volta che i corsi in combinazione avevano periodi di lunghezza diversa.
+  const risultatiAltri = altri.map((c) => ({
+    c,
+    r: importoCorso(c.corso, c.frequenza, c.pagamento, isolato, c.inizioPersonalizzato === "ottobre"),
+  }));
+  risultatiAltri.forEach(({ r }) => {
+    if (!r || r.puro === null) incompleto = true;
   });
 
-  const n = altri.length;
-  const sconto = n >= 2 ? SCONTO_PER_CORSO_AGGIUNTIVO * (n - 1) : 0;
-  const totaleAltri = incompleto || !mesiRiferimento ? null : (sommaMensile - sconto) * mesiRiferimento;
+  let totaleAltri = null;
+  let scontoTotaleAltri = 0;
+  if (!incompleto) {
+    // Valori "mesi" distinti in ordine crescente: il più piccolo è il periodo in
+    // cui TUTTI i corsi scelti sono attivi insieme (perché tutti finiscono nello
+    // stesso mese, maggio o gennaio); i valori più grandi rappresentano corsi
+    // partiti prima, attivi da soli nei mesi iniziali "extra".
+    const soglie = [...new Set(risultatiAltri.map(({ r }) => r.mesi))].sort((a, b) => a - b);
+    totaleAltri = 0;
+    let sogliaPrecedente = 0;
+    soglie.forEach((soglia) => {
+      const lunghezzaSegmento = soglia - sogliaPrecedente;
+      const attiviInSegmento = risultatiAltri.filter(({ r }) => r.mesi >= soglia);
+      const sommaMensileSegmento = attiviInSegmento.reduce((tot, { r }) => tot + r.puro / r.mesi, 0);
+      const scontoMensileSegmento = attiviInSegmento.length >= 2 ? SCONTO_PER_CORSO_AGGIUNTIVO * (attiviInSegmento.length - 1) : 0;
+      totaleAltri += (sommaMensileSegmento - scontoMensileSegmento) * lunghezzaSegmento;
+      scontoTotaleAltri += scontoMensileSegmento * lunghezzaSegmento;
+      sogliaPrecedente = soglia;
+    });
+    risultatiAltri.forEach(({ c, r }) => {
+      dettaglio.push({ corso: c.corso.corso, sede: c.corso.sede, mensile: r.puro / r.mesi });
+    });
+  }
+
+  const sconto = scontoTotaleAltri; // totale € risparmiato per la combinazione (non più €/mese fisso)
 
   let totaleGD = 0;
   gd.forEach((c) => {
