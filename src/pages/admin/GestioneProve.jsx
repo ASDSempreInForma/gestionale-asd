@@ -106,7 +106,7 @@ export default function GestioneProve() {
           id, codice_corso, disciplina, giorni_orari,
           capienza_max, prove_attive,
           sedi ( nome ),
-          iscrizioni ( id ),
+          iscrizioni ( id, stato_pagamento ),
           prove ( id, stato )
         `)
         .eq("stagione_id", stag.id)
@@ -121,7 +121,10 @@ export default function GestioneProve() {
         orario: c.giorni_orari,
         cap: c.capienza_max || 999,
         proveAttive: c.prove_attive !== false,
-        iscritti: c.iscrizioni?.length || 0,
+        // Le iscrizioni annullate non occupano più un posto reale: vanno escluse
+        // dal conteggio, altrimenti un'iscrizione cancellata mesi fa continua a
+        // "occupare" un posto per sempre (bug scoperto il 27/08/2026).
+        iscritti: (c.iscrizioni || []).filter(i => i.stato_pagamento !== "annullata").length,
         proveCount: (c.prove || []).filter(p =>
           ["in_attesa","confermata","effettuata"].includes(p.stato)
         ).length,
