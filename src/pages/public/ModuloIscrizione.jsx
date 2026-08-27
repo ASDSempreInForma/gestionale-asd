@@ -819,12 +819,21 @@ export default function ModuloIscrizione() {
             tipo: "conferma_iscrizione",
             destinatarioEmail: residenza.email,
             destinatarioNome: `${anagrafica.nome} ${anagrafica.cognome}`,
-            corsi: corsiConCodice.map((c) => ({
-              nome: c.corso.corso,
-              sede: c.corso.sede,
-              giorniOrari: c.corso.orario,
-              codiceCompleto: c.codiceCompleto,
-            })),
+            corsi: corsiConCodice.map((c) => {
+              // Se la persona ha scelto 1 solo giorno a settimana, mostriamo in email
+              // solo quel giorno con il suo orario, non l'intera coppia bisettimanale.
+              let giorniOrariEmail = c.corso.orario;
+              if (c.frequenza === "1x" && c.corso.ha_variante_frequenza && c.giornoScelto) {
+                const trovato = estraiGiorniSingoli(c.corso.orario).find((p) => p.giorno === c.giornoScelto);
+                if (trovato) giorniOrariEmail = `${trovato.giorno} ${trovato.orario}`;
+              }
+              return {
+                nome: c.corso.corso,
+                sede: c.corso.sede,
+                giorniOrari: giorniOrariEmail,
+                codiceCompleto: c.codiceCompleto,
+              };
+            }),
             quotaTotale: prezzoTotale.totale,
             causale: causaleCompleta,
             tipoPagamentoLabel: labelPagamento,

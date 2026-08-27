@@ -3,6 +3,27 @@ import SiteHeader from "../../SiteHeader.jsx";
 import SiteFooter from "../../SiteFooter.jsx";
 import ChatWidget from "../../ChatWidget.jsx";
 
+// ─── Giorno/orario effettivo mostrato all'utente ────────────────────────────
+// Se l'iscrizione e' a 1 sola volta a settimana (frequenza "1x" con giorno_scelto
+// valorizzato), mostriamo solo quel giorno con il suo orario invece dell'intera
+// coppia bisettimanale del corso (es. "Martedi 20:20-21:15" invece di
+// "Martedi/Giovedi 20:20-21:15").
+function estraiGiorniSingoli(giorniOrari) {
+  if (!giorniOrari) return [];
+  const match = giorniOrari.match(/^(.+?)\s(\d{1,2}[:.]\d{2}-\d{1,2}[:.]\d{2})$/);
+  if (!match) return [{ giorno: giorniOrari, orario: "" }];
+  const [, giorniParte, orario] = match;
+  return giorniParte.split("/").map((g) => ({ giorno: g.trim(), orario }));
+}
+
+function giorniOrariVisualizzati(corso, frequenza, giornoScelto) {
+  if (frequenza === "1x" && giornoScelto) {
+    const trovato = estraiGiorniSingoli(corso?.giorni_orari).find((p) => p.giorno === giornoScelto);
+    if (trovato) return `${trovato.giorno} ${trovato.orario}`;
+  }
+  return corso?.giorni_orari;
+}
+
 // ─── Configurazione Supabase ────────────────────────────────────────────────
 // Chiave pubblica (anon/publishable): è normale e sicuro tenerla nel codice frontend,
 // è pensata per questo. La sicurezza vera è nella edge function + RLS lato server.
@@ -339,7 +360,7 @@ function ModaleRinnovo({ iscrizione, stagioneAttivaNome, onClose, onDone, callFn
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <h3>Rinnova per la stagione {stagioneAttivaNome}</h3>
         <p style={{ color: "#475569", fontSize: 14 }}>
-          {corso?.disciplina} — {corso?.giorni_orari} ({corso?.sedi?.nome})
+          {corso?.disciplina} — {giorniOrariVisualizzati(corso, iscrizione.frequenza, iscrizione.giorno_scelto)} ({corso?.sedi?.nome})
         </p>
         <label style={{ display: "flex", gap: 8, alignItems: "flex-start", margin: "12px 0" }}>
           <input type="checkbox" checked={presaVisione} onChange={(e) => setPresaVisione(e.target.checked)} />
@@ -369,7 +390,7 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato }) {
     <div style={styles.card}>
       <div style={{ fontWeight: 600 }}>{corso?.disciplina}</div>
       <div style={{ color: "#64748b", fontSize: 13, marginBottom: 8 }}>
-        {corso?.giorni_orari} · {corso?.sedi?.nome}
+        {giorniOrariVisualizzati(corso, iscrizione.frequenza, iscrizione.giorno_scelto)} · {corso?.sedi?.nome}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
         <BadgePagamento stato={iscrizione.stato_pagamento} />
@@ -679,7 +700,7 @@ export default function AreaTesserati() {
                 <div key={i.id} style={styles.card}>
                   <div style={{ fontWeight: 600 }}>{i.corsi?.disciplina}</div>
                   <div style={{ color: "#64748b", fontSize: 13, marginBottom: 10 }}>
-                    {i.corsi?.giorni_orari} · {i.corsi?.sedi?.nome}
+                    {giorniOrariVisualizzati(i.corsi, i.frequenza, i.giorno_scelto)} · {i.corsi?.sedi?.nome}
                   </div>
                   <button style={styles.btnPrimary} onClick={() => setModaleRinnovo(i)}>
                     🔄 Rinnova per {stagioneAttivaNome}
