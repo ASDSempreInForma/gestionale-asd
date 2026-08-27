@@ -128,15 +128,19 @@ export default function GestioneProve() {
       }));
       setCorsi(corsiFormattati);
 
-      // Prove con dati extra
+      // Prove con dati extra — solo quelle legate a corsi della stagione attiva:
+      // senza questo filtro, vecchie richieste di prova di stagioni passate (es.
+      // test o richieste mai chiuse) restavano visibili e gonfiavano il conteggio
+      // totale (bug scoperto il 27/08/2026).
       const { data: proveDB, error: errP } = await supabase
         .from("prove")
         .select(`
           id, nome, cognome, cf, email, telefono, data_nascita,
           stato, data_richiesta, data_effettuata, scadenza_3gg, scadenza_preavviso,
           corso_id, dati_extra, note, firma_url, firma2_url,
-          corsi ( disciplina, giorni_orari, sedi ( nome ) )
+          corsi!inner ( disciplina, giorni_orari, stagione_id, sedi ( nome ) )
         `)
+        .eq("corsi.stagione_id", stag.id)
         .order("data_richiesta", { ascending: false });
       if (errP) throw errP;
       setProve(proveDB || []);
