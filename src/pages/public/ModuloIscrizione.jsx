@@ -834,11 +834,21 @@ export default function ModuloIscrizione() {
         ].filter(Boolean).join(" | "),
       }));
 
-      const { error: errIsc } = await supabase
-        .from("iscrizioni")
-        .insert(iscrizioniDaInserire);
-      // Ignoro solo duplicati (socio già iscritto a questo corso per questa stagione)
-      if (errIsc && errIsc.code !== "23505") throw errIsc;
+      // Inserisco UNA RIGA ALLA VOLTA (non un unico insert con tutto l'array):
+      // un insert multiplo in un solo colpo è "tutto o niente" — se anche un solo
+      // corso risultava già registrato (es. la persona ripete il modulo per
+      // AGGIUNGERE un corso a un'iscrizione già esistente), l'intero inserimento
+      // veniva rifiutato dal database e ANCHE i corsi nuovi, non duplicati,
+      // andavano persi in silenzio — pur risultando "riuscito" agli occhi della
+      // persona, che riceveva comunque l'email di conferma con tutti i corsi.
+      // Bug scoperto e corretto il 27/08/2026 (caso reale: Verginella Natalia).
+      for (const riga of iscrizioniDaInserire) {
+        const { error: errRiga } = await supabase.from("iscrizioni").insert([riga]);
+        // Ignoro solo il duplicato di QUESTA riga (socio già iscritto a QUESTO
+        // corso per questa stagione) — le altre righe della stessa iscrizione
+        // proseguono comunque.
+        if (errRiga && errRiga.code !== "23505") throw errRiga;
+      }
 
       // 3. Invia l'email di conferma con quota, causale e coordinate di pagamento.
       // Se questa chiamata fallisce non blocchiamo l'iscrizione (già salvata a DB):
