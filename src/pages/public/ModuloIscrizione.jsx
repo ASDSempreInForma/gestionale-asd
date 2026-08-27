@@ -171,8 +171,8 @@ function componiCodice(corso, frequenza, pagamento) {
 const SCONTO_PER_CORSO_AGGIUNTIVO = 5; // €/mese
 const ISCRIZIONE_STANDARD = 40;
 
-function mesiPeriodo(corso, pagamento) {
-  const settembre = corso?.mese_inizio === "settembre";
+function mesiPeriodo(corso, pagamento, forzaOttobre) {
+  const settembre = corso?.mese_inizio === "settembre" && !forzaOttobre;
   if (pagamento === "annuale") return settembre ? 9 : 8;
   return settembre ? 5 : 4; // q1 / q2
 }
@@ -181,11 +181,16 @@ function mesiPeriodo(corso, pagamento) {
 // più il totale "con iscrizione" così com'è salvato a DB (utile per i casi flat).
 // `isolato` = true se questo è l'UNICO corso scelto in tutto il carrello: solo in
 // questo caso si applica l'eventuale tariffa promozionale Villaggio Badia.
-function importoCorso(corso, frequenza, pagamento, isolato) {
+function importoCorso(corso, frequenza, pagamento, isolato, forzaOttobre) {
   if (!corso) return null;
   const is1x = frequenza === "1x" && corso.ha_variante_frequenza;
-  const mesi = mesiPeriodo(corso, pagamento);
-  const settembre = corso?.mese_inizio === "settembre";
+  const mesi = mesiPeriodo(corso, pagamento, forzaOttobre);
+  // Un corso può partire anticipatamente a settembre per chi ha risposto al sondaggio,
+  // ma chi si iscrive più avanti può scegliere di frequentare (e pagare) solo da
+  // ottobre come la maggior parte dei corsi: in quel caso trattiamo il corso come se
+  // per questa persona iniziasse a ottobre, sia per il totale mesi che per il
+  // riferimento dei mesi già trascorsi più sotto.
+  const settembre = corso?.mese_inizio === "settembre" && !forzaOttobre;
   const usaPromoBadia = isolato && corso.quota_annuale_badia !== null && corso.quota_annuale_badia !== undefined;
 
   let totaleConIscrizione;
@@ -280,7 +285,7 @@ function calcolaPrezzoTotale(corsiSelezionati) {
   if (altri.length === 0) {
     let totale = 0;
     gd.forEach((c) => {
-      const r = importoCorso(c.corso, c.frequenza, c.pagamento, isolato);
+      const r = importoCorso(c.corso, c.frequenza, c.pagamento, isolato, c.inizioPersonalizzato === "ottobre");
       if (!r || r.totaleConIscrizione === null) { incompleto = true; return; }
       totale += r.totaleConIscrizione;
       dettaglio.push({ corso: c.corso.corso, sede: c.corso.sede, importo: r.totaleConIscrizione });
@@ -292,7 +297,7 @@ function calcolaPrezzoTotale(corsiSelezionati) {
   let sommaMensile = 0;
   let mesiRiferimento = null;
   altri.forEach((c) => {
-    const r = importoCorso(c.corso, c.frequenza, c.pagamento, isolato);
+    const r = importoCorso(c.corso, c.frequenza, c.pagamento, isolato, c.inizioPersonalizzato === "ottobre");
     if (!r || r.puro === null) { incompleto = true; return; }
     sommaMensile += r.puro / r.mesi;
     mesiRiferimento = r.mesi;
@@ -305,7 +310,7 @@ function calcolaPrezzoTotale(corsiSelezionati) {
 
   let totaleGD = 0;
   gd.forEach((c) => {
-    const r = importoCorso(c.corso, c.frequenza, c.pagamento, isolato);
+    const r = importoCorso(c.corso, c.frequenza, c.pagamento, isolato, c.inizioPersonalizzato === "ottobre");
     if (!r || r.puro === null) { incompleto = true; return; }
     totaleGD += r.puro; // GD a prezzo pieno, nessuno sconto
     dettaglio.push({ corso: c.corso.corso, sede: c.corso.sede, importo: r.puro });
@@ -425,7 +430,7 @@ export default function ModuloIscrizione() {
   });
   const [genitore, setGenitore] = useState({ nome: "", cognome: "", cf: "" });
   const [corsiScelti, setCorsiScelti] = useState([
-    { sede: "", corsoId: "", frequenza: "2x", pagamento: "annuale" },
+    { sede: "", corsoId: "", frequenza: "2x", pagamento: "annuale", inizioPersonalizzato: null },
   ]);
   const [regolamenti, setRegolamenti] = useState({ statuto: false, privacy: false, immagini: false });
   const [firmaSocio, setFirmaSocio] = useState(null);
@@ -597,7 +602,7 @@ export default function ModuloIscrizione() {
   const sedi = useMemo(() => [...new Set(corsi.map((c) => c.sede))].sort(), [corsi]);
 
   const aggiungiCorso = () =>
-    setCorsiScelti((p) => [...p, { sede: "", corsoId: "", frequenza: "2x", pagamento: "annuale", giornoScelto: null }]);
+    setCorsiScelti((p) => [...p, { sede: "", corsoId: "", frequenza: "2x", pagamento: "annuale", giornoScelto: null, inizioPersonalizzato: null }]);
   const rimuoviCorso = (idx) => setCorsiScelti((p) => p.filter((_, i) => i !== idx));
   const aggiornaCorso = (idx, campo, valore) =>
     setCorsiScelti((p) => p.map((c, i) => (i === idx ? { ...c, [campo]: valore } : c)));
@@ -634,7 +639,7 @@ export default function ModuloIscrizione() {
     return corsiConCodice.some((c) => {
       if (!c.corso || !["annuale", "q1", "q2"].includes(c.pagamento)) return false;
       const annoBase = c.corso.annoInizioStagione || oggi.getFullYear();
-      const settembre = c.corso.mese_inizio === "settembre";
+      const settembre = c.corso.mese_inizio === "settembre" && c.inizioPersonalizzato !== "ottobre";
       const meseInizioNum = c.pagamento === "q2" ? 1 : (settembre ? 9 : 10);
       const annoRiferimento = c.pagamento === "q2" ? annoBase + 1 : annoBase;
       const dataInizioPeriodo = new Date(annoRiferimento, meseInizioNum - 1, 1);
@@ -655,7 +660,7 @@ export default function ModuloIscrizione() {
   const puoiProseguire = () => {
     if (step === 1) return anagrafica.nome && anagrafica.cognome && anagrafica.dataNascita && anagrafica.cf && validaCodiceFiscale(anagrafica.cf);
     if (step === 2) return residenza.indirizzo && residenza.comune && residenza.email;
-    if (step === 3) return corsiConCodice.length > 0;
+    if (step === 3) return corsiConCodice.length > 0 && corsiConCodice.every((c) => c.corso?.mese_inizio !== "settembre" || c.inizioPersonalizzato);
     if (step === 4) return regolamenti.statuto && regolamenti.privacy;
     if (step === 5) return firmaSocio && (!isMinorenne || firmaGenitore) && luogoFirma;
     return true;
@@ -777,6 +782,7 @@ export default function ModuloIscrizione() {
         stato_certificato: "mancante",
         frequenza: c.frequenza || "2x",
         giorno_scelto: c.frequenza === "1x" && c.corso.ha_variante_frequenza ? c.giornoScelto : null,
+        inizio_personalizzato: c.corso.mese_inizio === "settembre" ? c.inizioPersonalizzato : null,
         tipo_pagamento: c.pagamento === "q1" ? "quad1" : c.pagamento === "q2" ? "quad2" : "annuale",
         importo_dichiarato: prezzoTotale.totale ?? null,
         presa_visione_regolamenti: true,
@@ -787,6 +793,7 @@ export default function ModuloIscrizione() {
           `Frequenza: ${c.frequenza === "2x" ? "bisettimanale" : "monosettimanale"}${
             c.frequenza === "1x" && c.corso.ha_variante_frequenza && c.giornoScelto ? ` (${c.giornoScelto})` : ""
           }`,
+          c.corso.mese_inizio === "settembre" ? `Inizio corso scelto: ${c.inizioPersonalizzato === "ottobre" ? "dal 1° ottobre" : "da subito (settembre)"}` : null,
           regolamenti.immagini ? "Consenso immagini: sì" : "Consenso immagini: no",
           c.corso.quota_annuale_under65 ? `Tariffa over 65 Bovezzo applicata: ${c.corso.quota_annuale == c.corso.quota_annuale_under65 ? "no (150€)" : "sì (130€)"}` : null,
           isMinorenne ? `Genitore: ${genitore.nome} ${genitore.cognome} (${genitore.cf})` : null,
@@ -1161,9 +1168,23 @@ export default function ModuloIscrizione() {
                       )}
 
                       {corso?.mese_inizio === "settembre" && (
-                        <p className="mt-2 text-xs text-[#C24709]">
-                          ✨ Questo corso inizia a settembre (soglia minima raggiunta).
-                        </p>
+                        <div className="mt-3">
+                          <p className="text-xs text-[#C24709] mb-1.5">
+                            ✨ Questo corso è già iniziato a settembre (soglia minima raggiunta). Da quando vuoi iniziare a frequentarlo?
+                          </p>
+                          <div className="flex gap-2">
+                            <RadioPill
+                              active={sel.inizioPersonalizzato === "settembre"}
+                              onClick={() => aggiornaCorso(idx, "inizioPersonalizzato", "settembre")}
+                              label="Da subito (settembre)"
+                            />
+                            <RadioPill
+                              active={sel.inizioPersonalizzato === "ottobre"}
+                              onClick={() => aggiornaCorso(idx, "inizioPersonalizzato", "ottobre")}
+                              label="Dal 1° ottobre"
+                            />
+                          </div>
+                        </div>
                       )}
                     </div>
                   );
