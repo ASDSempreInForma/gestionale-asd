@@ -5,6 +5,25 @@ const G = "#2D6A4F", GL = "#D8F3DC"
 const BD = "#E8E4DC", TX = "#1A1A1A", SUB = "#6B7280"
 const BUCKET = 'documenti-soci'
 
+// Giorno/orario effettivo mostrato in segreteria: se l'iscritto frequenta 1 sola
+// volta a settimana (frequenza "1x" con giorno_scelto valorizzato), mostriamo solo
+// quel giorno con il suo orario invece dell'intera coppia bisettimanale del corso.
+function estraiGiorniSingoli(giorniOrari) {
+  if (!giorniOrari) return []
+  const match = giorniOrari.match(/^(.+?)\s(\d{1,2}[:.]\d{2}-\d{1,2}[:.]\d{2})$/)
+  if (!match) return [{ giorno: giorniOrari, orario: '' }]
+  const [, giorniParte, orario] = match
+  return giorniParte.split('/').map((g) => ({ giorno: g.trim(), orario }))
+}
+
+function giorniOrariVisualizzati(corso, frequenza, giornoScelto) {
+  if (frequenza === '1x' && giornoScelto) {
+    const trovato = estraiGiorniSingoli(corso?.giorni_orari).find((p) => p.giorno === giornoScelto)
+    if (trovato) return `${trovato.giorno} ${trovato.orario}`
+  }
+  return corso?.giorni_orari
+}
+
 const FUNCTION_URL_EMAIL = 'https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/invia-email-iscrizione'
 const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVic3VxZHhmbHlneGh1cHRubnVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNTU1OTcsImV4cCI6MjA5NzYzMTU5N30.KXgue3EKXZdZZ5vvkmHcEzO5OvFEAQWyuvMtLm2RtV0'
 
@@ -103,7 +122,7 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 15 }}>{socio?.cognome} {socio?.nome}</div>
-          <div style={{ fontSize: 12, color: SUB }}>CF: {socio?.cf} · {corso?.disciplina} — {corso?.giorni_orari} ({corso?.sedi?.nome})</div>
+          <div style={{ fontSize: 12, color: SUB }}>CF: {socio?.cf} · {corso?.disciplina} — {giorniOrariVisualizzati(corso, row.frequenza, row.giorno_scelto)} ({corso?.sedi?.nome})</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <input
@@ -212,6 +231,7 @@ export default function VerificaDocumenti() {
       .select(`
         id, tipo_pagamento, stato_pagamento, importo_dichiarato, data_pagamento, ricevuta_url,
         stato_certificato, data_scadenza_certificato, certificato_url, verificato_da, verificato_il,
+        frequenza, giorno_scelto,
         soci ( cf, nome, cognome, email, numero_tessera ),
         corsi ( disciplina, giorni_orari, sedi ( nome ) )
       `)
