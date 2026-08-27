@@ -2,9 +2,19 @@
 <html lang="it">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>A.S.D. Sempre In Forma — Area Iscrizioni</title>
     <link rel="icon" type="image/png" href="https://ebsuqdxflygxhuptnnun.supabase.co/storage/v1/object/public/assets/logo_icona.png" />
+
+    <!-- Aggiunta il 27/08/2026: permette di "Aggiungere alla schermata Home" da
+         iPhone (Safari) o Android (Chrome) con un'icona propria e senza la
+         barra degli indirizzi, per un aspetto più simile a un'app vera. -->
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#E8501F" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ASD Gestionale" />
   </head>
   <body>
     <div id="root"></div>
