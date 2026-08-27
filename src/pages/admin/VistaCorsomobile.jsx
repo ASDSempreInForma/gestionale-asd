@@ -403,6 +403,7 @@ export default function App() {
   const [annullando, setAnnullando] = useState(false);
   const [modaleAggiungi, setModaleAggiungi] = useState(false);
   const [filterGiorno, setFilterGiorno] = useState("tutti"); // "tutti" oppure il nome di un giorno specifico (corsi bisettimanali)
+  const [filterInizio, setFilterInizio] = useState("tutti"); // "tutti" | "settembre" | "ottobre" (corsi con partenza anticipata)
 
   // ── Caricamento dati ──────────────────────────────────────────────
   useEffect(() => { caricaDati(); }, []);
@@ -417,7 +418,7 @@ export default function App() {
 
       const { data: corsiDB, error: errC } = await supabase
         .from("corsi")
-        .select("id, codice_corso, disciplina, giorni_orari, ha_variante_frequenza, capienza_max, capienza_giorno1, capienza_giorno2, sedi(nome)")
+        .select("id, codice_corso, disciplina, giorni_orari, ha_variante_frequenza, mese_inizio, capienza_max, capienza_giorno1, capienza_giorno2, sedi(nome)")
         .eq("stagione_id", stag.id)
         .order("codice_corso");
       if (errC) throw errC;
@@ -427,7 +428,7 @@ export default function App() {
       const { data: iscDB, error: errI } = await supabase
         .from("iscrizioni")
         .select(`
-          id, stato_pagamento, stato_certificato, corso_id, frequenza, giorno_scelto,
+          id, stato_pagamento, stato_certificato, corso_id, frequenza, giorno_scelto, inizio_personalizzato,
           soci ( cf, nome, cognome )
         `)
         .eq("stagione_id", stag.id)
@@ -528,20 +529,28 @@ export default function App() {
     // Chi frequenta 2x/settimana compare in entrambi i giorni; chi frequenta 1x solo nel suo giorno_scelto.
     const giorniSingoliCorso = estraiGiorniSingoli(corso.giorni_orari);
     const corsoBisettimanale = giorniSingoliCorso.length === 2 && corso.ha_variante_frequenza !== false;
+    // Corsi che partono anticipatamente a settembre: chi si iscrive può aver scelto
+    // di frequentare da subito o di aspettare il 1° ottobre (vedi ModuloIscrizione).
+    const corsoSettembre = corso.mese_inizio === "settembre";
 
-    let corsoIscrittiGiorno = corsoIscritti;
+    let corsoIscrittiFiltrati = corsoIscritti;
     if (corsoBisettimanale && filterGiorno !== "tutti") {
-      corsoIscrittiGiorno = corsoIscritti.filter(
+      corsoIscrittiFiltrati = corsoIscrittiFiltrati.filter(
         i => i.frequenza === "2x" || (i.frequenza === "1x" && i.giorno_scelto === filterGiorno)
       );
     }
+    if (corsoSettembre && filterInizio !== "tutti") {
+      corsoIscrittiFiltrati = corsoIscrittiFiltrati.filter(
+        i => (i.inizio_personalizzato || "settembre") === filterInizio
+      );
+    }
 
-    const tot = corsoIscrittiGiorno.length;
-    const pagOk = corsoIscrittiGiorno.filter(i => pagStatus(i) === "ok").length;
-    const certOk = corsoIscrittiGiorno.filter(i => certStatus(i) === "ok").length;
-    const attenzione = corsoIscrittiGiorno.filter(i => certStatus(i) !== "ok" || pagStatus(i) !== "ok").length;
+    const tot = corsoIscrittiFiltrati.length;
+    const pagOk = corsoIscrittiFiltrati.filter(i => pagStatus(i) === "ok").length;
+    const certOk = corsoIscrittiFiltrati.filter(i => certStatus(i) === "ok").length;
+    const attenzione = corsoIscrittiFiltrati.filter(i => certStatus(i) !== "ok" || pagStatus(i) !== "ok").length;
 
-    let lista = corsoIscrittiGiorno;
+    let lista = corsoIscrittiFiltrati;
     if (filter === "warn") lista = lista.filter(i => certStatus(i) !== "ok" || pagStatus(i) !== "ok");
     if (filter === "ok") lista = lista.filter(i => certStatus(i) === "ok" && pagStatus(i) === "ok");
 
@@ -570,7 +579,7 @@ export default function App() {
       <div style={{ fontFamily: "system-ui,sans-serif", background: "#F9FAFB", minHeight: "100vh", maxWidth: 440, margin: "0 auto" }}>
         {/* TOPBAR */}
         <div style={{ background: "white", borderBottom: `0.5px solid ${BD}`, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, zIndex: 100 }}>
-          <button onClick={() => { setSelected(null); setFilter("tutti"); setFilterGiorno("tutti"); }}
+          <button onClick={() => { setSelected(null); setFilter("tutti"); setFilterGiorno("tutti"); setFilterInizio("tutti"); }}
             style={{ width: 32, height: 32, borderRadius: "50%", border: `0.5px solid ${BD}`, background: "none", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>←</button>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 500, color: TX, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{corso.disciplina}</div>
@@ -598,7 +607,7 @@ export default function App() {
           {[
             ["tutti", `Tutti (${tot})`],
             attenzione > 0 ? ["warn", `⚠️ Attenzione (${attenzione})`] : null,
-            ["ok", `✅ Ok (${corsoIscrittiGiorno.filter(i => certStatus(i) === "ok" && pagStatus(i) === "ok").length})`]
+            ["ok", `✅ Ok (${corsoIscrittiFiltrati.filter(i => certStatus(i) === "ok" && pagStatus(i) === "ok").length})`]
           ].filter(Boolean).map(([k, l]) => (
             <button key={k} onClick={() => setFilter(k)}
               style={{ padding: "5px 12px", border: `0.5px solid ${filter === k ? G : BD}`, borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", background: filter === k ? GL : "white", color: filter === k ? G : GR, flexShrink: 0 }}>
@@ -615,6 +624,20 @@ export default function App() {
               <button key={k} onClick={() => setFilterGiorno(k)}
                 style={{ padding: "5px 12px", border: `0.5px solid ${filterGiorno === k ? "#2563EB" : BD}`, borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", background: filterGiorno === k ? "#EFF6FF" : "white", color: filterGiorno === k ? "#2563EB" : GR, flexShrink: 0 }}>
                 📅 {l}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* SELETTORE INIZIO (solo corsi che partono anticipatamente a settembre) —
+            per distinguere chi frequenta da subito da chi ha scelto di aspettare
+            il 1° ottobre (scelta fatta nel modulo di iscrizione) */}
+        {corsoSettembre && (
+          <div style={{ display: "flex", gap: 6, padding: "0 14px 10px", overflowX: "auto" }}>
+            {[["tutti", "Tutti"], ["settembre", "Da settembre"], ["ottobre", "Da ottobre"]].map(([k, l]) => (
+              <button key={k} onClick={() => setFilterInizio(k)}
+                style={{ padding: "5px 12px", border: `0.5px solid ${filterInizio === k ? "#7C3AED" : BD}`, borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", background: filterInizio === k ? "#F5F3FF" : "white", color: filterInizio === k ? "#7C3AED" : GR, flexShrink: 0 }}>
+                🗓️ {l}
               </button>
             ))}
           </div>
@@ -644,6 +667,11 @@ export default function App() {
                     {corsoBisettimanale && (
                       <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 500, background: "#EFF6FF", color: "#2563EB" }}>
                         {i.frequenza === "1x" ? `📅 ${i.giorno_scelto || "?"}` : "🔁 Entrambi i giorni"}
+                      </span>
+                    )}
+                    {corsoSettembre && (
+                      <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 500, background: "#F5F3FF", color: "#7C3AED" }}>
+                        {(i.inizio_personalizzato || "settembre") === "ottobre" ? "🗓️ Da ottobre" : "🗓️ Da settembre"}
                       </span>
                     )}
                   </div>
@@ -676,7 +704,7 @@ export default function App() {
 
         {/* BOTTOM BAR */}
         <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 440, background: "white", borderTop: `0.5px solid ${BD}`, padding: "10px 14px", display: "flex", gap: 8 }}>
-          <button onClick={() => { setSelected(null); setFilter("tutti"); setFilterGiorno("tutti"); }}
+          <button onClick={() => { setSelected(null); setFilter("tutti"); setFilterGiorno("tutti"); setFilterInizio("tutti"); }}
             style={{ flex: 1, padding: "10px", border: `0.5px solid ${BD}`, borderRadius: 10, fontSize: 12, fontWeight: 500, cursor: "pointer", background: "white", color: GR }}>← Corsi</button>
           <button onClick={() => window.print()}
             style={{ flex: 2, padding: "10px", border: `0.5px solid ${G}`, borderRadius: 10, fontSize: 12, fontWeight: 500, cursor: "pointer", background: GL, color: G }}>🖨 Stampa presenze</button>
@@ -783,7 +811,7 @@ export default function App() {
             const nDanger = ci.filter(i => certStatus(i) === "scaduto" || pagStatus(i) === "attesa").length;
             const nWarn = ci.filter(i => certStatus(i) === "attesa").length;
             return (
-              <div key={c.id} onClick={() => { setSelected(c.id); setFilterGiorno("tutti"); }}
+              <div key={c.id} onClick={() => { setSelected(c.id); setFilterGiorno("tutti"); setFilterInizio("tutti"); }}
                 style={{ background: "white", border: `0.5px solid ${BD}`, borderRadius: 12, padding: "12px 14px", marginBottom: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 500, color: TX }}>{c.disciplina}</div>
