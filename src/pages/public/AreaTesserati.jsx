@@ -412,6 +412,11 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato }) {
           <b>Motivo del rifiuto:</b> {iscrizione.note}
         </div>
       )}
+      {iscrizione.nota_socio && (
+        <div style={{ background: "#F0F9FF", border: "1px solid #BAE6FD", borderRadius: 8, padding: "8px 10px", fontSize: 12.5, color: "#075985", marginBottom: 10 }}>
+          <b>📣 Comunicazione dalla segreteria:</b> {iscrizione.nota_socio}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {["in_attesa", "rifiutato"].includes(iscrizione.stato_pagamento) && (
           <button style={styles.btnSmall} onClick={onApriRicevuta}>📄 Invia ricevuta</button>

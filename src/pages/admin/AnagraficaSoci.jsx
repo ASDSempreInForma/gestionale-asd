@@ -452,11 +452,51 @@ function SezioneEmail({ socio }) {
   )
 }
 
+// Nota libera legata a UNA specifica iscrizione, VISIBILE al socio nella sua
+// Area Tesserati — diversa da iscrizioni.note (tecnica/interna, mai mostrata al
+// socio). Usata per documentare accordi/eccezioni legate a quel corso specifico
+// (es. "frequenti anche il giovedì a settembre, come da accordo").
+function NotaVisibileSocio({ iscrizione }) {
+  const [nota, setNota] = useState(iscrizione.nota_socio || '')
+  const [salvando, setSalvando] = useState(false)
+  const [salvata, setSalvata] = useState(false)
+
+  const salva = async () => {
+    setSalvando(true)
+    setSalvata(false)
+    const { error } = await supabase.from('iscrizioni').update({ nota_socio: nota || null }).eq('id', iscrizione.id)
+    setSalvando(false)
+    if (error) alert('Errore: ' + error.message)
+    else setSalvata(true)
+  }
+
+  return (
+    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px dashed ${BD}` }}>
+      <div style={{ fontSize: 11, color: SUB, marginBottom: 4 }}>📣 Nota visibile al socio (compare nella sua area privata, su questa iscrizione):</div>
+      <textarea
+        value={nota}
+        onChange={e => { setNota(e.target.value); setSalvata(false) }}
+        placeholder='Es. "Frequenti anche il giovedì a settembre, come da accordo"'
+        rows={2}
+        style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: `1px solid ${BD}`, fontSize: 12.5, boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' }}
+      />
+      <button onClick={salva} disabled={salvando}
+        style={{ marginTop: 6, background: G, color: 'white', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11.5, cursor: 'pointer', fontWeight: 600 }}>
+        {salvando ? 'Salvo...' : 'Salva nota'}
+      </button>
+      {salvata && <span style={{ marginLeft: 8, fontSize: 11, color: G }}>✓ Salvata, visibile al socio</span>}
+    </div>
+  )
+}
+
 function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
   const [iscrizioni, setIscrizioni] = useState(null)
   const [blocco, setBlocco] = useState(socio.is_admin_blocked)
   const [motivoBlocco, setMotivoBlocco] = useState(socio.blocco_motivo || '')
   const [salvandoBlocco, setSalvandoBlocco] = useState(false)
+  const [nota, setNota] = useState(socio.note || '')
+  const [salvandoNota, setSalvandoNota] = useState(false)
+  const [notaSalvata, setNotaSalvata] = useState(false)
   const [tessera, setTessera] = useState(socio.numero_tessera || '')
   const [salvandoTessera, setSalvandoTessera] = useState(false)
   const [caricandoPdf, setCaricandoPdf] = useState(false)
@@ -486,7 +526,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
       .select(`
         id, corso_id, tipo_pagamento, stato_pagamento, importo_dichiarato, ricevuta_url,
         stato_certificato, data_scadenza_certificato, certificato_url,
-        data_iscrizione, note, firma_url, firma_genitore_url,
+        data_iscrizione, note, nota_socio, firma_url, firma_genitore_url,
         corsi ( disciplina, giorni_orari, sedi ( nome ) ),
         stagioni ( nome, attiva )
       `)
@@ -504,6 +544,21 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
     setSalvandoBlocco(false)
     if (error) alert('Errore: ' + error.message)
     else onAggiornato()
+  }
+
+  // Note interne libere — mai visibili al socio, solo in segreteria. Utili per
+  // documentare accordi/eccezioni verbali (es. frequenza extra non registrata
+  // come iscrizione formale, per non farla rientrare nei conteggi capienza).
+  const salvaNota = async () => {
+    setSalvandoNota(true)
+    setNotaSalvata(false)
+    const { error } = await supabase.from('soci').update({ note: nota || null }).eq('cf', socio.cf)
+    setSalvandoNota(false)
+    if (error) alert('Errore: ' + error.message)
+    else {
+      setNotaSalvata(true)
+      onAggiornato()
+    }
   }
 
   const salvaTessera = async () => {
@@ -731,6 +786,22 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
           </button>
         </div>
 
+        <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>📝 Note interne</div>
+          <div style={{ fontSize: 11.5, color: SUB, marginBottom: 8 }}>Visibili solo in segreteria, il socio non le vede mai. Utili per accordi o eccezioni non formalizzate come iscrizione (es. "frequenta anche il giovedì a settembre, accordo verbale — non conteggiato").</div>
+          <textarea
+            value={nota}
+            onChange={e => { setNota(e.target.value); setNotaSalvata(false) }}
+            placeholder="Scrivi qui una nota..."
+            rows={3}
+            style={{ width: '100%', padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' }}
+          />
+          <button onClick={salvaNota} disabled={salvandoNota} style={{ marginTop: 8, background: G, color: 'white', border: 'none', borderRadius: 7, padding: '6px 12px', fontSize: 12.5, cursor: 'pointer', fontWeight: 600 }}>
+            {salvandoNota ? 'Salvo...' : 'Salva nota'}
+          </button>
+          {notaSalvata && <span style={{ marginLeft: 8, fontSize: 12, color: G }}>✓ Salvata</span>}
+        </div>
+
         <SezioneEmail socio={socio} />
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -767,6 +838,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
               )}
             </div>
             {i.note && <div style={{ fontSize: 11.5, color: SUB, marginTop: 6, fontStyle: 'italic' }}>{i.note}</div>}
+            <NotaVisibileSocio iscrizione={i} />
           </div>
         ))}
 
@@ -937,7 +1009,7 @@ export default function AnagraficaSoci() {
     const termine = q.trim()
     const { data, error } = await supabase
       .from('soci')
-      .select('cf, nome, cognome, email, telefono, numero_tessera, ente_tessera, scadenza_tessera, is_admin_blocked, blocco_motivo, data_nascita, comune_nascita, provincia_nascita, indirizzo, comune_residenza, provincia_residenza, cap')
+      .select('cf, nome, cognome, email, telefono, numero_tessera, ente_tessera, scadenza_tessera, is_admin_blocked, blocco_motivo, data_nascita, comune_nascita, provincia_nascita, indirizzo, comune_residenza, provincia_residenza, cap, note')
       .or(`nome.ilike.%${termine}%,cognome.ilike.%${termine}%,cf.ilike.%${termine}%`)
       .order('cognome')
       .limit(30)
@@ -986,6 +1058,7 @@ export default function AnagraficaSoci() {
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {s.is_admin_blocked && <span style={{ background: RL, color: R, borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600 }}>🔒 Bloccato</span>}
+            {s.note && <span style={{ background: '#F1F5F9', color: SUB, borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600 }}>📝 Nota</span>}
             {s.numero_tessera && <span style={{ fontSize: 12, color: SUB }}>Tessera {s.numero_tessera}</span>}
             <span style={{ color: SUB }}>›</span>
           </div>
