@@ -5,6 +5,7 @@ import GestioneIstruttori from './GestioneIstruttori.jsx'
 import GestioneCorsi from './GestioneCorsi.jsx'
 import GestioneStagioni from './GestioneStagioni.jsx'
 import ScannerCertificati from './ScannerCertificati.jsx'
+import AcquisisciModulo from './AcquisisciModulo.jsx'
 import ScannerCheckin from './ScannerCheckin.jsx'
 import VistaCorsomobile from './VistaCorsomobile.jsx'
 import AssistenteAi from './AssistenteAi.jsx'
@@ -28,6 +29,7 @@ const VOCI = [
   { id: 'esporta-assicurazioni', icon: '📄', label: 'Esporta Assicurazioni' },
   { id: 'elenco-personalizzato', icon: '📋', label: 'Elenco personalizzato' },
   { id: 'certificati',  icon: '📷', label: 'Scanner certificati' },
+  { id: 'acquisisci-modulo', icon: '📝', label: 'Acquisisci modulo' },
   { id: 'checkin',      icon: '✅', label: 'Check-in' },
   { id: 'assistente',   icon: '🤖', label: 'Assistente AI' },
 ]
@@ -140,6 +142,7 @@ export default function AdminLayout({ user, onLogout }) {
         {pagina === 'esporta-assicurazioni' && <EsportaAssicurazioni />}
         {pagina === 'elenco-personalizzato' && <ElencoPersonalizzato />}
         {pagina === 'certificati' && <ScannerCertificati />}
+        {pagina === 'acquisisci-modulo' && <AcquisisciModulo />}
         {pagina === 'checkin'     && <ScannerCheckin />}
         {pagina === 'assistente'  && <AssistenteAi />}
       </div>
