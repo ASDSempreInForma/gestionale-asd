@@ -13,6 +13,7 @@ import ImportTessere from './ImportTessere.jsx'
 import AnagraficaSoci from './AnagraficaSoci.jsx'
 import EsportaAssicurazioni from './EsportaAssicurazioni.jsx'
 import ElencoPersonalizzato from './ElencoPersonalizzato.jsx'
+import CalcolatorePrezzi from './CalcolatorePrezzi.jsx'
 
 const VOCI = [
   { id: 'verifica-documenti', icon: '📥', label: 'Verifica documenti' },
@@ -21,6 +22,7 @@ const VOCI = [
   { id: 'prove',         icon: '📋', label: 'Gestione prove' },
   { id: 'istruttori',   icon: '👨‍🏫', label: 'Istruttori' },
   { id: 'gestione-corsi', icon: '🎯', label: 'Gestione corsi' },
+  { id: 'calcolatore-prezzi', icon: '🧮', label: 'Calcolatore prezzi' },
   { id: 'gestione-stagioni', icon: '🗓️', label: 'Stagioni' },
   { id: 'corsi',        icon: '📱', label: 'Vista corso' },
   { id: 'esporta-assicurazioni', icon: '📄', label: 'Esporta Assicurazioni' },
@@ -132,6 +134,7 @@ export default function AdminLayout({ user, onLogout }) {
         {pagina === 'prove'       && <GestioneProve />}
         {pagina === 'istruttori'  && <GestioneIstruttori />}
         {pagina === 'gestione-corsi' && <GestioneCorsi />}
+        {pagina === 'calcolatore-prezzi' && <CalcolatorePrezzi />}
         {pagina === 'gestione-stagioni' && <GestioneStagioni />}
         {pagina === 'corsi'       && <VistaCorsomobile />}
         {pagina === 'esporta-assicurazioni' && <EsportaAssicurazioni />}
