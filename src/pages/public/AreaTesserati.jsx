@@ -223,6 +223,7 @@ function ModaleRicevuta({ iscrizioneIds, onClose, onDone, callFnWithAuth }) {
   const [tipoPagamento, setTipoPagamento] = useState("annuale");
   const [importo, setImporto] = useState("");
   const [dataPagamento, setDataPagamento] = useState("");
+  const [nota, setNota] = useState("");
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [errore, setErrore] = useState("");
@@ -240,7 +241,7 @@ function ModaleRicevuta({ iscrizioneIds, onClose, onDone, callFnWithAuth }) {
       action: "upload_documento",
       tipo: "ricevuta",
       iscrizione_ids: iscrizioneIds,
-      dichiarazione: { tipo_pagamento: tipoPagamento, importo: Number(importo), data_pagamento: dataPagamento },
+      dichiarazione: { tipo_pagamento: tipoPagamento, importo: Number(importo), data_pagamento: dataPagamento, nota: nota || null },
       file_base64: base64,
       file_name: fileCompresso.name,
       file_type: fileCompresso.type,
@@ -266,6 +267,14 @@ function ModaleRicevuta({ iscrizioneIds, onClose, onDone, callFnWithAuth }) {
         <input type="date" value={dataPagamento} onChange={(e) => setDataPagamento(e.target.value)} style={styles.input} />
         <label style={styles.label}>Foto o PDF della ricevuta</label>
         <input type="file" accept="image/*,.pdf" onChange={(e) => setFile(e.target.files[0])} style={styles.input} />
+        <label style={styles.label}>Nota per la segreteria (facoltativa)</label>
+        <textarea
+          value={nota}
+          onChange={(e) => setNota(e.target.value)}
+          placeholder="Es. spiega qui se il pagamento riguarda più corsi insieme o un accordo specifico con la segreteria"
+          rows={3}
+          style={{ ...styles.input, resize: "vertical", fontFamily: "inherit" }}
+        />
         {errore && <p style={styles.errore}>{errore}</p>}
         <div style={styles.modalActions}>
           <button onClick={onClose} style={styles.btnSecondary}>Annulla</button>

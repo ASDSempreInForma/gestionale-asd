@@ -150,6 +150,11 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
               Data pagamento: <b>{fmtData(row.data_pagamento)}</b>
               {row.verificato_il && <><br />Verificato il {fmtData(row.verificato_il.slice(0,10))} da {row.verificato_da || '—'}</>}
             </div>
+            {row.nota_pagamento && (
+              <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 7, padding: '7px 9px', fontSize: 12, color: '#92400E', marginTop: 8 }}>
+                💬 <b>Nota del socio:</b> {row.nota_pagamento}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
               <button onClick={() => apriDocumento(row.ricevuta_url)} style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>👁️ Apri file</button>
               {!soloConsultazione && row.stato_pagamento === 'dichiarato' && (
@@ -229,7 +234,7 @@ export default function VerificaDocumenti() {
     let query = supabase
       .from('iscrizioni')
       .select(`
-        id, tipo_pagamento, stato_pagamento, importo_dichiarato, data_pagamento, ricevuta_url,
+        id, tipo_pagamento, stato_pagamento, importo_dichiarato, data_pagamento, ricevuta_url, nota_pagamento,
         stato_certificato, data_scadenza_certificato, certificato_url, verificato_da, verificato_il,
         frequenza, giorno_scelto,
         soci ( cf, nome, cognome, email, numero_tessera ),
