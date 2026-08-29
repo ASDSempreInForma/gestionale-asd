@@ -47,6 +47,7 @@ const CORSO_VUOTO = {
   sede_id: "",
   codice_corso: "",
   disciplina: "",
+  nome_visualizzato: "",
   giorni_orari: "",
   ha_variante_frequenza: false,
   mese_inizio: "ottobre",
@@ -286,6 +287,7 @@ export default function GestioneStagioni() {
         sede_id: c.sede_id,
         codice_corso: c.codice_corso,
         disciplina: c.disciplina,
+        nome_visualizzato: c.nome_visualizzato,
         giorni_orari: c.giorni_orari,
         ha_variante_frequenza: c.ha_variante_frequenza,
         mese_inizio: c.mese_inizio,
@@ -532,6 +534,7 @@ function FormCorso({ corso, sedi, onChange, onSalva, onAnnulla, mostraPrezzi }) 
         </div>
         <Campo label="Codice corso" value={corso.codice_corso} onChange={(v) => set("codice_corso", v)} />
         <Campo label="Disciplina" value={corso.disciplina} onChange={(v) => set("disciplina", v)} />
+        <Campo label="Nome visualizzato (facoltativo)" value={corso.nome_visualizzato} onChange={(v) => set("nome_visualizzato", v || null)} />
         <Campo label='Giorni/orari (es. "Martedì/Venerdì 18:00-19:00")' value={corso.giorni_orari} onChange={(v) => set("giorni_orari", v)} />
         <div>
           <label style={{ display: "block", fontSize: 11, color: C.textSub, marginBottom: 3 }}>Mese inizio</label>
