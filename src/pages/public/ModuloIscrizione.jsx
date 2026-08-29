@@ -181,6 +181,22 @@ function mesiPeriodo(corso, pagamento, forzaOttobre) {
 // più il totale "con iscrizione" così com'è salvato a DB (utile per i casi flat).
 // `isolato` = true se questo è l'UNICO corso scelto in tutto il carrello: solo in
 // questo caso si applica l'eventuale tariffa promozionale Villaggio Badia.
+// Quanti mesi pieni sono trascorsi da una certa data di riferimento (inizio
+// corso) ad oggi, sempre tra 0 e mesiRiferimento-1 (mai negativo, mai l'intero
+// periodo). Condivisa tra importoCorso e la tariffa fissa Zumba Bovezzo, così
+// entrambe riducono l'importo allo stesso modo per chi si iscrive a stagione
+// già iniziata.
+function mesiTrascorsiDal(annoBase, meseInizioNum, mesiRiferimento, pagamento) {
+  const annoRiferimento = pagamento === "q2" ? annoBase + 1 : annoBase;
+  const dataInizioPeriodo = new Date(annoRiferimento, meseInizioNum - 1, 1);
+  const oggi = new Date();
+  let mesiTrascorsi = 0;
+  if (oggi >= dataInizioPeriodo) {
+    mesiTrascorsi = (oggi.getFullYear() - dataInizioPeriodo.getFullYear()) * 12 + (oggi.getMonth() - dataInizioPeriodo.getMonth());
+  }
+  return Math.min(Math.max(mesiTrascorsi, 0), mesiRiferimento - 1);
+}
+
 function importoCorso(corso, frequenza, pagamento, isolato, forzaOttobre) {
   if (!corso) return null;
   const is1x = frequenza === "1x" && corso.ha_variante_frequenza;
@@ -248,15 +264,7 @@ function importoCorso(corso, frequenza, pagamento, isolato, forzaOttobre) {
   const mesiRiferimento = pagamento === "q2" ? 5 : mesi;
   const annoBase = corso.annoInizioStagione || new Date().getFullYear();
   const meseInizioRiferimento = pagamento === "q2" ? 1 : (settembre ? 9 : 10);
-  const annoRiferimento = pagamento === "q2" ? annoBase + 1 : annoBase; // il 2° quadrimestre è sempre a gennaio dell'anno dopo
-  const dataInizioPeriodo = new Date(annoRiferimento, meseInizioRiferimento - 1, 1);
-  const oggi = new Date();
-
-  let mesiTrascorsi = 0;
-  if (oggi >= dataInizioPeriodo) {
-    mesiTrascorsi = (oggi.getFullYear() - dataInizioPeriodo.getFullYear()) * 12 + (oggi.getMonth() - dataInizioPeriodo.getMonth());
-  }
-  mesiTrascorsi = Math.min(Math.max(mesiTrascorsi, 0), mesiRiferimento - 1); // si paga sempre almeno 1 mese
+  const mesiTrascorsi = mesiTrascorsiDal(annoBase, meseInizioRiferimento, mesiRiferimento, pagamento);
 
   if (mesiTrascorsi > 0) {
     const meseUnitario = puro / mesiRiferimento;
@@ -288,9 +296,59 @@ function calcolaPrezzoTotale(corsiSelezionati) {
       const r = importoCorso(c.corso, c.frequenza, c.pagamento, isolato, c.inizioPersonalizzato === "ottobre");
       if (!r || r.totaleConIscrizione === null) { incompleto = true; return; }
       totale += r.totaleConIscrizione;
-      dettaglio.push({ corso: c.corso.corso, sede: c.corso.sede, importo: r.totaleConIscrizione });
+      dettaglio.push({ corso: c.corso.nomeVisualizzato || c.corso.corso, sede: c.corso.sede, importo: r.totaleConIscrizione });
     });
     return { totale: incompleto ? null : totale, incompleto, dettaglio, soloGinnasticaDolce: true };
+  }
+
+  // CASO SPECIALE: 2 o 3 turni di Zumba indipendenti combinati tra loro
+  // (qualsiasi sede offra quei turni). Tariffa fissa concordata con Solomon:
+  // il 2-turni (220€ annuale / 150€ quad1) è la regola generale già in uso per
+  // qualunque combinazione di 2 turni Zumba, in QUALSIASI sede; il 3-turni
+  // (300€ annuale / 190€ quad1) è la novità introdotta il 28/08/2026,
+  // raggiungibile di fatto solo a Bovezzo perché è l'unica sede con 3 turni
+  // tra cui scegliere — non serve quindi controllare esplicitamente la sede,
+  // il conteggio dei turni selezionati basta da solo (chiarito da Solomon il
+  // 29/08/2026, dopo un mio primo tentativo — sbagliato — di limitarlo a
+  // Bovezzo anche per il caso a 2 turni).
+  // Tariffa fissa, non la formula generale a sconto per mese — importi già
+  // comprensivi dei 40€ di iscrizione, come tutte le quote del sistema. Il
+  // singolo turno da solo NON rientra qui: usa il prezzo normale del corso
+  // tramite la formula generale sotto.
+  // Per chi si iscrive a stagione già iniziata, si applica la STESSA riduzione
+  // proporzionale delle iscrizioni singole, tramite lo stesso helper
+  // mesiTrascorsiDal.
+  // NOTA: se la Zumba viene combinata anche con una disciplina diversa (es.
+  // Zumba x2 + Pilates), questo caso speciale non scatta e si usa la formula
+  // generale standard su ogni turno di Zumba — scenario non ancora concordato.
+  const ZUMBA_MULTI_PURO = {
+    annuale: { 2: 180, 3: 260 }, // 220-40, 300-40
+    q1: { 2: 110, 3: 150 },      // 150-40, 190-40
+  };
+  const zumbaMulti = altri.filter((c) => c.corso.corso === "Zumba");
+  const altriNonZumba = altri.filter((c) => c.corso.corso !== "Zumba");
+  let zumbaSpecialeAttivo = false;
+  let zumbaMesiRiferimento = null;
+  if (zumbaMulti.length >= 2 && altriNonZumba.length === 0) {
+    // Il livello a 2 turni (220€/150€) è la regola generale già in uso per
+    // qualunque combinazione di 2 turni Zumba, SENZA vincoli di sede — vale
+    // anche se sono in due palestre diverse (confermato da Solomon).
+    // Il livello a 3 turni (300€/190€) invece è la promozione specifica dei 3
+    // turni di Bovezzo: richiede che siano davvero quei 3 turni della STESSA
+    // sede — un mix (es. 2 turni Bovezzo + 1 turno altrove) NON la prende,
+    // ricade sulla formula generale standard (confermato da Solomon il
+    // 29/08/2026). Il vincolo di sede vale SOLO per il conteggio a 3, non a 2.
+    const sediUniche = [...new Set(zumbaMulti.map((c) => c.corso.sede))];
+    const contaValidaPerTariffaFissa = zumbaMulti.length === 2 || (zumbaMulti.length === 3 && sediUniche.length === 1);
+    const pagamentiUnici = [...new Set(zumbaMulti.map((c) => c.pagamento))];
+    if (contaValidaPerTariffaFissa && pagamentiUnici.length === 1 && pagamentiUnici[0] !== "q2") {
+      const tabella = ZUMBA_MULTI_PURO[pagamentiUnici[0]];
+      const puroFisso = tabella ? tabella[zumbaMulti.length] : undefined;
+      if (puroFisso !== undefined) {
+        zumbaSpecialeAttivo = true;
+        zumbaMesiRiferimento = pagamentiUnici[0] === "annuale" ? 8 : 4;
+      }
+    }
   }
 
   // Caso 2: almeno un corso non-GD → formula generale + eventuale GD a parte.
@@ -305,7 +363,7 @@ function calcolaPrezzoTotale(corsiSelezionati) {
   // Bug scoperto e corretto il 27/08/2026: prima si usava un unico "mesi"
   // condiviso (quello dell'ultimo corso elaborato), sottostimando il totale
   // ogni volta che i corsi in combinazione avevano periodi di lunghezza diversa.
-  const risultatiAltri = altri.map((c) => ({
+  const risultatiAltri = zumbaSpecialeAttivo ? [] : altri.map((c) => ({
     c,
     r: importoCorso(c.corso, c.frequenza, c.pagamento, isolato, c.inizioPersonalizzato === "ottobre"),
   }));
@@ -315,7 +373,26 @@ function calcolaPrezzoTotale(corsiSelezionati) {
 
   let totaleAltri = null;
   let scontoTotaleAltri = 0;
-  if (!incompleto) {
+  if (zumbaSpecialeAttivo) {
+    const tabella = ZUMBA_MULTI_PURO[zumbaMulti[0].pagamento];
+    let puroZumba = tabella[zumbaMulti.length];
+    // Riduzione proporzionale per chi si iscrive a stagione già iniziata,
+    // identica a quella delle iscrizioni singole (richiesto il 29/08/2026).
+    // I 3 turni Zumba partono tutti a ottobre, quindi il riferimento è sempre
+    // il 1° ottobre — uso comunque il mese_inizio vero del corso per sicurezza.
+    const corsoRif = zumbaMulti[0].corso;
+    const meseInizioNum = corsoRif.mese_inizio === "settembre" ? 9 : 10;
+    const annoBase = corsoRif.annoInizioStagione || new Date().getFullYear();
+    const mesiTrascorsiZumba = mesiTrascorsiDal(annoBase, meseInizioNum, zumbaMesiRiferimento, zumbaMulti[0].pagamento);
+    if (mesiTrascorsiZumba > 0) {
+      const meseUnitario = puroZumba / zumbaMesiRiferimento;
+      puroZumba -= meseUnitario * mesiTrascorsiZumba;
+    }
+    totaleAltri = puroZumba;
+    zumbaMulti.forEach((c) => {
+      dettaglio.push({ corso: c.corso.nomeVisualizzato || c.corso.corso, sede: c.corso.sede, importo: null, nota: `Tariffa combinata ${zumbaMulti.length} turni` });
+    });
+  } else if (!incompleto) {
     // Valori "mesi" distinti in ordine crescente: il più piccolo è il periodo in
     // cui TUTTI i corsi scelti sono attivi insieme (perché tutti finiscono nello
     // stesso mese, maggio o gennaio); i valori più grandi rappresentano corsi
@@ -333,7 +410,7 @@ function calcolaPrezzoTotale(corsiSelezionati) {
       sogliaPrecedente = soglia;
     });
     risultatiAltri.forEach(({ c, r }) => {
-      dettaglio.push({ corso: c.corso.corso, sede: c.corso.sede, mensile: r.puro / r.mesi });
+      dettaglio.push({ corso: c.corso.nomeVisualizzato || c.corso.corso, sede: c.corso.sede, mensile: r.puro / r.mesi });
     });
   }
 
@@ -344,7 +421,7 @@ function calcolaPrezzoTotale(corsiSelezionati) {
     const r = importoCorso(c.corso, c.frequenza, c.pagamento, isolato, c.inizioPersonalizzato === "ottobre");
     if (!r || r.puro === null) { incompleto = true; return; }
     totaleGD += r.puro; // GD a prezzo pieno, nessuno sconto
-    dettaglio.push({ corso: c.corso.corso, sede: c.corso.sede, importo: r.puro });
+    dettaglio.push({ corso: c.corso.nomeVisualizzato || c.corso.corso, sede: c.corso.sede, importo: r.puro });
   });
 
   // iscrizione unica: 40€, tranne se TUTTI i corsi selezionati sono in 2a rata (rinnovo)
@@ -508,6 +585,7 @@ export default function ModuloIscrizione() {
             id,
             codice_corso,
             disciplina,
+            nome_visualizzato,
             giorni_orari,
             ha_variante_frequenza,
             mese_inizio,
@@ -585,6 +663,7 @@ export default function ModuloIscrizione() {
             id: c.id,
             sede: c.sedi.nome,
             corso: c.disciplina,
+            nomeVisualizzato: c.nome_visualizzato || c.disciplina,
             orario: c.giorni_orari,
             istruttore: nomiIstruttori,
             codice_corso: c.codice_corso,
@@ -735,7 +814,7 @@ export default function ModuloIscrizione() {
       );
       if (senzaGiornoScelto) {
         setErroreInvio(
-          `Per "${senzaGiornoScelto.corso.corso} — ${senzaGiornoScelto.corso.orario}" seleziona quale giorno preferisci frequentare.`
+          `Per "${senzaGiornoScelto.corso.nomeVisualizzato || senzaGiornoScelto.corso.corso} — ${senzaGiornoScelto.corso.orario}" seleziona quale giorno preferisci frequentare.`
         );
         setInviando(false);
         return;
@@ -770,7 +849,7 @@ export default function ModuloIscrizione() {
             ).length;
             if (occupati >= postoInfo.capienza) {
               setErroreInvio(
-                `Il corso "${c.corso.corso}" (${giorno}) ha appena raggiunto il numero massimo di iscritti. Contatta la segreteria (327 868 1393) per la disponibilità.`
+                `Il corso "${c.corso.nomeVisualizzato || c.corso.corso}" (${giorno}) ha appena raggiunto il numero massimo di iscritti. Contatta la segreteria (327 868 1393) per la disponibilità.`
               );
               setInviando(false);
               return;
@@ -876,7 +955,7 @@ export default function ModuloIscrizione() {
                 if (trovato) giorniOrariEmail = `${trovato.giorno} ${trovato.orario}`;
               }
               return {
-                nome: c.corso.corso,
+                nome: c.corso.nomeVisualizzato || c.corso.corso,
                 sede: c.corso.sede,
                 giorniOrari: giorniOrariEmail,
                 codiceCompleto: c.codiceCompleto,
@@ -1128,7 +1207,7 @@ export default function ModuloIscrizione() {
                               const pieno = c.tuttiPostiEsauriti;
                               return (
                                 <option key={c.id} value={c.id} disabled={pieno}>
-                                  {c.corso} — {c.orario}{pieno ? " — AL COMPLETO" : ""}
+                                  {c.nomeVisualizzato || c.corso} — {c.orario}{pieno ? " — AL COMPLETO" : ""}
                                 </option>
                               );
                             })}
@@ -1381,7 +1460,7 @@ export default function ModuloIscrizione() {
               <p><span className="text-slate-500">Socio:</span> <span className="font-medium">{anagrafica.nome} {anagrafica.cognome}</span></p>
               <p><span className="text-slate-500">CF:</span> <span className="font-mono">{anagrafica.cf}</span></p>
               {corsiConCodice.map((c, i) => (
-                <p key={i} className="text-slate-600">{c.corso.corso} — {c.corso.sede}</p>
+                <p key={i} className="text-slate-600">{c.corso.nomeVisualizzato || c.corso.corso} — {c.corso.sede}</p>
               ))}
               <div className="border-t pt-2 mt-2 flex justify-between items-center">
                 <span className="text-slate-500">Quota da versare:</span>
