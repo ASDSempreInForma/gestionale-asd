@@ -553,6 +553,12 @@ export default function App() {
     let lista = corsoIscrittiFiltrati;
     if (filter === "warn") lista = lista.filter(i => certStatus(i) !== "ok" || pagStatus(i) !== "ok");
     if (filter === "ok") lista = lista.filter(i => certStatus(i) === "ok" && pagStatus(i) === "ok");
+    // Scorciatoie dalle statistiche in alto: cliccando "Pagamenti ok" si vede
+    // chi NON ha pagato (il caso che serve davvero seguire), stessa logica
+    // per "Cert. ok" — utile soprattutto sui corsi numerosi, per non dover
+    // scorrere tutta la lista a mano (richiesto da Solomon il 30/08/2026).
+    if (filter === "manca_pagamento") lista = lista.filter(i => pagStatus(i) !== "ok");
+    if (filter === "manca_certificato") lista = lista.filter(i => certStatus(i) !== "ok");
 
     function rowBg(i) {
       if (pagStatus(i) === "attesa" || certStatus(i) === "scaduto") return RL;
@@ -583,7 +589,22 @@ export default function App() {
             style={{ width: 32, height: 32, borderRadius: "50%", border: `0.5px solid ${BD}`, background: "none", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>←</button>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 500, color: TX, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{corso.disciplina}</div>
-            <div style={{ fontSize: 11, color: GR }}>📍 {corso.sedi.nome} · 🕐 {corso.giorni_orari}</div>
+            <div style={{ fontSize: 11, color: GR }}>
+              📍 {corso.sedi.nome} · 🕐{" "}
+              {corsoBisettimanale ? (
+                giorniSingoliCorso.map((g, idx) => (
+                  <span key={g.giorno}>
+                    <span onClick={() => setFilterGiorno(g.giorno)} style={{ cursor: "pointer", textDecoration: filterGiorno === g.giorno ? "underline" : "none", fontWeight: filterGiorno === g.giorno ? 700 : 400, color: filterGiorno === g.giorno ? "#2563EB" : GR }}>
+                      {g.giorno}
+                    </span>
+                    {idx < giorniSingoliCorso.length - 1 ? "/" : ""}
+                  </span>
+                ))
+              ) : (
+                corso.giorni_orari
+              )}
+              {corsoBisettimanale ? ` ${giorniSingoliCorso[0]?.orario || ""}` : ""}
+            </div>
           </div>
           <button onClick={caricaDati} style={{ fontSize: 18, background: "none", border: "none", cursor: "pointer" }}>↻</button>
           <button onClick={() => setModaleAggiungi(true)}
@@ -592,13 +613,20 @@ export default function App() {
           </button>
         </div>
 
-        {/* STATS */}
+        {/* STATS — cliccabili: "Iscritti" torna a tutti, "Pagamenti ok" e
+            "Cert. ok" filtrano direttamente su chi manca (non su chi è a
+            posto), perché in palestra è quello che serve trovare in fretta */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, padding: "12px 14px" }}>
-          {[[tot, "Iscritti", TX], [pagOk, "Pagamenti ok", G], [certOk, "Cert. ok", attenzione > 0 ? R : G]].map(([v, l, c]) => (
-            <div key={l} style={{ background: "white", border: `0.5px solid ${BD}`, borderRadius: 12, padding: "12px 8px", textAlign: "center" }}>
+          {[
+            [tot, "Iscritti", TX, "tutti"],
+            [pagOk, "Pagamenti ok", G, "manca_pagamento"],
+            [certOk, "Cert. ok", attenzione > 0 ? R : G, "manca_certificato"],
+          ].map(([v, l, c, filtroTarget]) => (
+            <button key={l} onClick={() => setFilter(filtroTarget)}
+              style={{ background: filter === filtroTarget ? GL : "white", border: `0.5px solid ${filter === filtroTarget ? G : BD}`, borderRadius: 12, padding: "12px 8px", textAlign: "center", cursor: "pointer" }}>
               <div style={{ fontSize: 24, fontWeight: 700, color: c, lineHeight: 1 }}>{v}</div>
               <div style={{ fontSize: 9, color: GR, textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 3 }}>{l}</div>
-            </div>
+            </button>
           ))}
         </div>
 
