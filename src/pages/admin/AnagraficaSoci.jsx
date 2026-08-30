@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../supabase.js'
 import { generaPdfDomandaAdesione, comprimiTesseraPdf } from '../../pdfModuli.js'
 import ComboComune from '../../ComboComune.jsx'
@@ -489,6 +489,56 @@ function NotaVisibileSocio({ iscrizione }) {
   )
 }
 
+// Permette di allegare (o vedere) la foto di un modulo di adesione CARTACEO
+// firmato a mano, collegato a una specifica iscrizione — utile quando la
+// firma digitale non è disponibile o è andata persa (es. problema tecnico),
+// e si preferisce far firmare la persona su carta invece che rifare il
+// modulo online da capo.
+function AllegaModuloCartaceo({ iscrizione, socioCf, onAggiornato }) {
+  const [caricando, setCaricando] = useState(false)
+  const [erroreUpload, setErroreUpload] = useState('')
+  const fileRef = useRef(null)
+
+  const carica = async (file) => {
+    if (!file) return
+    setCaricando(true)
+    setErroreUpload('')
+    try {
+      const estensione = file.name.split('.').pop() || 'jpg'
+      const percorso = `${socioCf}/modulo_cartaceo_${Date.now()}.${estensione}`
+      const { error: errUpload } = await supabase.storage.from(BUCKET).upload(percorso, file, { contentType: file.type })
+      if (errUpload) throw errUpload
+      const { error: errUpdate } = await supabase.from('iscrizioni').update({ modulo_cartaceo_url: percorso }).eq('id', iscrizione.id)
+      if (errUpdate) throw errUpdate
+      onAggiornato && onAggiornato()
+    } catch (err) {
+      setErroreUpload('Errore nel caricamento: ' + err.message)
+    }
+    setCaricando(false)
+  }
+
+  if (iscrizione.modulo_cartaceo_url) {
+    return (
+      <button onClick={() => apriDocumento(iscrizione.modulo_cartaceo_url)}
+        style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>
+        📎 Vedi modulo cartaceo
+      </button>
+    )
+  }
+
+  return (
+    <>
+      <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }}
+        onChange={e => carica(e.target.files[0])} />
+      <button onClick={() => fileRef.current?.click()} disabled={caricando}
+        style={{ fontSize: 12, background: '#F1F5F9', color: SUB, border: `1px dashed ${BD}`, borderRadius: 6, padding: '5px 10px', cursor: caricando ? 'default' : 'pointer' }}>
+        {caricando ? 'Carico...' : '📎 Allega modulo cartaceo'}
+      </button>
+      {erroreUpload && <div style={{ fontSize: 11, color: R, marginTop: 4 }}>{erroreUpload}</div>}
+    </>
+  )
+}
+
 function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
   const [iscrizioni, setIscrizioni] = useState(null)
   const [blocco, setBlocco] = useState(socio.is_admin_blocked)
@@ -520,19 +570,29 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
   const [modaleNuovaIscrizione, setModaleNuovaIscrizione] = useState(false)
   const [eliminando, setEliminando] = useState(false)
 
-  useState(() => {
+  const caricaIscrizioni = () => {
     supabase
       .from('iscrizioni')
       .select(`
         id, corso_id, tipo_pagamento, stato_pagamento, importo_dichiarato, ricevuta_url,
         stato_certificato, data_scadenza_certificato, certificato_url,
-        data_iscrizione, note, nota_socio, firma_url, firma_genitore_url,
+        data_iscrizione, note, nota_socio, firma_url, firma_genitore_url, modulo_cartaceo_url,
         corsi ( disciplina, giorni_orari, sedi ( nome ) ),
         stagioni ( nome, attiva )
       `)
       .eq('socio_cf', socio.cf)
       .order('data_iscrizione', { ascending: false })
       .then(({ data }) => setIscrizioni(data || []))
+  }
+
+  // Era "useState(() => {...}, [])" — un refuso preesistente: useState non
+  // accetta un secondo argomento "dipendenze", quindi il secondo parametro
+  // veniva silenziosamente ignorato da React. Funzionava per coincidenza
+  // (la funzione veniva comunque eseguita una volta al render iniziale), ma
+  // non era corretto — corretto con un vero useEffect il 29/08/2026, utile
+  // ora anche per poter ricaricare le iscrizioni dopo un caricamento manuale.
+  useEffect(() => {
+    caricaIscrizioni()
   }, [])
 
   const salvaBlocco = async () => {
@@ -834,7 +894,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
                   📄 Scarica modulo firmato
                 </button>
               ) : (
-                <span style={{ fontSize: 11, color: SUB, fontStyle: 'italic' }}>Nessuna firma digitale collegata (iscrizione probabilmente inserita manualmente)</span>
+                <AllegaModuloCartaceo iscrizione={i} socioCf={socio.cf} onAggiornato={caricaIscrizioni} />
               )}
             </div>
             {i.note && <div style={{ fontSize: 11.5, color: SUB, marginTop: 6, fontStyle: 'italic' }}>{i.note}</div>}
