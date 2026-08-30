@@ -923,10 +923,34 @@ export default function ModuloIscrizione() {
       // Bug scoperto e corretto il 27/08/2026 (caso reale: Verginella Natalia).
       for (const riga of iscrizioniDaInserire) {
         const { error: errRiga } = await supabase.from("iscrizioni").insert([riga]);
-        // Ignoro solo il duplicato di QUESTA riga (socio già iscritto a QUESTO
-        // corso per questa stagione) — le altre righe della stessa iscrizione
-        // proseguono comunque.
-        if (errRiga && errRiga.code !== "23505") throw errRiga;
+        if (errRiga && errRiga.code === "23505") {
+          // Esiste già una riga per questo socio+questo corso+questa stagione.
+          // Se quella riga era stata ANNULLATA (es. la segreteria l'aveva
+          // cancellata perché la persona aveva sbagliato qualcosa, come nei
+          // casi reali di Verginella Natalia e Murace Cristian), la
+          // "rianimiamo" aggiornandola con i nuovi dati appena compilati,
+          // invece di scartare in silenzio la nuova iscrizione — altrimenti la
+          // persona riceve comunque l'email di conferma ma in segreteria non
+          // risulta nulla di nuovo. Se la riga esistente è invece ancora
+          // attiva, resta un vero doppione e viene ignorata come prima.
+          // Corretto il 29/08/2026 dopo il secondo caso reale.
+          const { data: esistente } = await supabase
+            .from("iscrizioni")
+            .select("id, stato_pagamento")
+            .eq("socio_cf", riga.socio_cf)
+            .eq("corso_id", riga.corso_id)
+            .eq("stagione_id", riga.stagione_id)
+            .maybeSingle();
+          if (esistente && esistente.stato_pagamento === "annullata") {
+            const { error: errRianima } = await supabase
+              .from("iscrizioni")
+              .update({ ...riga, motivo_annullamento: null, data_annullamento: null })
+              .eq("id", esistente.id);
+            if (errRianima) throw errRianima;
+          }
+        } else if (errRiga) {
+          throw errRiga;
+        }
       }
 
       // 3. Invia l'email di conferma con quota, causale e coordinate di pagamento.
