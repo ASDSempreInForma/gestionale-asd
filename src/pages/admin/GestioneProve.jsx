@@ -205,6 +205,28 @@ export default function GestioneProve() {
     }
   }
 
+  // ── Ripristina una prova annullata: le assegna una nuova data e rimanda
+  // l'email di conferma, esattamente come una prima conferma — utile quando
+  // l'annullamento era stato un errore o la persona chiede una nuova data
+  // dopo essere stata annullata (richiesto da Solomon il 31/08/2026) ──
+  async function ripristinaConNuovaData(p, dataScelta) {
+    if (!dataScelta) return;
+    const corso = corsi.find(c => c.id === p.corso_id);
+    const notaAggiornata = `${p.note ? p.note + " | " : ""}Prova ripristinata dalla segreteria il ${new Date().toLocaleDateString("it-IT")} con nuova data.`;
+    await aggiornaStato(p.id, "confermata", { data_effettuata: dataScelta, note: notaAggiornata });
+    if (p.email) {
+      await inviaEmail({
+        tipo: "conferma_prova",
+        destinatarioEmail: p.email,
+        destinatarioNome: p.nome,
+        corsoNome: corso?.nome,
+        corsoSede: corso?.sede,
+        corsoOrario: corso?.orario,
+        dataProva: dataScelta,
+      });
+    }
+  }
+
   // ── Non presentata: annulla con nota dedicata, la persona deve ricompilare il modulo ──
   async function segnaNonPresentata(p) {
     if (!window.confirm(`Segnare ${p.nome} ${p.cognome} come non presentata alla prova?\n\nDovrà ricompilare il modulo per fissare una nuova data.`)) return;
@@ -558,6 +580,16 @@ export default function GestioneProve() {
                             <BtnAzione label="Conferma prova" color={BL} bg={BLL}
                               loading={isSaving} disabled={!dataProvaScelta[p.id]}
                               onClick={() => confermaConData(p, dataProvaScelta[p.id])} />
+                          </>
+                        )}
+                        {p.stato === "annullata" && (
+                          <>
+                            <input type="date" value={dataProvaScelta[p.id] || ""}
+                              onChange={e => setDataProvaScelta(d => ({ ...d, [p.id]: e.target.value }))}
+                              style={{ padding:"5px 8px", border:`1px solid ${BD}`, borderRadius:7, fontSize:11 }} />
+                            <BtnAzione label="↻ Ripristina con nuova data" color={BL} bg={BLL}
+                              loading={isSaving} disabled={!dataProvaScelta[p.id]}
+                              onClick={() => ripristinaConNuovaData(p, dataProvaScelta[p.id])} />
                           </>
                         )}
                         {p.stato === "confermata" && (
