@@ -351,6 +351,72 @@ function calcolaPrezzoTotale(corsiSelezionati) {
     }
   }
 
+  // CASO SPECIALE 2: Pilates e Step scelti come 2 lezioni separate "1 volta a
+  // settimana" (qualsiasi giorno/palestra, anche corso diverso purché stessa
+  // disciplina) — pagano come il normale pacchetto "2 volte a settimana" di
+  // quella disciplina, non la formula generale a combinazione tra due
+  // elementi separati. Dalla 3a lezione in poi (stessa disciplina o diversa)
+  // torna la formula normale con lo sconto di 5€/mese sopra a questo "blocco
+  // da 2" (richiesto da Solomon il 30/08/2026, dopo aver scoperto che 2
+  // Pilates non appaiati costavano 400€ invece dei 280€ attesi).
+  // La coppia scatta solo se condividono lo stesso tipo di pagamento e lo
+  // stesso mese di inizio effettivo (tenendo conto di un eventuale "dal 1°
+  // ottobre" personalizzato) — altrimenti non è una coppia "pulita" e si
+  // preferisce la formula generale piuttosto che indovinare un prezzo.
+  const DISCIPLINE_ABBINABILI = ["Pilates", "Step-GAG BodyTonic"];
+  function meseInizioEffettivo(c) {
+    if (c.corso.mese_inizio !== "settembre") return "ottobre";
+    return c.inizioPersonalizzato === "ottobre" ? "ottobre" : "settembre";
+  }
+
+  const altriRimanenti = zumbaSpecialeAttivo ? [] : [...altri];
+  const coppieAbbinate = [];
+  if (!zumbaSpecialeAttivo) {
+    DISCIPLINE_ABBINABILI.forEach((nomeDisciplina) => {
+      const candidati = altriRimanenti.filter((c) => {
+        if (c.corso.corso !== nomeDisciplina) return false;
+        // Un corso "a coppia" (es. Lun/Ven) conta come 1 lezione solo se la
+        // persona ha scelto esplicitamente 1 solo giorno dei 2 disponibili.
+        // Un corso indipendente a giorno singolo (senza coppia, es. il
+        // Mercoledì da solo) rappresenta SEMPRE 1 lezione, a prescindere dal
+        // valore (ininfluente) del campo frequenza per quel tipo di corso.
+        // Bug scoperto e corretto durante il primo giro di test il
+        // 30/08/2026: escludeva per errore proprio il caso segnalato da
+        // Solomon (Mercoledì indipendente + Venerdì scelto da una coppia).
+        if (c.corso.ha_variante_frequenza) return c.frequenza === "1x";
+        return true;
+      });
+      while (candidati.length >= 2) {
+        const a = candidati.shift();
+        const b = candidati.shift();
+        const stessoPagamento = a.pagamento === b.pagamento && a.pagamento !== "q2";
+        const stessoMese = meseInizioEffettivo(a) === meseInizioEffettivo(b);
+        // Serve un corso "di riferimento" che abbia davvero la tariffa
+        // standard "2 volte a settimana" nei campi quota_annuale/quota_quad1.
+        // Un corso indipendente a giorno singolo (es. il Mercoledì da solo,
+        // ha_variante_frequenza=false) ha lì invece la SUA tariffa "1 volta",
+        // quindi non va bene come riferimento — altrimenti si applica per
+        // errore la tariffa da 1 lezione invece di quella da 2 (bug trovato
+        // nel primo giro di test il 30/08/2026, prima di consegnare il file).
+        const riferimento = a.corso.ha_variante_frequenza ? a.corso : (b.corso.ha_variante_frequenza ? b.corso : null);
+        if (stessoPagamento && stessoMese && riferimento) {
+          const forzaOttobre = meseInizioEffettivo(a) === "ottobre";
+          const r2x = importoCorso(riferimento, "2x", a.pagamento, false, forzaOttobre);
+          if (r2x && r2x.puro !== null) {
+            coppieAbbinate.push({ a, b, r: r2x });
+            const idxA = altriRimanenti.indexOf(a);
+            if (idxA > -1) altriRimanenti.splice(idxA, 1);
+            const idxB = altriRimanenti.indexOf(b);
+            if (idxB > -1) altriRimanenti.splice(idxB, 1);
+          }
+        }
+        // Se non abbinabili (pagamento/mese diversi, o nessuno dei due ha una
+        // tariffa "2 volte" di riferimento), a e b restano in altriRimanenti
+        // e vengono prezzati singolarmente come sempre.
+      }
+    });
+  }
+
   // Caso 2: almeno un corso non-GD → formula generale + eventuale GD a parte.
   // ATTENZIONE: i corsi combinati possono avere un numero di "mesi" diverso tra
   // loro (es. uno parte a settembre in anticipo e l'altro no, oppure la persona
@@ -363,10 +429,16 @@ function calcolaPrezzoTotale(corsiSelezionati) {
   // Bug scoperto e corretto il 27/08/2026: prima si usava un unico "mesi"
   // condiviso (quello dell'ultimo corso elaborato), sottostimando il totale
   // ogni volta che i corsi in combinazione avevano periodi di lunghezza diversa.
-  const risultatiAltri = zumbaSpecialeAttivo ? [] : altri.map((c) => ({
-    c,
-    r: importoCorso(c.corso, c.frequenza, c.pagamento, isolato, c.inizioPersonalizzato === "ottobre"),
-  }));
+  const risultatiAltri = zumbaSpecialeAttivo ? [] : [
+    ...altriRimanenti.map((c) => ({
+      c,
+      r: importoCorso(c.corso, c.frequenza, c.pagamento, isolato, c.inizioPersonalizzato === "ottobre"),
+    })),
+    ...coppieAbbinate.map(({ a, b, r }) => ({
+      c: { ...a, coppiaCon: b }, // per il dettaglio: rappresento la coppia con il primo dei due, segnalando l'abbinamento
+      r,
+    })),
+  ];
   risultatiAltri.forEach(({ r }) => {
     if (!r || r.puro === null) incompleto = true;
   });
@@ -410,7 +482,16 @@ function calcolaPrezzoTotale(corsiSelezionati) {
       sogliaPrecedente = soglia;
     });
     risultatiAltri.forEach(({ c, r }) => {
-      dettaglio.push({ corso: c.corso.nomeVisualizzato || c.corso.corso, sede: c.corso.sede, mensile: r.puro / r.mesi });
+      if (c.coppiaCon) {
+        // Coppia Pilates/Step abbinata: mostro entrambi i corsi originali,
+        // con la stessa quota mensile derivata dal pacchetto "2 volte" —
+        // così il riepilogo resta trasparente su cosa ha scelto la persona.
+        dettaglio.push({ corso: c.corso.nomeVisualizzato || c.corso.corso, sede: c.corso.sede, mensile: (r.puro / r.mesi) / 2, nota: "Abbinato a 2° lezione, tariffa 2 volte/settimana" });
+        const b = c.coppiaCon;
+        dettaglio.push({ corso: b.corso.nomeVisualizzato || b.corso.corso, sede: b.corso.sede, mensile: (r.puro / r.mesi) / 2, nota: "Abbinato a 1° lezione, tariffa 2 volte/settimana" });
+      } else {
+        dettaglio.push({ corso: c.corso.nomeVisualizzato || c.corso.corso, sede: c.corso.sede, mensile: r.puro / r.mesi });
+      }
     });
   }
 
