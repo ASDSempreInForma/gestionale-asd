@@ -472,6 +472,29 @@ export default function App() {
     setSaving(p => ({ ...p, [key]: false }));
   }
 
+  // ── Toglie una conferma data per errore (pagamento o certificato) ────
+  async function revert(iscrizioneId, corsoId, field) {
+    const key = `${iscrizioneId}_${field}`;
+    setSaving(p => ({ ...p, [key]: true }));
+    const revertUpdate = field === "pag"
+      ? { stato_pagamento: "in_attesa" }
+      : { stato_certificato: "mancante" };
+    const { error } = await supabase.from("iscrizioni").update(revertUpdate).eq("id", iscrizioneId);
+    if (!error) {
+      setIscritti(prev => ({
+        ...prev,
+        [corsoId]: prev[corsoId].map(i =>
+          i.id === iscrizioneId
+            ? field === "pag"
+              ? { ...i, stato_pagamento: "in_attesa" }
+              : { ...i, stato_certificato: "mancante" }
+            : i
+        )
+      }));
+    }
+    setSaving(p => ({ ...p, [key]: false }));
+  }
+
   // ── Annulla iscrizione (es. infortunio con certificato medico) ────
   async function annullaIscrizione() {
     if (!annullamento) return;
@@ -686,12 +709,26 @@ export default function App() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 500, color: TX }}>{i.soci?.cognome} {i.soci?.nome}</div>
                   <div style={{ display: "flex", gap: 5, marginTop: 4, flexWrap: "wrap" }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 500, background: ps === "ok" ? GL : RL, color: ps === "ok" ? G : R }}>
-                      {ps === "ok" ? "✓ Pagato" : "⏳ In attesa"}
-                    </span>
-                    <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 500, background: cs === "ok" ? GL : cs === "scaduto" ? RL : WL, color: cs === "ok" ? G : cs === "scaduto" ? R : W }}>
-                      {cs === "ok" ? "✓ Cert. ok" : cs === "scaduto" ? "❌ Scaduto" : "⚠️ Mancante"}
-                    </span>
+                    {ps === "ok" ? (
+                      <button onClick={() => { if (window.confirm(`Togliere la conferma di pagamento di ${i.soci?.nome} ${i.soci?.cognome}?`)) revert(i.id, corso.id, "pag"); }} disabled={saving[pagKey]}
+                        style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 500, background: GL, color: G, border: "none", cursor: "pointer" }}>
+                        ✓ Pagato
+                      </button>
+                    ) : (
+                      <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 500, background: RL, color: R }}>
+                        ⏳ In attesa
+                      </span>
+                    )}
+                    {cs === "ok" ? (
+                      <button onClick={() => { if (window.confirm(`Togliere la conferma del certificato di ${i.soci?.nome} ${i.soci?.cognome}?`)) revert(i.id, corso.id, "cert"); }} disabled={saving[certKey]}
+                        style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 500, background: GL, color: G, border: "none", cursor: "pointer" }}>
+                        ✓ Cert. ok
+                      </button>
+                    ) : (
+                      <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 500, background: cs === "scaduto" ? RL : WL, color: cs === "scaduto" ? R : W }}>
+                        {cs === "scaduto" ? "❌ Scaduto" : "⚠️ Mancante"}
+                      </span>
+                    )}
                     {corsoBisettimanale && (
                       <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 500, background: "#EFF6FF", color: "#2563EB" }}>
                         {i.frequenza === "1x" ? `📅 ${i.giorno_scelto || "?"}` : "🔁 Entrambi i giorni"}
@@ -706,13 +743,13 @@ export default function App() {
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
                   {ps !== "ok" && (
-                    <button onClick={() => update(i.id, corso.id, "pag", "ok")} disabled={saving[pagKey]}
+                    <button onClick={() => { if (window.confirm(`Confermi il pagamento di ${i.soci?.nome} ${i.soci?.cognome}?`)) update(i.id, corso.id, "pag", "ok"); }} disabled={saving[pagKey]}
                       style={{ padding: "4px 8px", border: `0.5px solid ${G}`, borderRadius: 8, fontSize: 10, fontWeight: 500, cursor: "pointer", background: GL, color: G, opacity: saving[pagKey] ? 0.5 : 1 }}>
                       {saving[pagKey] ? "…" : "✓ Pagato"}
                     </button>
                   )}
                   {cs !== "ok" && (
-                    <button onClick={() => update(i.id, corso.id, "cert", "ok")} disabled={saving[certKey]}
+                    <button onClick={() => { if (window.confirm(`Confermi il certificato di ${i.soci?.nome} ${i.soci?.cognome}?`)) update(i.id, corso.id, "cert", "ok"); }} disabled={saving[certKey]}
                       style={{ padding: "4px 8px", border: `0.5px solid ${W}`, borderRadius: 8, fontSize: 10, fontWeight: 500, cursor: "pointer", background: WL, color: W, opacity: saving[certKey] ? 0.5 : 1 }}>
                       {saving[certKey] ? "…" : "✓ Cert."}
                     </button>
