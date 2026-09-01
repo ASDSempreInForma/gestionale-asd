@@ -364,6 +364,16 @@ function calcolaPrezzoTotale(corsiSelezionati) {
   // ottobre" personalizzato) — altrimenti non è una coppia "pulita" e si
   // preferisce la formula generale piuttosto che indovinare un prezzo.
   const DISCIPLINE_ABBINABILI = ["Pilates", "Step-GAG BodyTonic"];
+  // Tariffa standard "2 volte a settimana" di ogni disciplina abbinabile,
+  // usata come riferimento quando nessuno dei due corsi scelti ha di suo una
+  // struttura "a coppia" da cui prendere il prezzo (es. una sede dove tutti i
+  // turni sono indipendenti). Stessi valori usati in ogni sede ad oggi
+  // (30/08/2026) — se in futuro una sede avesse un prezzo diverso, va gestito
+  // a parte, non con questa tabella generale.
+  const TARIFFA_2X_STANDARD = {
+    "Pilates": { annuale: 280, q1: 180 },
+    "Step-GAG BodyTonic": { annuale: 220, q1: 150 },
+  };
   function meseInizioEffettivo(c) {
     if (c.corso.mese_inizio !== "settembre") return "ottobre";
     return c.inizioPersonalizzato === "ottobre" ? "ottobre" : "settembre";
@@ -398,7 +408,24 @@ function calcolaPrezzoTotale(corsiSelezionati) {
         // quindi non va bene come riferimento — altrimenti si applica per
         // errore la tariffa da 1 lezione invece di quella da 2 (bug trovato
         // nel primo giro di test il 30/08/2026, prima di consegnare il file).
-        const riferimento = a.corso.ha_variante_frequenza ? a.corso : (b.corso.ha_variante_frequenza ? b.corso : null);
+        // Se nessuno dei due corsi ha una tariffa "2 volte" nei propri campi
+        // (es. una sede dove OGNI turno di Pilates/Step è indipendente, senza
+        // nessuna riga "a coppia" da usare come riferimento — caso reale:
+        // Urago Mella/Tridentina, 30/08/2026), uso la tariffa standard della
+        // disciplina come corso sintetico di riferimento, con lo stesso
+        // mese_inizio effettivo e la stessa quota_adesione del corso scelto.
+        let riferimento = a.corso.ha_variante_frequenza ? a.corso : (b.corso.ha_variante_frequenza ? b.corso : null);
+        if (!riferimento) {
+          const tariffaStandard = TARIFFA_2X_STANDARD[a.corso.corso];
+          if (tariffaStandard) {
+            riferimento = {
+              ...a.corso,
+              ha_variante_frequenza: true,
+              quota_annuale: tariffaStandard.annuale,
+              quota_quad1: tariffaStandard.q1,
+            };
+          }
+        }
         if (stessoPagamento && stessoMese && riferimento) {
           const forzaOttobre = meseInizioEffettivo(a) === "ottobre";
           const r2x = importoCorso(riferimento, "2x", a.pagamento, false, forzaOttobre);
