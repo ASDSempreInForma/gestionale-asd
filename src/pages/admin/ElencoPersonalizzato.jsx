@@ -24,8 +24,8 @@ const GRUPPI_COLONNE = [
   {
     titolo: "Dati anagrafici",
     colonne: [
-      { id: "cognome", label: "Cognome", calc: (r) => (r.soci && r.soci.cognome) || "" },
-      { id: "nome", label: "Nome", calc: (r) => (r.soci && r.soci.nome) || "" },
+      { id: "cognome", label: "Cognome", calc: (r) => capitalizza(r.soci && r.soci.cognome) },
+      { id: "nome", label: "Nome", calc: (r) => capitalizza(r.soci && r.soci.nome) },
       { id: "data_nascita", label: "Data di nascita", calc: (r) => fmtData(r.soci && r.soci.data_nascita) },
       { id: "telefono", label: "N. Telefono", calc: (r) => (r.soci && r.soci.telefono) || "" },
     ],
@@ -33,7 +33,8 @@ const GRUPPI_COLONNE = [
   {
     titolo: "Iscrizione",
     colonne: [
-      { id: "tipo_iscrizione", label: "Iscrizione", calc: (r) => labelTipoPagamento(r.tipo_pagamento) },
+      { id: "tipo_iscrizione", label: "Iscrizione", calc: (r) => (r._isProva ? "Prova" : labelTipoPagamento(r.tipo_pagamento)) },
+      { id: "pagamento", label: "Pagamento", calc: (r) => (r._isProva ? "" : labelPagamento(r.stato_pagamento)) },
       { id: "frequenza", label: "Giorni di frequenza", calc: (r) => labelFrequenza(r) },
       { id: "combinazione", label: "Combinazione con altri corsi", calc: (r) => r._combinazione || "" },
     ],
@@ -43,7 +44,7 @@ const GRUPPI_COLONNE = [
     colonne: [
       { id: "assicurazione", label: "Assicurazione", calc: (r) => ((r.soci && r.soci.numero_tessera) ? "Si" : "") },
       { id: "cert_scadenza", label: "Scadenza certificato medico", calc: (r) => (r.stato_certificato === "valido" ? fmtData(r.data_scadenza_certificato) : "") },
-      { id: "cert_consegnato", label: "Certificato consegnato", calc: (r) => (r.stato_certificato === "valido" ? "Si" : "No") },
+      { id: "cert_consegnato", label: "Certificato consegnato", calc: (r) => (r._isProva ? "" : (r.stato_certificato === "valido" ? "Si" : "No")) },
       { id: "cert_appuntamento", label: "Data appuntamento visita medica", calc: () => "" },
     ],
   },
@@ -76,6 +77,24 @@ function labelTipoPagamento(t) {
   return t || "";
 }
 
+function labelPagamento(stato) {
+  if (stato === "confermato") return "Si";
+  if (stato === "dichiarato") return "In verifica";
+  if (stato === "annullata") return "Annullata";
+  return "No";
+}
+
+// Uniforma maiuscole/minuscole dei nomi importati (es. "MICHELA" o "gianluca" -> "Michela"/"Gianluca").
+// Gestisce spazi, apostrofi e trattini come separatori di parola (es. "DI STEFANO" -> "Di Stefano", "d'amico" -> "D'Amico").
+function capitalizza(s) {
+  if (!s) return "";
+  return s
+    .toLowerCase()
+    .split(/(\s+|'|-)/)
+    .map((parte) => (/^[\s'-]+$/.test(parte) ? parte : parte.charAt(0).toUpperCase() + parte.slice(1)))
+    .join("");
+}
+
 // Estrae i nomi dei giorni dalla stringa "Lunedì/Giovedì 18:10-19:00" -> ["Lunedì","Giovedì"]
 function estraiGiorni(giorniOrari) {
   if (!giorniOrari) return [];
@@ -83,13 +102,58 @@ function estraiGiorni(giorniOrari) {
   return soloGiorni.split("/").map((g) => g.trim()).filter(Boolean);
 }
 
+const GIORNI_ABBR = {
+  "Lunedì": "Lun", "Martedì": "Mar", "Mercoledì": "Mer", "Giovedì": "Gio",
+  "Venerdì": "Ven", "Sabato": "Sab", "Domenica": "Dom",
+};
+function abbreviaGiorno(g) {
+  if (!g) return "";
+  const t = g.trim();
+  return GIORNI_ABBR[t] || t.slice(0, 3);
+}
+
+// Abbreviazione sede: "Bovezzo – Scuola Collodi" -> "Bov", "Torricella/Sant'Anna" -> "Tor"
+function abbreviaSede(sedeNome) {
+  if (!sedeNome) return "";
+  let base = sedeNome.split("–")[0].split("-")[0].split("/")[0].trim();
+  return base.slice(0, 3).charAt(0).toUpperCase() + base.slice(1, 3).toLowerCase();
+}
+
+// Abbreviazione disciplina: usa nome_visualizzato se presente, altrimenti la disciplina reale
+function abbreviaDisciplina(nomeVisualizzato, disciplina) {
+  const base = (nomeVisualizzato || disciplina || "").trim();
+  const primaParola = base.split(/\s+/)[0] || "";
+  return primaParola.slice(0, 3).charAt(0).toUpperCase() + primaParola.slice(1, 3).toLowerCase();
+}
+
 function labelFrequenza(r) {
   if (r.frequenza === "2x") {
     const giorni = estraiGiorni(r._giorniOrari);
-    return giorni.length === 2 ? giorni.join(" + ") : "2 giorni/settimana";
+    return giorni.length === 2 ? giorni.map(abbreviaGiorno).join("+") : "2x/sett";
   }
-  if (r.frequenza === "1x") return r.giorno_scelto || "1 giorno/settimana";
+  if (r.frequenza === "1x") return abbreviaGiorno(r.giorno_scelto) || "1x/sett";
   return r.frequenza || "";
+}
+
+// Ordina le righe: prima per corso, poi le persone in prova sempre in fondo al proprio
+// corso, poi alfabeticamente per cognome e nome all'interno dello stesso gruppo.
+function ordinaRighe(corsi) {
+  const codiceCorso = (id) => (corsi.find((c) => c.id === id) || {}).codice_corso || "";
+  return (a, b) => {
+    if (a.corso_id !== b.corso_id) {
+      const cmp = codiceCorso(a.corso_id).localeCompare(codiceCorso(b.corso_id));
+      if (cmp !== 0) return cmp;
+    }
+    const provaA = a._isProva ? 1 : 0;
+    const provaB = b._isProva ? 1 : 0;
+    if (provaA !== provaB) return provaA - provaB;
+    const cogA = ((a.soci && a.soci.cognome) || "").toLowerCase();
+    const cogB = ((b.soci && b.soci.cognome) || "").toLowerCase();
+    if (cogA !== cogB) return cogA.localeCompare(cogB, "it");
+    const nomA = ((a.soci && a.soci.nome) || "").toLowerCase();
+    const nomB = ((b.soci && b.soci.nome) || "").toLowerCase();
+    return nomA.localeCompare(nomB, "it");
+  };
 }
 
 export default function ElencoPersonalizzato() {
@@ -104,7 +168,7 @@ export default function ElencoPersonalizzato() {
   const [selezionati, setSelezionati] = useState(new Set());
 
   const [colonneScelte, setColonneScelte] = useState(
-    new Set(["cognome", "nome", "tipo_iscrizione", "assicurazione", "telefono"])
+    new Set(["cognome", "nome", "tipo_iscrizione", "pagamento", "assicurazione", "telefono"])
   );
 
   const OPZIONI_TITOLO = [
@@ -133,7 +197,7 @@ export default function ElencoPersonalizzato() {
 
       const { data: corsiDB, error: errC } = await supabase
         .from("corsi")
-        .select("id, codice_corso, disciplina, giorni_orari, sedi(nome)")
+        .select("id, codice_corso, disciplina, nome_visualizzato, giorni_orari, sedi(nome)")
         .eq("stagione_id", stag.id)
         .order("codice_corso");
       if (errC) throw errC;
@@ -141,34 +205,70 @@ export default function ElencoPersonalizzato() {
 
       const { data: iscDB, error: errI } = await supabase
         .from("iscrizioni")
-        .select("id, corso_id, frequenza, giorno_scelto, tipo_pagamento, stato_certificato, data_scadenza_certificato, note, soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera, ente_tessera )")
+        .select("id, corso_id, frequenza, giorno_scelto, tipo_pagamento, stato_pagamento, stato_certificato, data_scadenza_certificato, note, soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera, ente_tessera )")
         .eq("stagione_id", stag.id)
         .neq("stato_pagamento", "annullata")
         .order("id");
       if (errI) throw errI;
 
-      const corsiPerSocio = {};
+      // Righe di altri corsi per la stessa persona (per CF), con i dettagli
+      // di frequenza necessari a costruire l'abbreviazione della combinazione.
+      const righePerSocio = {};
       (iscDB || []).forEach((r) => {
         const cf = r.soci && r.soci.cf;
         if (!cf) return;
-        if (!corsiPerSocio[cf]) corsiPerSocio[cf] = [];
-        corsiPerSocio[cf].push(r.corso_id);
+        if (!righePerSocio[cf]) righePerSocio[cf] = [];
+        righePerSocio[cf].push(r);
       });
-      const nomeCorso = (id) => {
-        const c = (corsiDB || []).find((cc) => cc.id === id);
-        return c ? c.disciplina + " (" + c.sedi.nome + ")" : "";
+      const nomeCorsoAbbreviato = (rigaAltroCorso) => {
+        const c = (corsiDB || []).find((cc) => cc.id === rigaAltroCorso.corso_id);
+        if (!c) return "";
+        const disc = abbreviaDisciplina(c.nome_visualizzato, c.disciplina);
+        const sede = abbreviaSede(c.sedi && c.sedi.nome);
+        let giorni = "";
+        if (rigaAltroCorso.frequenza === "2x") {
+          giorni = estraiGiorni(c.giorni_orari).map(abbreviaGiorno).join("+");
+        } else if (rigaAltroCorso.frequenza === "1x") {
+          giorni = abbreviaGiorno(rigaAltroCorso.giorno_scelto);
+        }
+        return [disc, sede, giorni].filter(Boolean).join(" ");
       };
       const arricchite = (iscDB || []).map((r) => {
         const cf = r.soci && r.soci.cf;
-        const altri = (corsiPerSocio[cf] || []).filter((cid) => cid !== r.corso_id);
+        const altri = (righePerSocio[cf] || []).filter((rr) => rr.corso_id !== r.corso_id);
         const corsoRiga = (corsiDB || []).find((cc) => cc.id === r.corso_id);
         return Object.assign({}, r, {
-          _combinazione: altri.map(nomeCorso).join(" + "),
+          _combinazione: altri.map(nomeCorsoAbbreviato).join(" + "),
           _giorniOrari: corsoRiga ? corsoRiga.giorni_orari : "",
         });
       });
 
-      setIscrizioni(arricchite);
+      // Persone ancora in prova (non ancora iscritte, non scadute) — vanno mostrate
+      // in fondo all'elenco del rispettivo corso con l'etichetta "Prova".
+      const { data: proveDB, error: errPr } = await supabase
+        .from("prove")
+        .select("id, nome, cognome, cf, telefono, data_nascita, stato, corso_id, corsi!inner ( stagione_id )")
+        .eq("corsi.stagione_id", stag.id)
+        .in("stato", ["in_attesa", "confermata", "effettuata"]);
+      if (errPr) throw errPr;
+
+      const proveArricchite = (proveDB || []).map((p) => ({
+        id: "prova:" + p.id,
+        _isProva: true,
+        corso_id: p.corso_id,
+        frequenza: null,
+        giorno_scelto: null,
+        tipo_pagamento: null,
+        stato_pagamento: null,
+        stato_certificato: null,
+        data_scadenza_certificato: null,
+        note: "Prova",
+        _combinazione: "",
+        _giorniOrari: "",
+        soci: { cf: p.cf, nome: p.nome, cognome: p.cognome, data_nascita: p.data_nascita, telefono: p.telefono },
+      }));
+
+      setIscrizioni([...arricchite, ...proveArricchite]);
     } catch (err) {
       console.error(err);
       setErrore("Impossibile caricare i dati. Riprova piu tardi.");
@@ -178,19 +278,21 @@ export default function ElencoPersonalizzato() {
   }
 
   const risultatiFiltrati = useMemo(() => {
-    return iscrizioni.filter((r) => {
-      if (filtroCorso && r.corso_id !== filtroCorso) return false;
-      if (ricerca) {
-        const testo = ((r.soci && r.soci.nome ? r.soci.nome : "") + " " + (r.soci && r.soci.cognome ? r.soci.cognome : "") + " " + (r.soci && r.soci.cf ? r.soci.cf : "")).toLowerCase();
-        if (!testo.includes(ricerca.toLowerCase())) return false;
-      }
-      return true;
-    });
-  }, [iscrizioni, filtroCorso, ricerca]);
+    return iscrizioni
+      .filter((r) => {
+        if (filtroCorso && r.corso_id !== filtroCorso) return false;
+        if (ricerca) {
+          const testo = ((r.soci && r.soci.nome ? r.soci.nome : "") + " " + (r.soci && r.soci.cognome ? r.soci.cognome : "") + " " + (r.soci && r.soci.cf ? r.soci.cf : "")).toLowerCase();
+          if (!testo.includes(ricerca.toLowerCase())) return false;
+        }
+        return true;
+      })
+      .sort(ordinaRighe(corsi));
+  }, [iscrizioni, filtroCorso, ricerca, corsi]);
 
   const iscrizioniSelezionate = useMemo(
-    () => iscrizioni.filter((r) => selezionati.has(r.id)),
-    [iscrizioni, selezionati]
+    () => iscrizioni.filter((r) => selezionati.has(r.id)).sort(ordinaRighe(corsi)),
+    [iscrizioni, selezionati, corsi]
   );
 
   function toggleSelezionato(id) {
@@ -342,7 +444,14 @@ export default function ElencoPersonalizzato() {
                 {risultatiFiltrati.map((r) => (
                   <label key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "7px 10px", borderBottom: "1px solid " + BD, cursor: "pointer" }}>
                     <input type="checkbox" checked={selezionati.has(r.id)} onChange={() => toggleSelezionato(r.id)} />
-                    <span style={{ flex: 1 }}>{r.soci && r.soci.cognome} {r.soci && r.soci.nome}</span>
+                    <span style={{ flex: 1 }}>
+                      {capitalizza(r.soci && r.soci.cognome)} {capitalizza(r.soci && r.soci.nome)}
+                      {r._isProva && (
+                        <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#B45309", background: "#FEF3C7", padding: "1px 6px", borderRadius: 5 }}>
+                          PROVA
+                        </span>
+                      )}
+                    </span>
                     <span style={{ fontSize: 11, color: GR }}>
                       {(corsi.find((c) => c.id === r.corso_id) || {}).codice_corso}
                     </span>

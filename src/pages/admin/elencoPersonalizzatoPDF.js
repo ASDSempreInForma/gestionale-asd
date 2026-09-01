@@ -13,7 +13,7 @@ const LOGO_ASD_B64 = "iVBORw0KGgoAAAANSUhEUgAAAKgAAACoCAIAAAD7KTLjAABiI0lEQVR4nO
 // Ordine di stampa fisso delle colonne, indipendente dall'ordine in cui sono
 // state spuntate le caselle — ricalca l'ordine del vecchio foglio "Presenza".
 export const ORDINE_STAMPA = [
-  "cognome", "nome", "tipo_iscrizione", "cert_consegnato", "cert_scadenza",
+  "cognome", "nome", "tipo_iscrizione", "pagamento", "cert_consegnato", "cert_scadenza",
   "cert_appuntamento", "assicurazione", "frequenza", "combinazione",
   "telefono", "presenza", "firma", "data_stampa", "note_manuali", "data_nascita",
 ];
@@ -56,7 +56,7 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
     if (id === "cognome" || id === "nome") return 90;
     if (id === "combinazione" || id === "note_manuali") return 140;
     if (id === "tipo_iscrizione" || id === "frequenza" || id === "cert_scadenza" || id === "cert_appuntamento") return 90;
-    if (id === "assicurazione" || id === "cert_consegnato") return 80;
+    if (id === "assicurazione" || id === "cert_consegnato" || id === "pagamento") return 80;
     if (id === "firma") return 130;
     if (id === "presenza") return 60;
     return 75;
