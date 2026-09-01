@@ -219,14 +219,29 @@ function FirmaCanvas({ onChange }) {
 }
 
 // ─── Modale upload ricevuta ─────────────────────────────────────────────────
-function ModaleRicevuta({ iscrizioneIds, onClose, onDone, callFnWithAuth }) {
+// iscrizionePrincipale: la card da cui si è aperto il modale (sempre inclusa).
+// altreIscrizioni: gli altri corsi attivi della stessa persona che non hanno
+// ancora un pagamento confermato — la persona può selezionare quali coprire
+// con la STESSA ricevuta, invece di doverla ricaricare identica per ognuno
+// (caso frequente: chi frequenta più corsi fa un unico pagamento cumulativo).
+function ModaleRicevuta({ iscrizionePrincipale, altreIscrizioni, onClose, onDone, callFnWithAuth }) {
   const [tipoPagamento, setTipoPagamento] = useState("annuale");
   const [importo, setImporto] = useState("");
   const [dataPagamento, setDataPagamento] = useState("");
   const [nota, setNota] = useState("");
   const [file, setFile] = useState(null);
+  const [altriSelezionati, setAltriSelezionati] = useState(new Set());
   const [loading, setLoading] = useState(false);
   const [errore, setErrore] = useState("");
+
+  const toggleAltro = (id) => {
+    setAltriSelezionati((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const invia = async () => {
     if (!file || !dataPagamento || !importo) {
@@ -237,6 +252,7 @@ function ModaleRicevuta({ iscrizioneIds, onClose, onDone, callFnWithAuth }) {
     setErrore("");
     const fileCompresso = await comprimiImmagine(file);
     const base64 = await fileToBase64(fileCompresso);
+    const iscrizioneIds = [iscrizionePrincipale.id, ...altriSelezionati];
     const r = await callFnWithAuth({
       action: "upload_documento",
       tipo: "ricevuta",
@@ -255,6 +271,9 @@ function ModaleRicevuta({ iscrizioneIds, onClose, onDone, callFnWithAuth }) {
     <div style={styles.overlay} onClick={onClose}>
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <h3>Carica ricevuta di pagamento</h3>
+        <p style={{ color: "#64748b", fontSize: 13, marginTop: -6 }}>
+          Per il corso: <b>{iscrizionePrincipale.corsi?.disciplina}</b> ({iscrizionePrincipale.corsi?.sedi?.nome})
+        </p>
         <label style={styles.label}>Tipo di pagamento effettuato</label>
         <select value={tipoPagamento} onChange={(e) => setTipoPagamento(e.target.value)} style={styles.input}>
           <option value="annuale">Quota annuale (unica soluzione)</option>
@@ -267,11 +286,28 @@ function ModaleRicevuta({ iscrizioneIds, onClose, onDone, callFnWithAuth }) {
         <input type="date" value={dataPagamento} onChange={(e) => setDataPagamento(e.target.value)} style={styles.input} />
         <label style={styles.label}>Foto o PDF della ricevuta</label>
         <input type="file" accept="image/*,.pdf" onChange={(e) => setFile(e.target.files[0])} style={styles.input} />
+
+        {altreIscrizioni.length > 0 && (
+          <div style={{ marginTop: 6 }}>
+            <label style={styles.label}>Questo pagamento copre anche altri tuoi corsi?</label>
+            <p style={{ color: "#64748b", fontSize: 12.5, marginTop: -4, marginBottom: 8 }}>
+              Se hai fatto un unico pagamento per più corsi insieme, seleziona qui gli altri corsi: non dovrai
+              ricaricare la stessa ricevuta più volte.
+            </p>
+            {altreIscrizioni.map((i) => (
+              <label key={i.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, padding: "6px 0", cursor: "pointer" }}>
+                <input type="checkbox" checked={altriSelezionati.has(i.id)} onChange={() => toggleAltro(i.id)} />
+                {i.corsi?.disciplina} — {i.corsi?.sedi?.nome}
+              </label>
+            ))}
+          </div>
+        )}
+
         <label style={styles.label}>Nota per la segreteria (facoltativa)</label>
         <textarea
           value={nota}
           onChange={(e) => setNota(e.target.value)}
-          placeholder="Es. spiega qui se il pagamento riguarda più corsi insieme o un accordo specifico con la segreteria"
+          placeholder="Note aggiuntive per la segreteria, se servono"
           rows={3}
           style={{ ...styles.input, resize: "vertical", fontFamily: "inherit" }}
         />
@@ -728,7 +764,10 @@ export default function AreaTesserati() {
 
       {modaleRicevuta && (
         <ModaleRicevuta
-          iscrizioneIds={[modaleRicevuta.id]}
+          iscrizionePrincipale={modaleRicevuta}
+          altreIscrizioni={iscrizioniAttive.filter(
+            (i) => i.id !== modaleRicevuta.id && ["in_attesa", "rifiutato"].includes(i.stato_pagamento)
+          )}
           onClose={() => setModaleRicevuta(null)}
           callFnWithAuth={callFnWithAuth}
           onDone={(msg) => {
