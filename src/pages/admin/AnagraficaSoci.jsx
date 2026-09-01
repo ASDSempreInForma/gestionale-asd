@@ -104,6 +104,28 @@ function estraiGiorniSingoli(giorniOrari) {
   return match[1].split('/').map(g => ({ giorno: g.trim() }))
 }
 
+// Come sopra ma con l'orario, per mostrare SOLO il giorno che il socio ha
+// scelto (frequenza "1x") invece dell'intera coppia — es. "Martedì 17:10-18:00"
+// invece di "Martedì/Venerdì 17:10-18:00", quando ha scelto solo il martedì.
+// Bug scoperto il 30/08/2026 (caso reale: Bardelloni Donatella, spostata da
+// un'iscrizione a un'altra ma la scheda mostrava comunque l'intera coppia,
+// facendo pensare a un errore quando in realtà il dato era corretto).
+function estraiGiorniSingoliConOrario(giorniOrari) {
+  if (!giorniOrari) return []
+  const match = giorniOrari.match(/^(.+?)\s(\d{1,2}[:.]\d{2}-\d{1,2}[:.]\d{2})$/)
+  if (!match) return [{ giorno: giorniOrari, orario: '' }]
+  const [, giorniParte, orario] = match
+  return giorniParte.split('/').map(g => ({ giorno: g.trim(), orario }))
+}
+
+function giorniOrariVisualizzati(corso, frequenza, giornoScelto) {
+  if (frequenza === '1x' && giornoScelto) {
+    const trovato = estraiGiorniSingoliConOrario(corso?.giorni_orari).find(p => p.giorno === giornoScelto)
+    if (trovato) return `${trovato.giorno} ${trovato.orario}`
+  }
+  return corso?.giorni_orari
+}
+
 function ModaleNuovaIscrizione({ socio, corsiEsclusi, onClose, onSalvato }) {
   const [corsi, setCorsi] = useState(null)
   const [corsoId, setCorsoId] = useState('')
@@ -539,6 +561,128 @@ function AllegaModuloCartaceo({ iscrizione, socioCf, onAggiornato }) {
   )
 }
 
+// Permette di spostare un'iscrizione GIA' ESISTENTE su un altro corso (stessa
+// stagione), senza toccare ricevuta/certificato/firma/note già inviate — utile
+// per richieste tipo "vorrei cambiare giorno" quando il socio ha già mandato
+// tutto. Cambia solo corso_id/frequenza/giorno_scelto; tutto il resto della
+// riga (documenti, stato pagamento/certificato, importo dichiarato) resta
+// invariato. Aggiunta il 30/08/2026 dopo un caso reale (Bardelloni Donatella).
+function CambiaCorso({ iscrizione, onAggiornato }) {
+  const [aperto, setAperto] = useState(false)
+  const [corsi, setCorsi] = useState(null)
+  const [corsoId, setCorsoId] = useState('')
+  const [frequenza, setFrequenza] = useState('2x')
+  const [giornoScelto, setGiornoScelto] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [errore, setErrore] = useState('')
+
+  const apri = () => {
+    setAperto(true)
+    setCorsoId('')
+    setFrequenza('2x')
+    setGiornoScelto('')
+    setErrore('')
+    if (!corsi) {
+      supabase.from('stagioni').select('id').eq('attiva', true).maybeSingle().then(({ data: stagione }) => {
+        if (!stagione) { setErrore('Nessuna stagione attiva.'); setCorsi([]); return }
+        supabase.from('corsi')
+          .select('id, codice_corso, disciplina, nome_visualizzato, giorni_orari, ha_variante_frequenza, sedi(nome)')
+          .eq('stagione_id', stagione.id)
+          .order('codice_corso')
+          .then(({ data }) => setCorsi(data || []))
+      })
+    }
+  }
+
+  const corso = corsi?.find(c => c.id === corsoId)
+  const giorniSingoli = corso ? estraiGiorniSingoli(corso.giorni_orari) : []
+  const bisettimanale = giorniSingoli.length === 2 && corso?.ha_variante_frequenza !== false
+
+  const conferma = async () => {
+    if (!corsoId) { setErrore('Seleziona il nuovo corso.'); return }
+    if (bisettimanale && frequenza === '1x' && !giornoScelto) { setErrore('Seleziona quale giorno.'); return }
+    const vecchio = iscrizione.corsi
+    const nuovaEtichetta = `${corso.disciplina} — ${corso.giorni_orari}${bisettimanale && frequenza === '1x' ? ` (${giornoScelto})` : ''}`
+    const vecchiaEtichetta = `${vecchio?.disciplina} — ${vecchio?.giorni_orari}`
+    if (!window.confirm(`Spostare l'iscrizione da "${vecchiaEtichetta}" a "${nuovaEtichetta}"?\n\nRicevuta, certificato e firma già inviati restano collegati e non vengono toccati. L'importo dichiarato NON viene ricalcolato automaticamente — verificalo tu se il prezzo del nuovo corso è diverso.`)) return
+    setSalvando(true)
+    const nuovaNota = `${iscrizione.note ? iscrizione.note + ' | ' : ''}Spostata da "${vecchiaEtichetta}" a "${nuovaEtichetta}" il ${new Date().toLocaleDateString('it-IT')} — nessuna modifica a ricevuta/certificato/firma/importo.`
+    const { error } = await supabase.from('iscrizioni').update({
+      corso_id: corsoId,
+      frequenza: bisettimanale ? frequenza : '2x',
+      giorno_scelto: bisettimanale && frequenza === '1x' ? giornoScelto : null,
+      note: nuovaNota,
+    }).eq('id', iscrizione.id)
+    setSalvando(false)
+    if (error) { setErrore('Errore: ' + error.message); return }
+    setAperto(false)
+    onAggiornato()
+  }
+
+  if (!aperto) {
+    return (
+      <button onClick={apri} style={{ fontSize: 12, background: '#FEF3C7', color: '#92400E', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>
+        🔄 Cambia corso
+      </button>
+    )
+  }
+
+  return (
+    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px dashed ${BD}`, background: '#FFFBEB', borderRadius: 8, padding: 10 }}>
+      <div style={{ fontSize: 11.5, color: '#92400E', marginBottom: 6, fontWeight: 600 }}>Sposta su un altro corso (ricevuta/certificato/firma restano collegati)</div>
+      {corsi === null ? (
+        <div style={{ fontSize: 12, color: SUB }}>Caricamento corsi…</div>
+      ) : (
+        <>
+          <select value={corsoId} onChange={e => { setCorsoId(e.target.value); setFrequenza('2x'); setGiornoScelto('') }}
+            style={{ width: '100%', padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 12.5, marginBottom: 8 }}>
+            <option value="">— Seleziona il nuovo corso —</option>
+            {corsi.map(c => (
+              <option key={c.id} value={c.id}>{c.nome_visualizzato || c.disciplina} — {c.sedi?.nome} — {c.giorni_orari}</option>
+            ))}
+          </select>
+
+          {bisettimanale && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11, color: SUB, marginBottom: 4 }}>Frequenza</div>
+              <div style={{ display: 'flex', gap: 6, marginBottom: giorniSingoli.length === 2 && frequenza === '1x' ? 8 : 0 }}>
+                {['2x', '1x'].map(f => (
+                  <button key={f} onClick={() => { setFrequenza(f); setGiornoScelto('') }}
+                    style={{ flex: 1, padding: '6px', borderRadius: 6, border: `1px solid ${frequenza === f ? '#92400E' : BD}`, background: frequenza === f ? '#FEF3C7' : 'white', color: frequenza === f ? '#92400E' : TX, fontSize: 12, cursor: 'pointer', fontWeight: frequenza === f ? 600 : 400 }}>
+                    {f === '2x' ? '2 volte/sett.' : '1 volta/sett.'}
+                  </button>
+                ))}
+              </div>
+              {frequenza === '1x' && (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {giorniSingoli.map(g => (
+                    <button key={g.giorno} onClick={() => setGiornoScelto(g.giorno)}
+                      style={{ flex: 1, padding: '6px', borderRadius: 6, border: `1px solid ${giornoScelto === g.giorno ? '#92400E' : BD}`, background: giornoScelto === g.giorno ? '#FEF3C7' : 'white', color: giornoScelto === g.giorno ? '#92400E' : TX, fontSize: 12, cursor: 'pointer', fontWeight: giornoScelto === g.giorno ? 600 : 400 }}>
+                      {g.giorno}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {errore && <p style={{ fontSize: 11.5, color: R, margin: '0 0 8px' }}>{errore}</p>}
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setAperto(false)} style={{ flex: 1, padding: '7px', border: `1px solid ${BD}`, borderRadius: 7, background: 'white', color: SUB, fontSize: 12, cursor: 'pointer' }}>
+              Annulla
+            </button>
+            <button onClick={conferma} disabled={salvando}
+              style={{ flex: 2, padding: '7px', border: 'none', borderRadius: 7, background: '#92400E', color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+              {salvando ? 'Sposto…' : 'Conferma spostamento'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
   const [iscrizioni, setIscrizioni] = useState(null)
   const [blocco, setBlocco] = useState(socio.is_admin_blocked)
@@ -577,6 +721,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
         id, corso_id, tipo_pagamento, stato_pagamento, importo_dichiarato, ricevuta_url,
         stato_certificato, data_scadenza_certificato, certificato_url,
         data_iscrizione, note, nota_socio, firma_url, firma_genitore_url, modulo_cartaceo_url,
+        frequenza, giorno_scelto,
         corsi ( disciplina, giorni_orari, sedi ( nome ) ),
         stagioni ( nome, attiva )
       `)
@@ -877,7 +1022,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
           <div key={i.id} style={{ border: `1px solid ${BD}`, borderRadius: 10, padding: 12, marginBottom: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
               <div>
-                <div style={{ fontWeight: 600, fontSize: 13.5 }}>{i.corsi?.disciplina} — {i.corsi?.giorni_orari}</div>
+                <div style={{ fontWeight: 600, fontSize: 13.5 }}>{i.corsi?.disciplina} — {giorniOrariVisualizzati(i.corsi, i.frequenza, i.giorno_scelto)}</div>
                 <div style={{ fontSize: 12, color: SUB }}>{i.corsi?.sedi?.nome} · Stagione {i.stagioni?.nome}{i.stagioni?.attiva ? ' (attiva)' : ''}</div>
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -899,6 +1044,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
             </div>
             {i.note && <div style={{ fontSize: 11.5, color: SUB, marginTop: 6, fontStyle: 'italic' }}>{i.note}</div>}
             <NotaVisibileSocio iscrizione={i} />
+            <CambiaCorso iscrizione={i} onAggiornato={caricaIscrizioni} />
           </div>
         ))}
 
