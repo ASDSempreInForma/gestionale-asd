@@ -582,6 +582,140 @@ function AllegaModuloCartaceo({ iscrizione, socioCf, onAggiornato }) {
   )
 }
 
+// Permette alla segreteria di caricare direttamente una ricevuta o un certificato
+// che la persona ha consegnato a mano (di persona in palestra), invece che tramite
+// l'area privata. Al salvataggio segna il documento come confermato/valido e invia
+// la STESSA email ("documento_confermato") che parte quando è il socio a caricarlo
+// e la segreteria lo conferma da "Verifica Documenti" — così il socio riceve
+// comunque conferma, anche se non ha mai usato l'area privata per questo documento.
+function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato }) {
+  const [aperto, setAperto] = useState(false)
+  const [caricando, setCaricando] = useState(false)
+  const [errore, setErrore] = useState('')
+  const [file, setFile] = useState(null)
+  const [tipoPagamento, setTipoPagamento] = useState(iscrizione.tipo_pagamento || 'annuale')
+  const [importo, setImporto] = useState('')
+  const [dataPagamento, setDataPagamento] = useState(new Date().toISOString().slice(0, 10))
+  const [scadenzaCertificato, setScadenzaCertificato] = useState('')
+
+  const etichetta = tipo === 'ricevuta' ? 'ricevuta di pagamento' : 'certificato medico'
+
+  const salva = async () => {
+    if (!file) { setErrore('Seleziona prima un file (foto o PDF).'); return }
+    if (tipo === 'certificato' && !scadenzaCertificato) { setErrore('Inserisci la data di scadenza del certificato.'); return }
+    setCaricando(true)
+    setErrore('')
+    try {
+      const estensione = file.name.split('.').pop() || 'jpg'
+      const percorso = `${socio.cf}/${tipo}_manuale_${Date.now()}.${estensione}`
+      const { error: errUpload } = await supabase.storage.from(BUCKET).upload(percorso, file, { contentType: file.type })
+      if (errUpload) throw errUpload
+
+      const notaAggiunta = `${tipo === 'ricevuta' ? 'Ricevuta' : 'Certificato'} consegnat${tipo === 'ricevuta' ? 'a' : 'o'} a mano, caricat${tipo === 'ricevuta' ? 'a' : 'o'} dalla segreteria il ${new Date().toLocaleDateString('it-IT')}.`
+      const payload = tipo === 'ricevuta'
+        ? {
+            ricevuta_url: percorso,
+            stato_pagamento: 'confermato',
+            tipo_pagamento: tipoPagamento,
+            importo_dichiarato: importo === '' ? null : Number(importo),
+            data_pagamento: dataPagamento || null,
+          }
+        : {
+            certificato_url: percorso,
+            stato_certificato: 'valido',
+            data_scadenza_certificato: scadenzaCertificato,
+          }
+
+      const { error: errUpdate } = await supabase.from('iscrizioni').update({
+        ...payload,
+        verificato_da: (await supabase.auth.getUser()).data.user?.email,
+        verificato_il: new Date().toISOString(),
+        note: iscrizione.note ? `${iscrizione.note} | ${notaAggiunta}` : notaAggiunta,
+      }).eq('id', iscrizione.id)
+      if (errUpdate) throw errUpdate
+
+      if (socio.email) {
+        fetch('https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/invia-email-iscrizione', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tipo: 'documento_confermato',
+            destinatarioEmail: socio.email,
+            destinatarioNome: socio.nome,
+            tipoDocumento: tipo,
+          }),
+        }).catch(() => {})
+      }
+
+      setAperto(false)
+      setFile(null)
+      onAggiornato && onAggiornato()
+    } catch (err) {
+      setErrore('Errore: ' + err.message)
+    }
+    setCaricando(false)
+  }
+
+  if (!aperto) {
+    return (
+      <button onClick={() => setAperto(true)}
+        style={{ fontSize: 12, background: '#F1F5F9', color: SUB, border: `1px dashed ${BD}`, borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>
+        📎 Carica {etichetta} (consegnata a mano)
+      </button>
+    )
+  }
+
+  return (
+    <div style={{ background: '#F8FAFC', border: `1px solid ${BD}`, borderRadius: 8, padding: 10, width: '100%' }}>
+      <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 8 }}>Carica {etichetta} consegnata a mano</div>
+      <input type="file" accept="image/*,.pdf" onChange={e => setFile(e.target.files[0])}
+        style={{ fontSize: 12.5, marginBottom: 8, display: 'block' }} />
+
+      {tipo === 'ricevuta' && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          <select value={tipoPagamento} onChange={e => setTipoPagamento(e.target.value)}
+            style={{ padding: '6px 8px', borderRadius: 6, border: `1px solid ${BD}`, fontSize: 12.5 }}>
+            <option value="annuale">Annuale</option>
+            <option value="quad1">1° quadrimestre</option>
+            <option value="quad2">2° quadrimestre</option>
+            <option value="rinnovo_gratuito">Rinnovo (già pagato)</option>
+          </select>
+          <input type="number" placeholder="Importo €" value={importo} onChange={e => setImporto(e.target.value)}
+            style={{ width: 90, padding: '6px 8px', borderRadius: 6, border: `1px solid ${BD}`, fontSize: 12.5 }} />
+          <input type="date" value={dataPagamento} onChange={e => setDataPagamento(e.target.value)}
+            style={{ padding: '6px 8px', borderRadius: 6, border: `1px solid ${BD}`, fontSize: 12.5 }} />
+        </div>
+      )}
+
+      {tipo === 'certificato' && (
+        <div style={{ marginBottom: 8 }}>
+          <label style={{ fontSize: 11, color: SUB, display: 'block', marginBottom: 3 }}>Data di scadenza del certificato</label>
+          <input type="date" value={scadenzaCertificato} onChange={e => setScadenzaCertificato(e.target.value)}
+            style={{ padding: '6px 8px', borderRadius: 6, border: `1px solid ${BD}`, fontSize: 12.5 }} />
+        </div>
+      )}
+
+      <div style={{ fontSize: 11, color: '#92400E', marginBottom: 8 }}>
+        {socio.email
+          ? `Al salvataggio il documento risulterà confermato e partirà subito l'email di conferma a ${socio.email} (la stessa che parte quando è il socio a caricarlo).`
+          : 'Attenzione: questo socio non ha un indirizzo email in anagrafica, quindi il documento verrà confermato ma nessuna email potrà partire.'}
+      </div>
+
+      {errore && <div style={{ fontSize: 11, color: R, marginBottom: 8 }}>{errore}</div>}
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={salva} disabled={caricando}
+          style={{ background: G, color: 'white', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12.5, fontWeight: 600, cursor: caricando ? 'default' : 'pointer' }}>
+          {caricando ? 'Carico...' : 'Conferma e invia email'}
+        </button>
+        <button onClick={() => { setAperto(false); setErrore('') }}
+          style={{ background: '#F1F5F9', color: SUB, border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12.5, cursor: 'pointer' }}>
+          Annulla
+        </button>
+      </div>
+    </div>
+  )
+}
 // Reinvia l'email di conferma iscrizione, ricostruendola dai dati già salvati
 // sulla riga (corso, importo, tipo pagamento) — utile quando il socio aveva
 // scritto un indirizzo email sbagliato in fase di iscrizione: lo si corregge
@@ -1122,7 +1256,13 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
               {i.ricevuta_url && <button onClick={() => apriDocumento(i.ricevuta_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Ricevuta</button>}
+              {i.stato_pagamento !== 'confermato' && (
+                <CaricaDocumentoManuale iscrizione={i} socio={socio} tipo="ricevuta" onAggiornato={caricaIscrizioni} />
+              )}
               {i.certificato_url && <button onClick={() => apriDocumento(i.certificato_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Certificato</button>}
+              {i.stato_certificato !== 'valido' && (
+                <CaricaDocumentoManuale iscrizione={i} socio={socio} tipo="certificato" onAggiornato={caricaIscrizioni} />
+              )}
               {(i.firma_url || i.firma_genitore_url) ? (
                 <button onClick={() => generaPdfDomandaAdesione({ socio, iscrizione: i, corso: i.corsi }).catch(err => alert("Impossibile generare il PDF: " + err.message))}
                   style={{ fontSize: 12, background: GL, color: G, border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', fontWeight: 600 }}>
