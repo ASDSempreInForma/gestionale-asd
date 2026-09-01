@@ -34,11 +34,15 @@ function troncaTesto(font, testo, dimFont, larghezzaMax) {
   return t + "…";
 }
 
-const ALTEZZA_RIGA = 22; // leggermente più alta di prima (era 18), per compilare a mano più comodamente
+// Altezza riga in punti PDF, secondo la scelta stretto/medio/largo dell'utente
+// (utile soprattutto per lasciare più spazio a chi firma a mano, es. persone
+// anziane che faticano a firmare in spazi ristretti).
+export const ALTEZZE_RIGA = { stretto: 18, medio: 24, largo: 32 };
+const ALTEZZA_RIGA_DEFAULT = ALTEZZE_RIGA.medio;
 const ALTEZZA_INTESTAZIONE_TABELLA = 22;
 const MARGINE_INFERIORE_SICUREZZA = 40;
 
-export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome, titolo = "SOCI E TESSERATI", righeVuoteExtra = 0, nomeFile }) {
+export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome, titolo = "SOCI E TESSERATI", righeVuoteExtra = 0, altezzaRiga = ALTEZZA_RIGA_DEFAULT, nomeFile }) {
   const pdfDoc = await PDFDocument.create();
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -104,7 +108,7 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
   }
 
   function disegnaRiga(page, yTop, riga, indice) {
-    const xTab = MARGINE, altezzaRiga = ALTEZZA_RIGA;
+    const xTab = MARGINE;
     if (indice % 2 === 1) {
       page.drawRectangle({ x: xTab, y: yTop - altezzaRiga, width: largTot * scala, height: altezzaRiga, color: grigioChiaro });
     }
@@ -130,7 +134,7 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
   yMisurato = disegnaIntestazioneTabella(paginaMisurazione, yMisurato);
   pdfDoc.removePage(pdfDoc.getPageCount() - 1);
   const altezzaUtile = yMisurato - MARGINE_INFERIORE_SICUREZZA;
-  const righePerPagina = Math.max(1, Math.floor(altezzaUtile / ALTEZZA_RIGA));
+  const righePerPagina = Math.max(1, Math.floor(altezzaUtile / altezzaRiga));
 
   const gruppi = [];
   for (let i = 0; i < tutteLeRighe.length; i += righePerPagina) gruppi.push(tutteLeRighe.slice(i, i + righePerPagina));

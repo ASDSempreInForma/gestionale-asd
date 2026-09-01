@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
 import { generaFileASI, generaFileLibertas } from "./esportaAssicurazioni.js";
 import { generaRegistroFirmeASI, generaRegistroFirmeLibertas } from "./registroFirme.js";
-import { generaElencoPDF, ORDINE_STAMPA } from "./elencoPersonalizzatoPDF.js";
+import { generaElencoPDF, ORDINE_STAMPA, ALTEZZE_RIGA } from "./elencoPersonalizzatoPDF.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -196,6 +196,7 @@ export default function ElencoPersonalizzato() {
   const [titoloPDF, setTitoloPDF] = useState(OPZIONI_TITOLO[0]);
   const [titoloPersonalizzato, setTitoloPersonalizzato] = useState("");
   const [righeVuoteExtra, setRigheVuoteExtra] = useState(4);
+  const [spaziaturaRighe, setSpaziaturaRighe] = useState("medio"); // stretto | medio | largo
 
   useEffect(() => {
     caricaDati();
@@ -379,6 +380,7 @@ export default function ElencoPersonalizzato() {
       stagioneNome: stagione?.nome || "",
       titolo,
       righeVuoteExtra,
+      altezzaRiga: ALTEZZE_RIGA[spaziaturaRighe],
       nomeFile: "Elenco_personalizzato_" + new Date().toISOString().slice(0, 10) + ".pdf",
     });
   }
@@ -500,6 +502,35 @@ export default function ElencoPersonalizzato() {
                     style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13 }}
                   />
                 )}
+              </div>
+
+              <div style={{ marginTop: 12 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: GR, display: "block", marginBottom: 6 }}>
+                  Spaziatura righe (solo per il PDF da stampare)
+                </label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {[
+                    ["stretto", "Stretto"],
+                    ["medio", "Medio"],
+                    ["largo", "Largo"],
+                  ].map(([valore, etichetta]) => (
+                    <button
+                      key={valore}
+                      onClick={() => setSpaziaturaRighe(valore)}
+                      style={{
+                        flex: 1, padding: "8px 6px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                        border: spaziaturaRighe === valore ? `1.5px solid ${G}` : `1px solid ${BD}`,
+                        background: spaziaturaRighe === valore ? GL : "white",
+                        color: spaziaturaRighe === valore ? G : GR,
+                      }}
+                    >
+                      {etichetta}
+                    </button>
+                  ))}
+                </div>
+                <p style={{ fontSize: 11, color: GR, marginTop: 6, marginBottom: 0 }}>
+                  "Largo" lascia più spazio tra le righe — comodo per chi firma a mano, specialmente persone anziane.
+                </p>
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
