@@ -97,6 +97,7 @@ export default function LiberatoriaProva() {
 
   // Corsi dal DB
   const [corsi, setCorsi] = useState([]);
+  const [filtroSede, setFiltroSede] = useState(""); // "" = tutte le sedi
   const [stagione, setStagione] = useState(null);
   const [loadingCorsi, setLoadingCorsi] = useState(true);
   const [erroreCorsi, setErroreCorsi] = useState(null);
@@ -525,8 +526,18 @@ export default function LiberatoriaProva() {
               ) : erroreCorsi ? (
                 <div style={{ background: RL, border: `1px solid ${R}33`, borderRadius: 9, padding: "12px", fontSize: 12, color: R }}>{erroreCorsi}</div>
               ) : (
+                <>
+                {corsi.length > 0 && (
+                  <select value={filtroSede} onChange={(e) => setFiltroSede(e.target.value)}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: `1px solid ${BD}`, fontSize: 13, marginBottom: 12, background: "white" }}>
+                    <option value="">📍 Tutte le sedi</option>
+                    {[...new Set(corsi.map(c => c.sede))].sort().map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                )}
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-                  {corsi.map(c => {
+                  {corsi.filter(c => !filtroSede || c.sede === filtroSede).map(c => {
                     const stato = statoDisp(c);
                     const disp = getDisp(c);
                     const isBlocked = stato === "pieno" || stato === "prove_bloccate";
@@ -557,6 +568,7 @@ export default function LiberatoriaProva() {
                     );
                   })}
                 </div>
+                </>
               )}
               {errs.corsoProvaId && <p style={{ fontSize: 11, color: R, marginTop: -6, marginBottom: 8 }}>{errs.corsoProvaId}</p>}
               {limiteBloccato && (
