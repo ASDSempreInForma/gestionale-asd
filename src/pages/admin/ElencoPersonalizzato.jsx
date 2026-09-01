@@ -26,8 +26,8 @@ const GRUPPI_COLONNE = [
     colonne: [
       { id: "cognome", label: "Cognome", calc: (r) => capitalizza(r.soci && r.soci.cognome) },
       { id: "nome", label: "Nome", calc: (r) => capitalizza(r.soci && r.soci.nome) },
-      { id: "data_nascita", label: "Data di nascita", calc: (r) => fmtData(r.soci && r.soci.data_nascita) },
-      { id: "telefono", label: "N. Telefono", calc: (r) => (r.soci && r.soci.telefono) || "" },
+      { id: "data_nascita", label: "Data nasc.", calc: (r) => fmtData(r.soci && r.soci.data_nascita) },
+      { id: "telefono", label: "Telefono", calc: (r) => (r.soci && r.soci.telefono) || "" },
     ],
   },
   {
@@ -35,17 +35,17 @@ const GRUPPI_COLONNE = [
     colonne: [
       { id: "tipo_iscrizione", label: "Iscrizione", calc: (r) => (r._isProva ? "Prova" : labelTipoPagamento(r.tipo_pagamento)) },
       { id: "pagamento", label: "Pagamento", calc: (r) => (r._isProva ? "" : labelPagamento(r.stato_pagamento)) },
-      { id: "frequenza", label: "Giorni di frequenza", calc: (r) => labelFrequenza(r) },
-      { id: "combinazione", label: "Combinazione con altri corsi", calc: (r) => r._combinazione || "" },
+      { id: "frequenza", label: "Freq.", calc: (r) => labelFrequenza(r) },
+      { id: "combinazione", label: "Comb. corsi", calc: (r) => r._combinazione || "" },
     ],
   },
   {
     titolo: "Assicurazione e certificato",
     colonne: [
-      { id: "assicurazione", label: "Assicurazione", calc: (r) => ((r.soci && r.soci.numero_tessera) ? "Si" : "") },
-      { id: "cert_scadenza", label: "Scadenza certificato medico", calc: (r) => (r.stato_certificato === "valido" ? fmtData(r.data_scadenza_certificato) : "") },
-      { id: "cert_consegnato", label: "Certificato consegnato", calc: (r) => (r._isProva ? "" : (r.stato_certificato === "valido" ? "Si" : "No")) },
-      { id: "cert_appuntamento", label: "Data appuntamento visita medica", calc: () => "" },
+      { id: "assicurazione", label: "Assicur.", calc: (r) => (tesseraValida(r) ? "Si" : "") },
+      { id: "cert_scadenza", label: "Scad. cert.", calc: (r) => (r.stato_certificato === "valido" ? fmtData(r.data_scadenza_certificato) : "") },
+      { id: "cert_consegnato", label: "Cert. consegn.", calc: (r) => (r._isProva ? "" : (r.stato_certificato === "valido" ? "Si" : "No")) },
+      { id: "cert_appuntamento", label: "Appuntamento", calc: () => "" },
     ],
   },
   {
@@ -82,6 +82,21 @@ function labelPagamento(stato) {
   if (stato === "dichiarato") return "In verifica";
   if (stato === "annullata") return "Annullata";
   return "No";
+}
+
+// La tessera (numero Libertas/ASI) scade ogni 31/08 e viene rinnovata con un
+// numero nuovo ogni stagione: il campo numero_tessera resta valorizzato con
+// il numero della stagione precedente finché non si fa il nuovo import da
+// ImportTessere.jsx, quindi non basta guardare la sua presenza — va controllata
+// anche la data di scadenza.
+function tesseraValida(r) {
+  const s = r.soci;
+  if (!s || !s.numero_tessera || !s.scadenza_tessera) return false;
+  const scadenza = new Date(s.scadenza_tessera);
+  if (isNaN(scadenza)) return false;
+  const oggi = new Date();
+  oggi.setHours(0, 0, 0, 0);
+  return scadenza >= oggi;
 }
 
 // Uniforma maiuscole/minuscole dei nomi importati (es. "MICHELA" o "gianluca" -> "Michela"/"Gianluca").
@@ -205,7 +220,7 @@ export default function ElencoPersonalizzato() {
 
       const { data: iscDB, error: errI } = await supabase
         .from("iscrizioni")
-        .select("id, corso_id, frequenza, giorno_scelto, tipo_pagamento, stato_pagamento, stato_certificato, data_scadenza_certificato, note, soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera, ente_tessera )")
+        .select("id, corso_id, frequenza, giorno_scelto, tipo_pagamento, stato_pagamento, stato_certificato, data_scadenza_certificato, note, soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera, ente_tessera, scadenza_tessera )")
         .eq("stagione_id", stag.id)
         .neq("stato_pagamento", "annullata")
         .order("id");

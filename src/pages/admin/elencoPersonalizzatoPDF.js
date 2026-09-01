@@ -53,13 +53,19 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
   const scuro = rgb(0.11, 0.26, 0.2); // stesso verde/scuro usato nell'intestazione del gestionale
 
   const largCol = (id) => {
-    if (id === "cognome" || id === "nome") return 90;
-    if (id === "combinazione" || id === "note_manuali") return 140;
-    if (id === "tipo_iscrizione" || id === "frequenza" || id === "cert_scadenza" || id === "cert_appuntamento") return 90;
-    if (id === "assicurazione" || id === "cert_consegnato" || id === "pagamento") return 80;
-    if (id === "firma") return 130;
-    if (id === "presenza") return 60;
-    return 75;
+    if (id === "cognome" || id === "nome") return 85;
+    if (id === "telefono") return 100;
+    if (id === "combinazione") return 95;
+    if (id === "note_manuali") return 150;
+    if (id === "firma") return 165;
+    if (id === "presenza") return 55;
+    if (id === "assicurazione" || id === "cert_consegnato" || id === "pagamento") return 60;
+    if (id === "frequenza") return 60;
+    if (id === "cert_scadenza" || id === "data_nascita") return 65;
+    if (id === "tipo_iscrizione") return 78;
+    if (id === "cert_appuntamento") return 70;
+    if (id === "data_stampa") return 50;
+    return 65;
   };
   const largTot = colonne.reduce((s, c) => s + largCol(c.id), 0);
   const scala = (W - 2 * MARGINE) / largTot; // sempre riempie tutta la larghezza pagina, sia allargando che restringendo
