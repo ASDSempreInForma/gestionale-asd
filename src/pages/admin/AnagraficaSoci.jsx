@@ -303,7 +303,21 @@ function SezioneEmail({ socio }) {
       ])
       setCaricando(false)
       if (rOutlook.ok || rBrevo.ok) {
-        const uniti = [...(rOutlook.messaggi || []), ...(rBrevo.messaggi || [])]
+        const brevoMsgs = rBrevo.messaggi || []
+        // Per ogni email automatica, chiedo a Brevo l'esito di consegna (recapitata,
+        // rimbalzata, bloccata...) — così mostriamo subito nell'elenco un avviso se
+        // non è mai arrivata a destinazione, senza dover aprire ogni messaggio uno
+        // per uno per scoprirlo (aggiunto il 30/08/2026, caso reale: Poiatti Mara,
+        // email sbagliata scoperta solo dopo giorni).
+        const conStato = await Promise.all(brevoMsgs.map(async (m) => {
+          const r = await fetch(`${SUPABASE_URL}/functions/v1/email-brevo`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
+            body: JSON.stringify({ action: 'leggi_email_brevo', uuid: m.uuid }),
+          }).then(r => r.json()).catch(() => null)
+          return { ...m, stato: r?.ok ? r.messaggio.stato : null }
+        }))
+        const uniti = [...(rOutlook.messaggi || []), ...conStato]
           .sort((a, b) => (a.data < b.data ? 1 : -1))
         setMessaggi(uniti)
       } else {
@@ -311,6 +325,10 @@ function SezioneEmail({ socio }) {
       }
     }
   }
+
+  // Stati Brevo che indicano che l'email NON è mai arrivata a destinazione.
+  const STATI_NON_CONSEGNATA = ['hardBounces', 'blocked', 'invalid', 'error']
+  const nonConsegnata = (stato) => STATI_NON_CONSEGNATA.includes(stato)
 
   const apriMessaggio = async (m) => {
     if (selezionatoId === m.id) { setSelezionatoId(null); setSelezionato(null); return } // riclicco = chiudo
@@ -416,6 +434,9 @@ function SezioneEmail({ socio }) {
                       <span>
                         {m.id.startsWith('brevo_') && (
                           <span style={{ fontSize: 9.5, fontWeight: 700, color: '#0E7C7B', background: '#E6FAF8', padding: '1px 6px', borderRadius: 5, marginRight: 6 }}>AUTOMATICA</span>
+                        )}
+                        {nonConsegnata(m.stato) && (
+                          <span style={{ fontSize: 9.5, fontWeight: 700, color: R, background: RL, padding: '1px 6px', borderRadius: 5, marginRight: 6 }}>⚠️ NON RECAPITATA</span>
                         )}
                         {m.oggetto || '(nessun oggetto)'}
                       </span>
@@ -558,6 +579,75 @@ function AllegaModuloCartaceo({ iscrizione, socioCf, onAggiornato }) {
       </button>
       {erroreUpload && <div style={{ fontSize: 11, color: R, marginTop: 4 }}>{erroreUpload}</div>}
     </>
+  )
+}
+
+// Reinvia l'email di conferma iscrizione, ricostruendola dai dati già salvati
+// sulla riga (corso, importo, tipo pagamento) — utile quando il socio aveva
+// scritto un indirizzo email sbagliato in fase di iscrizione: lo si corregge
+// nell'anagrafica e poi si rimanda la STESSA conferma al posto giusto, senza
+// fargli ricompilare nulla. Aggiunta il 30/08/2026 (caso reale: Poiatti Mara).
+function componiCodiceCompleto(corso, frequenza, tipoPagamento) {
+  if (!corso) return ''
+  let codice = frequenza === '1x' && corso.ha_variante_frequenza ? corso.codice_corso + '/1' : corso.codice_corso
+  if (tipoPagamento === 'quad1') codice += '-1'
+  if (tipoPagamento === 'quad2') codice += '-2'
+  return codice
+}
+
+function ReinviaEmailConferma({ iscrizione, socio }) {
+  const [inviando, setInviando] = useState(false)
+  const [esito, setEsito] = useState(null) // null | 'ok' | 'errore'
+
+  const invia = async () => {
+    const corso = iscrizione.corsi
+    if (!socio.email) { setEsito('errore'); return }
+    if (!window.confirm(`Reinviare l'email di conferma per "${corso?.disciplina} — ${corso?.giorni_orari}" all'indirizzo ${socio.email}?\n\nControlla che l'indirizzo sopra sia corretto prima di confermare.`)) return
+
+    setInviando(true)
+    setEsito(null)
+    const codiceCompleto = componiCodiceCompleto(corso, iscrizione.frequenza, iscrizione.tipo_pagamento)
+    const causale = `${(socio.nome || '').toUpperCase()} ${(socio.cognome || '').toUpperCase()} ${codiceCompleto}`
+    const labelPagamento = iscrizione.tipo_pagamento === 'quad2' ? '2ª rata quadrimestrale'
+      : iscrizione.tipo_pagamento === 'quad1' ? '1ª rata quadrimestrale' : 'quota annuale'
+
+    try {
+      const res = await fetch('https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/invia-email-iscrizione', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tipo: 'conferma_iscrizione',
+          destinatarioEmail: socio.email,
+          destinatarioNome: `${socio.nome} ${socio.cognome}`,
+          corsi: [{
+            nome: corso?.nome_visualizzato || corso?.disciplina,
+            sede: corso?.sedi?.nome,
+            giorniOrari: giorniOrariVisualizzati(corso, iscrizione.frequenza, iscrizione.giorno_scelto),
+            codiceCompleto,
+          }],
+          quotaTotale: iscrizione.importo_dichiarato,
+          causale,
+          tipoPagamentoLabel: labelPagamento,
+          richiedeIscrizione: true,
+        }),
+      })
+      const data = await res.json()
+      setEsito(data.success || data.messageId ? 'ok' : 'errore')
+    } catch {
+      setEsito('errore')
+    }
+    setInviando(false)
+  }
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <button onClick={invia} disabled={inviando}
+        style={{ fontSize: 12, background: '#EFF6FF', color: '#1E40AF', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>
+        {inviando ? 'Invio…' : '📧 Reinvia email di conferma'}
+      </button>
+      {esito === 'ok' && <span style={{ fontSize: 11, color: G }}>✓ Inviata a {socio.email}</span>}
+      {esito === 'errore' && <span style={{ fontSize: 11, color: R }}>✕ Errore invio</span>}
+    </span>
   )
 }
 
@@ -722,7 +812,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
         stato_certificato, data_scadenza_certificato, certificato_url,
         data_iscrizione, note, nota_socio, firma_url, firma_genitore_url, modulo_cartaceo_url,
         frequenza, giorno_scelto,
-        corsi ( disciplina, giorni_orari, sedi ( nome ) ),
+        corsi ( codice_corso, disciplina, nome_visualizzato, giorni_orari, ha_variante_frequenza, sedi ( nome ) ),
         stagioni ( nome, attiva )
       `)
       .eq('socio_cf', socio.cf)
@@ -1041,6 +1131,9 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
               ) : (
                 <AllegaModuloCartaceo iscrizione={i} socioCf={socio.cf} onAggiornato={caricaIscrizioni} />
               )}
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <ReinviaEmailConferma iscrizione={i} socio={socio} />
             </div>
             {i.note && <div style={{ fontSize: 11.5, color: SUB, marginTop: 6, fontStyle: 'italic' }}>{i.note}</div>}
             <NotaVisibileSocio iscrizione={i} />
