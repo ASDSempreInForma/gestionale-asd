@@ -295,6 +295,14 @@ export default function GestioneProve() {
     if (!stati.includes(p.stato)) return false;
     if (filtroStato && p.stato !== filtroStato) return false;
     if (filtroCorsoPk && p.corso_id !== filtroCorsoPk) return false;
+    // Bug corretto il 02/09/2026: il filtro sede aggiornava solo le opzioni
+    // del menu "corso" (tramite corsiDisponibili), ma non veniva mai
+    // applicato alla lista delle richieste quando restava selezionato
+    // "Tutti i corsi" — risultato: scegliere una sede non cambiava nulla.
+    if (filtroSede) {
+      const corsoDellaProva = corsi.find(c => c.id === p.corso_id);
+      if (!corsoDellaProva || corsoDellaProva.sede !== filtroSede) return false;
+    }
     return true;
   });
   const opzioniStato = STATI_PROVA.filter(s => (vistaProve === "attive" ? STATI_ATTIVI : STATI_STORICO).includes(s.value));
