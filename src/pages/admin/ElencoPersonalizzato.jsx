@@ -33,8 +33,8 @@ const GRUPPI_COLONNE = [
   {
     titolo: "Iscrizione",
     colonne: [
-      { id: "tipo_iscrizione", label: "Iscrizione", calc: (r) => (r._isProva ? "Prova" : labelTipoPagamento(r.tipo_pagamento)) },
-      { id: "pagamento", label: "Pagamento", calc: (r) => (r._isProva ? "" : labelPagamento(r.stato_pagamento)) },
+      { id: "tipo_iscrizione", label: "Iscrizione", calc: (r) => (r._isProva ? "Prova" : r._isExtraSettembre ? "Extra sett." : labelTipoPagamento(r.tipo_pagamento)) },
+      { id: "pagamento", label: "Pagamento", calc: (r) => (r._isProva || r._isExtraSettembre ? "" : labelPagamento(r.stato_pagamento)) },
       { id: "frequenza", label: "Freq.", calc: (r) => labelFrequenza(r) },
       { id: "combinazione", label: "Comb. corsi", calc: (r) => r._combinazione || "" },
     ],
@@ -44,7 +44,7 @@ const GRUPPI_COLONNE = [
     colonne: [
       { id: "assicurazione", label: "Assicur.", calc: (r) => (tesseraValida(r) ? "Si" : "") },
       { id: "cert_scadenza", label: "Scad. cert.", calc: (r) => (r.stato_certificato === "valido" ? fmtData(r.data_scadenza_certificato) : "") },
-      { id: "cert_consegnato", label: "Cert. consegn.", calc: (r) => (r._isProva ? "" : (r.stato_certificato === "valido" ? "Si" : "No")) },
+      { id: "cert_consegnato", label: "Cert. consegn.", calc: (r) => (r._isProva || r._isExtraSettembre ? "" : (r.stato_certificato === "valido" ? "Si" : "No")) },
       { id: "cert_appuntamento", label: "Appuntamento", calc: () => "" },
     ],
   },
@@ -150,8 +150,14 @@ function labelFrequenza(r) {
   return r.frequenza || "";
 }
 
-// Ordina le righe: prima per corso, poi le persone in prova sempre in fondo al proprio
-// corso, poi alfabeticamente per cognome e nome all'interno dello stesso gruppo.
+// Ordina le righe: prima per corso, poi entro lo stesso corso nell'ordine
+// iscritti normali → richieste "extra settembre" → persone in prova, e infine
+// alfabeticamente per cognome e nome all'interno di ciascun gruppo.
+function prioritaRiga(r) {
+  if (r._isProva) return 2;
+  if (r._isExtraSettembre) return 1;
+  return 0;
+}
 function ordinaRighe(corsi) {
   const codiceCorso = (id) => (corsi.find((c) => c.id === id) || {}).codice_corso || "";
   return (a, b) => {
@@ -159,9 +165,9 @@ function ordinaRighe(corsi) {
       const cmp = codiceCorso(a.corso_id).localeCompare(codiceCorso(b.corso_id));
       if (cmp !== 0) return cmp;
     }
-    const provaA = a._isProva ? 1 : 0;
-    const provaB = b._isProva ? 1 : 0;
-    if (provaA !== provaB) return provaA - provaB;
+    const prioritaA = prioritaRiga(a);
+    const prioritaB = prioritaRiga(b);
+    if (prioritaA !== prioritaB) return prioritaA - prioritaB;
     const cogA = ((a.soci && a.soci.cognome) || "").toLowerCase();
     const cogB = ((b.soci && b.soci.cognome) || "").toLowerCase();
     if (cogA !== cogB) return cogA.localeCompare(cogB, "it");
@@ -284,7 +290,45 @@ export default function ElencoPersonalizzato() {
         soci: { cf: p.cf, nome: p.nome, cognome: p.cognome, data_nascita: p.data_nascita, telefono: p.telefono },
       }));
 
-      setIscrizioni([...arricchite, ...proveArricchite]);
+      // Persone che in fase di iscrizione hanno dichiarato di voler aggiungere
+      // ANCHE un corso di settembre (sovrapprezzo fisso, vedi ModuloIscrizione.jsx).
+      // Non hanno una vera iscrizione a quel corso — compaiono qui, agganciate al
+      // corso di settembre scelto, solo per permettere di aggiungerle a mano al
+      // gruppo giusto quando si esporta l'elenco di quel corso.
+      const { data: extraSettembreDB, error: errExtra } = await supabase
+        .from("iscrizioni")
+        .select("id, corso_id, corso_extra_settembre_id, frequenza_extra_settembre, sovrapprezzo_extra_settembre, tipo_pagamento, soci ( cf, nome, cognome, telefono, data_nascita )")
+        .eq("stagione_id", stag.id)
+        .not("corso_extra_settembre_id", "is", null)
+        .neq("stato_pagamento", "annullata");
+      if (errExtra) throw errExtra;
+
+      const extraSettembreArricchite = (extraSettembreDB || []).map((r) => {
+        const corsoPrincipale = (corsiDB || []).find((cc) => cc.id === r.corso_id);
+        const corsoSettembre = (corsiDB || []).find((cc) => cc.id === r.corso_extra_settembre_id);
+        const nomePrincipaleAbbr = corsoPrincipale
+          ? [abbreviaDisciplina(corsoPrincipale.nome_visualizzato, corsoPrincipale.disciplina), abbreviaSede(corsoPrincipale.sedi && corsoPrincipale.sedi.nome)]
+              .filter(Boolean)
+              .join(" ")
+          : "";
+        return {
+          id: "extrasett:" + r.id,
+          _isExtraSettembre: true,
+          corso_id: r.corso_extra_settembre_id,
+          frequenza: r.frequenza_extra_settembre,
+          giorno_scelto: null,
+          tipo_pagamento: r.tipo_pagamento,
+          stato_pagamento: null,
+          stato_certificato: null,
+          data_scadenza_certificato: null,
+          note: `Extra settembre (+${r.sovrapprezzo_extra_settembre ?? "?"}€) — corso principale: ${nomePrincipaleAbbr || "?"}`,
+          _combinazione: nomePrincipaleAbbr ? `Da ${nomePrincipaleAbbr}` : "",
+          _giorniOrari: corsoSettembre ? corsoSettembre.giorni_orari : "",
+          soci: r.soci,
+        };
+      });
+
+      setIscrizioni([...arricchite, ...proveArricchite, ...extraSettembreArricchite]);
     } catch (err) {
       console.error(err);
       setErrore("Impossibile caricare i dati. Riprova piu tardi.");
@@ -466,6 +510,11 @@ export default function ElencoPersonalizzato() {
                       {r._isProva && (
                         <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#B45309", background: "#FEF3C7", padding: "1px 6px", borderRadius: 5 }}>
                           PROVA
+                        </span>
+                      )}
+                      {r._isExtraSettembre && (
+                        <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#1D4ED8", background: "#DBEAFE", padding: "1px 6px", borderRadius: 5 }}>
+                          EXTRA SETT.
                         </span>
                       )}
                     </span>

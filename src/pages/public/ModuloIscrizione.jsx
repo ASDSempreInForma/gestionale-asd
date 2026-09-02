@@ -1048,6 +1048,12 @@ export default function ModuloIscrizione() {
           sovrapprezzoSettembre > 0 && corsoExtraSettembre
             ? `🎯 Include anche ${corsoExtraSettembre.nomeVisualizzato || corsoExtraSettembre.corso} (${corsoExtraSettembre.sede}), ${frequenzaExtraSettembre === "2x" ? "2 volte" : "1 volta"} a settimana, a partire da settembre.`
             : null,
+        // Campi strutturati (non usati dal motore prezzi, solo per farla comparire
+        // nell'Elenco Personalizzato quando si seleziona il corso di settembre scelto,
+        // così la segreteria può aggiungerla a mano al gruppo giusto).
+        corso_extra_settembre_id: sovrapprezzoSettembre > 0 && corsoExtraSettembre ? corsoExtraSettembre.id : null,
+        frequenza_extra_settembre: sovrapprezzoSettembre > 0 && corsoExtraSettembre ? frequenzaExtraSettembre : null,
+        sovrapprezzo_extra_settembre: sovrapprezzoSettembre > 0 && corsoExtraSettembre ? sovrapprezzoSettembre : null,
         presa_visione_regolamenti: true,
         firma_url: firmaSocio || null,
         firma_genitore_url: isMinorenne ? (firmaGenitore || null) : null,
