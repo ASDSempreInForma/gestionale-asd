@@ -919,6 +919,14 @@ function CambiaCorso({ iscrizione, socioCf, onAggiornato }) {
   const [corsoId2, setCorsoId2] = useState('')
   const [frequenza2, setFrequenza2] = useState('2x')
   const [giornoScelto2, setGiornoScelto2] = useState('')
+  // true = è lo stesso identico pagamento già fatto (es. solo un cambio di
+  // giorno/orario, come Bonetti Laura Mercoledì+Venerdì 19:00 -> Mercoledì
+  // 19:00 + Venerdì 18:00): copiamo stato/importo/ricevuta sulla seconda
+  // iscrizione. false = è davvero un corso in più, da far pagare a parte
+  // (bug corretto il 02/09/2026: prima si assumeva SEMPRE il caso "nuovo
+  // pagamento", lasciando la seconda iscrizione "in attesa" anche quando la
+  // persona aveva già pagato tutto e stava solo cambiando orario).
+  const [secondoStessoPagamento, setSecondoStessoPagamento] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [errore, setErrore] = useState('')
 
@@ -931,6 +939,7 @@ function CambiaCorso({ iscrizione, socioCf, onAggiornato }) {
     setCorsoId2('')
     setFrequenza2('2x')
     setGiornoScelto2('')
+    setSecondoStessoPagamento(true)
     setErrore('')
     if (!corsi) {
       supabase.from('stagioni').select('id').eq('attiva', true).maybeSingle().then(({ data: stagione }) => {
@@ -968,12 +977,14 @@ function CambiaCorso({ iscrizione, socioCf, onAggiornato }) {
       : ''
 
     const messaggioConferma = aggiungiSecondo
-      ? `Spostare l'iscrizione da "${vecchiaEtichetta}" a "${nuovaEtichetta}", e aggiungere una SECONDA iscrizione per "${etichetta2}"?\n\nRicevuta, certificato e firma già inviati restano collegati alla prima. La seconda sarà una nuova iscrizione "in attesa": dovrai impostarne tu pagamento e importo con "Modifica pagamento".`
+      ? secondoStessoPagamento
+        ? `Spostare l'iscrizione da "${vecchiaEtichetta}" a "${nuovaEtichetta}", e aggiungere una SECONDA iscrizione per "${etichetta2}" con LO STESSO pagamento già confermato su questa (nessun importo aggiuntivo dovuto)?\n\nRicevuta, certificato e firma già inviati restano collegati alla prima e vengono copiati anche sulla seconda.`
+        : `Spostare l'iscrizione da "${vecchiaEtichetta}" a "${nuovaEtichetta}", e aggiungere una SECONDA iscrizione per "${etichetta2}"?\n\nRicevuta, certificato e firma già inviati restano collegati alla prima. La seconda sarà una nuova iscrizione "in attesa": dovrai impostarne tu pagamento e importo con "Modifica pagamento".`
       : `Spostare l'iscrizione da "${vecchiaEtichetta}" a "${nuovaEtichetta}"?\n\nRicevuta, certificato e firma già inviati restano collegati e non vengono toccati. L'importo dichiarato NON viene ricalcolato automaticamente — verificalo tu se il prezzo del nuovo corso è diverso.`
     if (!window.confirm(messaggioConferma)) return
 
     setSalvando(true)
-    const nuovaNota = `${iscrizione.note ? iscrizione.note + ' | ' : ''}Spostata da "${vecchiaEtichetta}" a "${nuovaEtichetta}"${aggiungiSecondo ? ` (+ nuova iscrizione separata per "${etichetta2}")` : ''} il ${new Date().toLocaleDateString('it-IT')} — nessuna modifica a ricevuta/certificato/firma/importo.`
+    const nuovaNota = `${iscrizione.note ? iscrizione.note + ' | ' : ''}Spostata da "${vecchiaEtichetta}" a "${nuovaEtichetta}"${aggiungiSecondo ? ` (+ nuova iscrizione separata per "${etichetta2}"${secondoStessoPagamento ? ', stesso pagamento' : ''})` : ''} il ${new Date().toLocaleDateString('it-IT')} — nessuna modifica a ricevuta/certificato/firma/importo.`
 
     const { error } = await supabase.from('iscrizioni').update({
       corso_id: corsoId,
@@ -985,16 +996,28 @@ function CambiaCorso({ iscrizione, socioCf, onAggiornato }) {
     if (error) { setErrore('Errore: ' + error.message); setSalvando(false); return }
 
     if (aggiungiSecondo) {
+      const campiPagamento = secondoStessoPagamento
+        ? {
+            stato_pagamento: iscrizione.stato_pagamento,
+            tipo_pagamento: iscrizione.tipo_pagamento,
+            importo_dichiarato: iscrizione.importo_dichiarato,
+            ricevuta_url: iscrizione.ricevuta_url,
+            data_pagamento: iscrizione.data_pagamento,
+          }
+        : { stato_pagamento: 'in_attesa' }
+
       const { error: errore2 } = await supabase.from('iscrizioni').insert({
         socio_cf: socioCf,
         corso_id: corsoId2,
         stagione_id: corso2.stagione_id,
         frequenza: bisettimanale2 ? frequenza2 : '2x',
         giorno_scelto: bisettimanale2 && frequenza2 === '1x' ? giornoScelto2 : null,
-        stato_pagamento: 'in_attesa',
+        ...campiPagamento,
         stato_certificato: iscrizione.stato_certificato === 'valido' ? 'valido' : 'mancante',
         data_scadenza_certificato: iscrizione.stato_certificato === 'valido' ? iscrizione.data_scadenza_certificato : null,
-        note: `Iscrizione aggiuntiva creata spostando "${vecchiaEtichetta}" il ${new Date().toLocaleDateString('it-IT')} — imposta tu pagamento e importo con "Modifica pagamento".`,
+        note: secondoStessoPagamento
+          ? `Iscrizione aggiuntiva creata spostando "${vecchiaEtichetta}" il ${new Date().toLocaleDateString('it-IT')} — stesso pagamento già confermato sull'altra iscrizione (nessun importo aggiuntivo dovuto).`
+          : `Iscrizione aggiuntiva creata spostando "${vecchiaEtichetta}" il ${new Date().toLocaleDateString('it-IT')} — imposta tu pagamento e importo con "Modifica pagamento".`,
       })
       if (errore2) { setErrore('Il primo spostamento è andato a buon fine, ma la seconda iscrizione ha dato errore: ' + errore2.message); setSalvando(false); return }
     }
@@ -1068,6 +1091,21 @@ function CambiaCorso({ iscrizione, socioCf, onAggiornato }) {
                 Secondo corso — verrà creata una NUOVA iscrizione separata, da mettere a posto con "Modifica pagamento"
               </div>
               {selettoreCorso('Seleziona il secondo corso', corsoId2, setCorsoId2, frequenza2, setFrequenza2, giornoScelto2, setGiornoScelto2, corso2, giorniSingoli2, bisettimanale2, corsoId)}
+
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: SUB, marginBottom: 4 }}>Il pagamento di questa persona:</div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => setSecondoStessoPagamento(true)}
+                    style={{ flex: 1, padding: '6px', borderRadius: 6, border: `1px solid ${secondoStessoPagamento ? '#92400E' : BD}`, background: secondoStessoPagamento ? '#FEF3C7' : 'white', color: secondoStessoPagamento ? '#92400E' : TX, fontSize: 11.5, cursor: 'pointer', fontWeight: secondoStessoPagamento ? 600 : 400 }}>
+                    È lo stesso già fatto (solo cambio orario)
+                  </button>
+                  <button onClick={() => setSecondoStessoPagamento(false)}
+                    style={{ flex: 1, padding: '6px', borderRadius: 6, border: `1px solid ${!secondoStessoPagamento ? '#92400E' : BD}`, background: !secondoStessoPagamento ? '#FEF3C7' : 'white', color: !secondoStessoPagamento ? '#92400E' : TX, fontSize: 11.5, cursor: 'pointer', fontWeight: !secondoStessoPagamento ? 600 : 400 }}>
+                    È un corso in più da far pagare
+                  </button>
+                </div>
+              </div>
+
               <button onClick={() => { setAggiungiSecondo(false); setCorsoId2(''); setGiornoScelto2('') }}
                 style={{ fontSize: 11.5, background: 'none', border: 'none', color: SUB, textDecoration: 'underline', cursor: 'pointer', padding: 0, marginBottom: 4, display: 'block' }}>
                 Annulla secondo corso
