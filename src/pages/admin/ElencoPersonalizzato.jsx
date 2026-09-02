@@ -20,6 +20,16 @@ function bottoneAssicurazione(attivo) {
   };
 }
 
+// Lo stato "valido" salvato nel database non si aggiorna da solo col
+// passare dei giorni: va sempre confrontato con la data di scadenza reale,
+// altrimenti un certificato scaduto risulta ancora "consegnato" nelle
+// liste stampate (bug segnalato da Solomon il 02/09/2026).
+function certificatoStatoEffettivo(stato, scadenza) {
+  if (stato !== "valido" || !scadenza) return stato;
+  const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+  return new Date(scadenza) < oggi ? "scaduto" : stato;
+}
+
 const GRUPPI_COLONNE = [
   {
     titolo: "Dati anagrafici",
@@ -44,7 +54,7 @@ const GRUPPI_COLONNE = [
     colonne: [
       { id: "assicurazione", label: "Assicur.", calc: (r) => (tesseraValida(r) ? "Si" : "") },
       { id: "cert_scadenza", label: "Scad. cert.", calc: (r) => (r.stato_certificato === "valido" ? fmtData(r.data_scadenza_certificato) : "") },
-      { id: "cert_consegnato", label: "Cert. consegn.", calc: (r) => (r._isProva || r._isExtraSettembre ? "" : (r.stato_certificato === "valido" ? "Si" : "No")) },
+      { id: "cert_consegnato", label: "Cert. consegn.", calc: (r) => (r._isProva || r._isExtraSettembre ? "" : (certificatoStatoEffettivo(r.stato_certificato, r.data_scadenza_certificato) === "valido" ? "Si" : "No")) },
       { id: "cert_appuntamento", label: "Appuntamento", calc: () => "" },
     ],
   },

@@ -428,7 +428,7 @@ export default function App() {
       const { data: iscDB, error: errI } = await supabase
         .from("iscrizioni")
         .select(`
-          id, stato_pagamento, stato_certificato, corso_id, frequenza, giorno_scelto, inizio_personalizzato,
+          id, stato_pagamento, stato_certificato, data_scadenza_certificato, corso_id, frequenza, giorno_scelto, inizio_personalizzato,
           soci ( cf, nome, cognome )
         `)
         .eq("stagione_id", stag.id)
@@ -528,7 +528,17 @@ export default function App() {
     return i.stato_pagamento === "confermato" ? "ok" : "attesa";
   }
   function certStatus(i) {
-    if (i.stato_certificato === "valido") return "ok";
+    // Lo stato "valido" salvato non si aggiorna da solo col passare dei
+    // giorni: qui in palestra, mentre si controlla chi ha il certificato in
+    // regola, un valore scaduto ma ancora marcato "valido" nel database
+    // mostrerebbe erroneamente il pallino verde (bug corretto il 02/09/2026).
+    if (i.stato_certificato === "valido") {
+      if (i.data_scadenza_certificato) {
+        const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+        if (new Date(i.data_scadenza_certificato) < oggi) return "scaduto";
+      }
+      return "ok";
+    }
     if (i.stato_certificato === "scaduto") return "scaduto";
     return "attesa";
   }

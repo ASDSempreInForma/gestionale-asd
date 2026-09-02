@@ -145,7 +145,18 @@ function BadgePagamento({ stato }) {
   const s = map[stato] || map.in_attesa;
   return <span className={`badge ${s.cls}`}>{s.label}</span>;
 }
-function BadgeCertificato({ stato }) {
+// Lo stato "valido" salvato nel database non si aggiorna da solo col
+// passare dei giorni: va sempre confrontato con la data di scadenza reale,
+// altrimenti un certificato scaduto risulta ancora "valido" all'infinito
+// (bug segnalato da Solomon il 02/09/2026, caso Codenotti Vittoria).
+function certificatoStatoEffettivo(stato, scadenza) {
+  if (stato !== "valido" || !scadenza) return stato;
+  const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+  return new Date(scadenza) < oggi ? "scaduto" : stato;
+}
+
+function BadgeCertificato({ stato, scadenza }) {
+  const statoEffettivo = certificatoStatoEffettivo(stato, scadenza);
   const map = {
     valido: { label: "✅ Certificato valido", cls: "ok" },
     dichiarato: { label: "⏳ In verifica", cls: "warn" },
@@ -153,7 +164,7 @@ function BadgeCertificato({ stato }) {
     scaduto: { label: "⚠️ Certificato scaduto", cls: "bad" },
     rifiutato: { label: "❌ Certificato rifiutato", cls: "bad" },
   };
-  const s = map[stato] || map.mancante;
+  const s = map[statoEffettivo] || map.mancante;
   return <span className={`badge ${s.cls}`}>{s.label}</span>;
 }
 
@@ -439,7 +450,7 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato }) {
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
         <BadgePagamento stato={iscrizione.stato_pagamento} />
-        <BadgeCertificato stato={iscrizione.stato_certificato} />
+        <BadgeCertificato stato={iscrizione.stato_certificato} scadenza={iscrizione.data_scadenza_certificato} />
       </div>
       <div style={{ fontSize: 13, color: "#475569", marginBottom: 10 }}>
         {iscrizione.tipo_pagamento && (
@@ -466,7 +477,7 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato }) {
         {["in_attesa", "rifiutato"].includes(iscrizione.stato_pagamento) && (
           <button style={styles.btnSmall} onClick={onApriRicevuta}>📄 Invia ricevuta</button>
         )}
-        {["mancante", "scaduto", "rifiutato"].includes(iscrizione.stato_certificato) && (
+        {["mancante", "scaduto", "rifiutato"].includes(certificatoStatoEffettivo(iscrizione.stato_certificato, iscrizione.data_scadenza_certificato)) && (
           <button style={styles.btnSmall} onClick={onApriCertificato}>🩺 Invia certificato</button>
         )}
       </div>

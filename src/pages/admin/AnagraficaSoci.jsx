@@ -90,7 +90,17 @@ function BadgePagamento({ stato }) {
   const s = map[stato] || map.in_attesa
   return <span style={{ background: s.bg, color: s.col, borderRadius: 20, padding: '2px 9px', fontSize: 11.5, fontWeight: 600 }}>{s.label}</span>
 }
-function BadgeCertificato({ stato }) {
+// Lo stato "valido" salvato nel database non si aggiorna da solo col
+// passare dei giorni: va sempre confrontato con la data di scadenza reale,
+// altrimenti un certificato scaduto risulta "valido" all'infinito (bug
+// segnalato da Solomon il 02/09/2026, caso Codenotti Vittoria).
+function certificatoStatoEffettivo(stato, scadenza) {
+  if (stato !== 'valido' || !scadenza) return stato
+  const oggi = new Date(); oggi.setHours(0, 0, 0, 0)
+  return new Date(scadenza) < oggi ? 'scaduto' : stato
+}
+function BadgeCertificato({ stato, scadenza }) {
+  const statoEffettivo = certificatoStatoEffettivo(stato, scadenza)
   const map = {
     valido: { label: '✅ Valido', bg: GL, col: G },
     dichiarato: { label: '⏳ In verifica', bg: '#FEF3C7', col: '#B45309' },
@@ -98,7 +108,7 @@ function BadgeCertificato({ stato }) {
     scaduto: { label: '⚠️ Scaduto', bg: RL, col: R },
     rifiutato: { label: '❌ Rifiutato', bg: RL, col: R },
   }
-  const s = map[stato] || map.mancante
+  const s = map[statoEffettivo] || map.mancante
   return <span style={{ background: s.bg, color: s.col, borderRadius: 20, padding: '2px 9px', fontSize: 11.5, fontWeight: 600 }}>{s.label}</span>
 }
 
@@ -1540,7 +1550,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                 <BadgePagamento stato={i.stato_pagamento} />
-                <BadgeCertificato stato={i.stato_certificato} />
+                <BadgeCertificato stato={i.stato_certificato} scadenza={i.data_scadenza_certificato} />
               </div>
             </div>
             {i.stato_certificato === 'valido' && (
@@ -1554,7 +1564,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
                 <CaricaDocumentoManuale iscrizione={i} socio={socio} tipo="ricevuta" onAggiornato={caricaIscrizioni} />
               )}
               {i.certificato_url && <button onClick={() => apriDocumento(i.certificato_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Certificato</button>}
-              {i.stato_certificato !== 'valido' && (
+              {certificatoStatoEffettivo(i.stato_certificato, i.data_scadenza_certificato) !== 'valido' && (
                 <CaricaDocumentoManuale iscrizione={i} socio={socio} tipo="certificato" onAggiornato={caricaIscrizioni} />
               )}
               {(i.firma_url || i.firma_genitore_url) ? (
