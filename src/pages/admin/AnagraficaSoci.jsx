@@ -1021,6 +1021,7 @@ function CambiaCorso({ iscrizione, onAggiornato }) {
 
 function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
   const [iscrizioni, setIscrizioni] = useState(null)
+  const [mostraStagionePassate, setMostraStagionePassate] = useState(false)
   const [blocco, setBlocco] = useState(socio.is_admin_blocked)
   const [motivoBlocco, setMotivoBlocco] = useState(socio.blocco_motivo || '')
   const [salvandoBlocco, setSalvandoBlocco] = useState(false)
@@ -1354,7 +1355,25 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
         </div>
         {!iscrizioni && <p style={{ color: SUB, fontSize: 13 }}>Caricamento...</p>}
         {iscrizioni && iscrizioni.length === 0 && <p style={{ color: SUB, fontSize: 13 }}>Nessuna iscrizione trovata.</p>}
-        {iscrizioni && iscrizioni.map(i => (
+        {iscrizioni && iscrizioni.length > 0 && (() => {
+          const passate = iscrizioni.filter((i) => !i.stagioni?.attiva)
+          const iscrizioniDaMostrare = mostraStagionePassate ? iscrizioni : iscrizioni.filter((i) => i.stagioni?.attiva)
+          return (
+            <>
+              {passate.length > 0 && (
+                <button
+                  onClick={() => setMostraStagionePassate((v) => !v)}
+                  style={{ fontSize: 12, background: 'none', border: 'none', color: SUB, textDecoration: 'underline', cursor: 'pointer', padding: 0, marginBottom: 10, display: 'block' }}
+                >
+                  {mostraStagionePassate
+                    ? '▲ Nascondi le stagioni passate'
+                    : `▼ Mostra anche le stagioni passate (${passate.length})`}
+                </button>
+              )}
+              {iscrizioniDaMostrare.length === 0 && (
+                <p style={{ color: SUB, fontSize: 13 }}>Nessuna iscrizione nella stagione attiva.</p>
+              )}
+              {iscrizioniDaMostrare.map(i => (
           <div key={i.id} style={{ border: `1px solid ${BD}`, borderRadius: 10, padding: 12, marginBottom: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
               <div>
@@ -1401,6 +1420,9 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
             </div>
           </div>
         ))}
+            </>
+          )
+        })()}
 
         <button onClick={eliminaSocio} disabled={eliminando}
           style={{ width: '100%', marginTop: 18, padding: '9px', background: RL, border: `1px solid ${R}44`, borderRadius: 9, fontSize: 12.5, fontWeight: 600, color: R, cursor: 'pointer' }}>
