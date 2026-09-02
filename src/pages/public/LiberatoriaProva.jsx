@@ -29,11 +29,31 @@ const STEPS = ["Dati anagrafici","Residenza","Contatti","Corso","Liberatoria","F
 // ---------------------------------------------------------------------
 // Canvas firma
 // ---------------------------------------------------------------------
+// Carica il font corsivo da Google Fonts una sola volta (condiviso con l'altra
+// firma), usato per la modalità "scrivi il nome" descritta sotto.
+let fontFirmaCaricato = false;
+function assicuraFontFirma() {
+  if (fontFirmaCaricato || typeof document === "undefined") return;
+  fontFirmaCaricato = true;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = "https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600&display=swap";
+  document.head.appendChild(link);
+}
+
+// Firma: disegno col dito/mouse (ora con tratto smussato) oppure, in
+// alternativa, si può semplicemente scrivere il proprio nome e viene reso in
+// corsivo automaticamente — utile soprattutto per chi da PC fatica a disegnare
+// una firma leggibile col mouse (richiesto da Solomon il 02/09/2026).
 function FirmaCanvas({ label, required, onChange }) {
+  const [modo, setModo] = useState("disegna"); // "disegna" | "scrivi"
+  const [nomeScritto, setNomeScritto] = useState("");
   const canvasRef = useRef(null);
   const drawing = useRef(false);
   const lastPos = useRef(null);
   const [hasSign, setHasSign] = useState(false);
+
+  useEffect(() => { assicuraFontFirma(); }, []);
 
   function getPos(e, canvas) {
     const r = canvas.getBoundingClientRect();
@@ -47,28 +67,83 @@ function FirmaCanvas({ label, required, onChange }) {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     const pos = getPos(e, canvas);
-    ctx.beginPath(); ctx.moveTo(lastPos.current.x, lastPos.current.y);
-    ctx.lineTo(pos.x, pos.y);
-    ctx.strokeStyle = GD; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.stroke();
+    // Curva sul punto medio invece di una linea retta punto-a-punto: con il
+    // mouse il tratto risulta più morbido e meno "a scatti".
+    const puntoMedio = { x: (lastPos.current.x + pos.x) / 2, y: (lastPos.current.y + pos.y) / 2 };
+    ctx.strokeStyle = GD; ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.quadraticCurveTo(lastPos.current.x, lastPos.current.y, puntoMedio.x, puntoMedio.y);
+    ctx.stroke();
     lastPos.current = pos; setHasSign(true); onChange(canvas.toDataURL());
   }
-  function end() { drawing.current = false; }
+  function end() {
+    drawing.current = false;
+    const canvas = canvasRef.current;
+    canvas.getContext("2d").beginPath();
+  }
   function clear() {
     canvasRef.current.getContext("2d").clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-    setHasSign(false); onChange(null);
+    setHasSign(false); setNomeScritto(""); onChange(null);
   }
+
+  // Ridisegna la firma "scritta" ogni volta che il nome cambia.
+  useEffect(() => {
+    if (modo !== "scrivi") return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const testo = nomeScritto.trim();
+    if (!testo) { setHasSign(false); onChange(null); return; }
+    ctx.fillStyle = GD;
+    let dimensione = 34;
+    ctx.font = `${dimensione}px 'Dancing Script', cursive`;
+    while (ctx.measureText(testo).width > canvas.width - 30 && dimensione > 16) {
+      dimensione -= 2;
+      ctx.font = `${dimensione}px 'Dancing Script', cursive`;
+    }
+    ctx.fillText(testo, 15, canvas.height / 2 + dimensione / 3);
+    setHasSign(true);
+    onChange(canvas.toDataURL());
+  }, [modo, nomeScritto]);
 
   return (
     <div style={{ marginBottom: 14 }}>
       <label style={{ fontSize: 10, fontWeight: 600, color: SUB, display: "block", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>
         {label} {required && <span style={{ color: R }}>*</span>}
       </label>
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+        <button type="button" onClick={() => { setModo("disegna"); clear(); }}
+          style={{ fontSize: 11, fontWeight: 600, padding: "4px 9px", borderRadius: 7, cursor: "pointer",
+            border: modo === "disegna" ? `1.5px solid ${GD}` : `1px solid ${BD}`,
+            background: modo === "disegna" ? "#FDF1E9" : "white", color: modo === "disegna" ? GD : SUB }}>
+          ✍️ Disegna
+        </button>
+        <button type="button" onClick={() => setModo("scrivi")}
+          style={{ fontSize: 11, fontWeight: 600, padding: "4px 9px", borderRadius: 7, cursor: "pointer",
+            border: modo === "scrivi" ? `1.5px solid ${GD}` : `1px solid ${BD}`,
+            background: modo === "scrivi" ? "#FDF1E9" : "white", color: modo === "scrivi" ? GD : SUB }}>
+          ⌨️ Scrivi il nome
+        </button>
+      </div>
+
+      {modo === "scrivi" && (
+        <input type="text" value={nomeScritto} onChange={(e) => setNomeScritto(e.target.value)}
+          placeholder="Scrivi qui nome e cognome"
+          style={{ width: "100%", marginBottom: 6, padding: "8px 10px", border: `1px solid ${BD}`, borderRadius: 8, fontSize: 13 }} />
+      )}
+
       <div style={{ position: "relative", border: `1.5px solid ${hasSign ? G : BD}`, borderRadius: 10, background: "#FAFAF8", overflow: "hidden" }}>
         <canvas ref={canvasRef} width={480} height={100}
-          style={{ display: "block", width: "100%", height: 100, cursor: "crosshair", touchAction: "none" }}
-          onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
-          onTouchStart={start} onTouchMove={move} onTouchEnd={end} />
-        {!hasSign && (
+          style={{ display: "block", width: "100%", height: 100, cursor: modo === "disegna" ? "crosshair" : "default", touchAction: "none" }}
+          onMouseDown={modo === "disegna" ? start : undefined}
+          onMouseMove={modo === "disegna" ? move : undefined}
+          onMouseUp={modo === "disegna" ? end : undefined}
+          onMouseLeave={modo === "disegna" ? end : undefined}
+          onTouchStart={modo === "disegna" ? start : undefined}
+          onTouchMove={modo === "disegna" ? move : undefined}
+          onTouchEnd={modo === "disegna" ? end : undefined} />
+        {!hasSign && modo === "disegna" && (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
             <span style={{ fontSize: 12, color: "#BBBBBB" }}>✍️ Firma qui con il dito o il mouse</span>
           </div>
@@ -110,8 +185,16 @@ export default function LiberatoriaProva() {
     minore: false, nomeGenitore: "", cfGenitore: "",
     corsoProvaId: "", orarioProva: "", orarioFrequenza: "",
     luogo: "Brescia", dataFirma: new Date().toISOString().split("T")[0],
-    firma1: null, firma2: null,
+    firma1: null, firma2: null, dichiarazioneFirma: false,
   });
+
+  const [ipUtente, setIpUtente] = useState(null);
+  useEffect(() => {
+    fetch("https://api.ipify.org?format=json")
+      .then((r) => r.json())
+      .then((data) => setIpUtente(data.ip || null))
+      .catch(() => setIpUtente(null));
+  }, []);
 
   function set(k, v) { setD(p => ({ ...p, [k]: v })); setErrs(p => { const n = { ...p }; delete n[k]; return n; }); }
 
@@ -215,6 +298,7 @@ export default function LiberatoriaProva() {
       if (!d.dataFirma) e.dataFirma = "Obbligatorio";
       if (!d.firma1) e.firma1 = "La firma è obbligatoria";
       if (!d.firma2) e.firma2 = "La seconda firma è obbligatoria";
+      if (!d.dichiarazioneFirma) e.dichiarazioneFirma = "Devi confermare la dichiarazione per proseguire";
     }
     return e;
   }
@@ -239,6 +323,9 @@ export default function LiberatoriaProva() {
         stato: "in_attesa",
         firma_url: d.firma1 || null,
         firma2_url: d.firma2 || null,
+        firma_timestamp: new Date().toISOString(),
+        firma_ip: ipUtente,
+        firma_dichiarazione_accettata: d.dichiarazioneFirma,
         note: `Luogo firma: ${d.luogo} | Data: ${d.dataFirma}${d.minore ? ` | Genitore: ${d.nomeGenitore} (${d.cfGenitore})` : ""}`,
         dati_extra: {
           genere: d.genere,
@@ -357,7 +444,7 @@ export default function LiberatoriaProva() {
           📞 Per info: <strong>WhatsApp 327 868 1393</strong>
         </div>
         <button
-          onClick={() => { setInviato(false); setStep(1); setD({ nome:"",cognome:"",genere:"",dataNascita:"",comuneNascita:"",provinciaNascita:"",cf:"",indirizzo:"",civico:"",citta:"",provincia:"",cap:"",telefono:"",email:"",minore:false,nomeGenitore:"",cfGenitore:"",corsoProvaId:"",orarioProva:"",orarioFrequenza:"",luogo:"Brescia",dataFirma:new Date().toISOString().split("T")[0],firma1:null,firma2:null }); }}
+          onClick={() => { setInviato(false); setStep(1); setD({ nome:"",cognome:"",genere:"",dataNascita:"",comuneNascita:"",provinciaNascita:"",cf:"",indirizzo:"",civico:"",citta:"",provincia:"",cap:"",telefono:"",email:"",minore:false,nomeGenitore:"",cfGenitore:"",corsoProvaId:"",orarioProva:"",orarioFrequenza:"",luogo:"Brescia",dataFirma:new Date().toISOString().split("T")[0],firma1:null,firma2:null,dichiarazioneFirma:false }); }}
           style={{ padding: "10px 24px", background: GL, border: `1px solid ${G}44`, borderRadius: 10, fontSize: 13, fontWeight: 600, color: GD, cursor: "pointer" }}>
           Nuova richiesta
         </button>
@@ -624,6 +711,20 @@ export default function LiberatoriaProva() {
               </div>
               <FirmaCanvas label="Seconda firma (art. 1341-1342 c.c.)" required onChange={v => set("firma2", v)} />
               {errs.firma2 && <p style={{ fontSize: 11, color: R, marginTop: -8, marginBottom: 10 }}>{errs.firma2}</p>}
+
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, cursor: "pointer", background: "#FAFAF8", borderRadius: 10, padding: 12, marginBottom: 4 }}>
+                <input
+                  type="checkbox"
+                  style={{ marginTop: 2 }}
+                  checked={d.dichiarazioneFirma}
+                  onChange={(e) => set("dichiarazioneFirma", e.target.checked)}
+                />
+                <span style={{ color: TX }}>
+                  Dichiaro che il segno sopra riportato — disegnato o scritto — sostituisce a tutti gli effetti la mia
+                  firma autografa, e che i dati inseriti in questo modulo sono veritieri. *
+                </span>
+              </label>
+              {errs.dichiarazioneFirma && <p style={{ fontSize: 11, color: R, marginTop: -2, marginBottom: 10 }}>{errs.dichiarazioneFirma}</p>}
 
               {/* Riepilogo */}
               <div style={{ background: GL, border: `1px solid ${G}33`, borderRadius: 10, padding: "12px 14px", marginTop: 4 }}>

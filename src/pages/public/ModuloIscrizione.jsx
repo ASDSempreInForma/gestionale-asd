@@ -573,18 +573,46 @@ function calcolaEta(dataNascitaISO) {
 // ---------------------------------------------------------------------
 // FIRMA DIGITALE (canvas touch + mouse)
 // ---------------------------------------------------------------------
+// Carica il font corsivo da Google Fonts una sola volta (usato per la firma
+// "scritta al posto di disegnata" — vedi sotto). Se il caricamento fallisce
+// per qualche motivo (rete assente), il browser userà comunque un fallback
+// corsivo generico: non blocca mai la firma.
+let fontFirmaCaricato = false;
+function assicuraFontFirma() {
+  if (fontFirmaCaricato || typeof document === "undefined") return;
+  fontFirmaCaricato = true;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = "https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600&display=swap";
+  document.head.appendChild(link);
+}
+
+// Firma: la persona può scegliere se disegnarla col dito/mouse (come prima,
+// ora con un tratto più morbido) oppure scrivere semplicemente il proprio
+// nome, che viene reso in corsivo automaticamente — pensato soprattutto per
+// chi, specialmente da PC con il mouse, fatica a disegnare una firma leggibile
+// (richiesto da Solomon il 02/09/2026, segnalazione su utenti anziani).
 function FirmaCanvas({ label, onChange }) {
+  const [modo, setModo] = useState("disegna"); // "disegna" | "scrivi"
+  const [nomeScritto, setNomeScritto] = useState("");
   const canvasRef = useRef(null);
   const drawing = useRef(false);
   const empty = useRef(true);
+  const ultimoPunto = useRef(null);
+
+  useEffect(() => {
+    assicuraFontFirma();
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext("2d");
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.5;
     ctx.lineCap = "round";
+    ctx.lineJoin = "round";
     ctx.strokeStyle = "#1f2937";
-  }, []);
+  }, [modo]);
 
   const getPos = (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
@@ -595,18 +623,26 @@ function FirmaCanvas({ label, onChange }) {
   const start = (e) => {
     e.preventDefault();
     drawing.current = true;
-    const { x, y } = getPos(e);
+    const p = getPos(e);
+    ultimoPunto.current = p;
     const ctx = canvasRef.current.getContext("2d");
     ctx.beginPath();
-    ctx.moveTo(x, y);
+    ctx.moveTo(p.x, p.y);
   };
   const move = (e) => {
     if (!drawing.current) return;
     e.preventDefault();
-    const { x, y } = getPos(e);
+    const p = getPos(e);
     const ctx = canvasRef.current.getContext("2d");
-    ctx.lineTo(x, y);
+    // Traccio una curva tra il punto medio dei due segmenti precedenti, invece
+    // di una linea retta punto-a-punto: con il mouse (movimenti meno fluidi
+    // del dito su touch) il risultato è una firma visibilmente più morbida e
+    // meno "a scatti", più facile da ottenere per chi ha meno dimestichezza.
+    const prec = ultimoPunto.current;
+    const puntoMedio = { x: (prec.x + p.x) / 2, y: (prec.y + p.y) / 2 };
+    ctx.quadraticCurveTo(prec.x, prec.y, puntoMedio.x, puntoMedio.y);
     ctx.stroke();
+    ultimoPunto.current = p;
     empty.current = false;
   };
   const end = () => {
@@ -618,25 +654,90 @@ function FirmaCanvas({ label, onChange }) {
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     empty.current = true;
+    setNomeScritto("");
     onChange(null);
   };
+
+  // Ridisegna la firma "scritta" ogni volta che il nome cambia, con un font
+  // corsivo e una riga di base per dare comunque l'aspetto di una firma.
+  useEffect(() => {
+    if (modo !== "scrivi") return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(20, canvas.height - 30);
+    ctx.lineTo(canvas.width - 20, canvas.height - 30);
+    ctx.stroke();
+    const testo = nomeScritto.trim();
+    if (!testo) {
+      onChange(null);
+      return;
+    }
+    ctx.fillStyle = "#1f2937";
+    let dimensione = 46;
+    ctx.font = `${dimensione}px 'Dancing Script', cursive`;
+    // Riduco il font finché il nome non entra nella larghezza del riquadro.
+    while (ctx.measureText(testo).width > canvas.width - 40 && dimensione > 20) {
+      dimensione -= 2;
+      ctx.font = `${dimensione}px 'Dancing Script', cursive`;
+    }
+    ctx.fillText(testo, 20, canvas.height - 40);
+    onChange(canvas.toDataURL());
+  }, [modo, nomeScritto, onChange]);
 
   return (
     <div>
       <p className="text-sm font-medium text-slate-700 mb-1">{label}</p>
+
+      <div className="flex gap-2 mb-2">
+        <button
+          type="button"
+          onClick={() => { setModo("disegna"); onChange(null); }}
+          className={`text-xs font-medium px-3 py-1.5 rounded-lg border ${modo === "disegna" ? "bg-[#C24709] text-white border-[#C24709]" : "bg-white text-slate-600 border-slate-300"}`}
+        >
+          ✍️ Disegna la firma
+        </button>
+        <button
+          type="button"
+          onClick={() => { setModo("scrivi"); }}
+          className={`text-xs font-medium px-3 py-1.5 rounded-lg border ${modo === "scrivi" ? "bg-[#C24709] text-white border-[#C24709]" : "bg-white text-slate-600 border-slate-300"}`}
+        >
+          ⌨️ Scrivi il nome
+        </button>
+      </div>
+
+      {modo === "scrivi" && (
+        <input
+          type="text"
+          value={nomeScritto}
+          onChange={(e) => setNomeScritto(e.target.value)}
+          placeholder="Scrivi qui nome e cognome"
+          className="w-full mb-2 border border-slate-300 rounded-lg px-3 py-2 text-sm"
+        />
+      )}
+
       <canvas
         ref={canvasRef}
         width={500}
         height={150}
         className="w-full border-2 border-dashed border-slate-300 rounded-lg bg-white touch-none"
-        onMouseDown={start}
-        onMouseMove={move}
-        onMouseUp={end}
-        onMouseLeave={end}
-        onTouchStart={start}
-        onTouchMove={move}
-        onTouchEnd={end}
+        onMouseDown={modo === "disegna" ? start : undefined}
+        onMouseMove={modo === "disegna" ? move : undefined}
+        onMouseUp={modo === "disegna" ? end : undefined}
+        onMouseLeave={modo === "disegna" ? end : undefined}
+        onTouchStart={modo === "disegna" ? start : undefined}
+        onTouchMove={modo === "disegna" ? move : undefined}
+        onTouchEnd={modo === "disegna" ? end : undefined}
       />
+      {modo === "scrivi" && (
+        <p className="text-xs text-slate-400 mt-1">
+          Il nome scritto verrà mostrato in corsivo qui sopra e usato come firma.
+        </p>
+      )}
       <button type="button" onClick={pulisci} className="mt-1 text-xs text-slate-500 underline">
         Cancella firma
       </button>
@@ -674,6 +775,18 @@ export default function ModuloIscrizione() {
   const [firmaSocio, setFirmaSocio] = useState(null);
   const [firmaGenitore, setFirmaGenitore] = useState(null);
   const [luogoFirma, setLuogoFirma] = useState("");
+  const [dichiarazioneFirma, setDichiarazioneFirma] = useState(false);
+  const [ipUtente, setIpUtente] = useState(null);
+
+  // Recupera l'IP pubblico del dispositivo per rafforzare la tracciabilità
+  // della firma elettronica semplice. Se il servizio non risponde, si procede
+  // comunque: non deve mai bloccare l'invio dell'iscrizione.
+  useEffect(() => {
+    fetch("https://api.ipify.org?format=json")
+      .then((r) => r.json())
+      .then((d) => setIpUtente(d.ip || null))
+      .catch(() => setIpUtente(null));
+  }, []);
 
   // Stato invio
   const [inviando, setInviando] = useState(false);
@@ -921,7 +1034,7 @@ export default function ModuloIscrizione() {
     if (step === 2) return residenza.indirizzo && residenza.comune && residenza.email;
     if (step === 3) return corsiConCodice.length > 0 && corsiConCodice.every((c) => c.corso?.mese_inizio !== "settembre" || c.inizioPersonalizzato) && (!vuoleExtraSettembre || corsoExtraSettembreId);
     if (step === 4) return regolamenti.statuto && regolamenti.privacy;
-    if (step === 5) return firmaSocio && (!isMinorenne || firmaGenitore) && luogoFirma;
+    if (step === 5) return firmaSocio && (!isMinorenne || firmaGenitore) && luogoFirma && dichiarazioneFirma;
     return true;
   };
 
@@ -1057,6 +1170,9 @@ export default function ModuloIscrizione() {
         presa_visione_regolamenti: true,
         firma_url: firmaSocio || null,
         firma_genitore_url: isMinorenne ? (firmaGenitore || null) : null,
+        firma_timestamp: new Date().toISOString(),
+        firma_ip: ipUtente,
+        firma_dichiarazione_accettata: dichiarazioneFirma,
         note: [
           `Codice: ${c.codiceCompleto}`,
           `Frequenza: ${c.frequenza === "2x" ? "bisettimanale" : "monosettimanale"}${
@@ -1754,6 +1870,19 @@ export default function ModuloIscrizione() {
             {isMinorenne && (
               <FirmaCanvas label="Firma del genitore/tutore (art. 1341-1342 c.c.) *" onChange={setFirmaGenitore} />
             )}
+
+            <label className="flex items-start gap-2 text-sm cursor-pointer bg-slate-50 rounded-lg p-3">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={dichiarazioneFirma}
+                onChange={(e) => setDichiarazioneFirma(e.target.checked)}
+              />
+              <span className="text-slate-700">
+                Dichiaro che il segno sopra riportato — disegnato o scritto — sostituisce a tutti gli effetti la mia
+                firma autografa, e che i dati inseriti in questo modulo sono veritieri. *
+              </span>
+            </label>
 
             {erroreInvio && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
