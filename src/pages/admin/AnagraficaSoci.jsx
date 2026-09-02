@@ -60,6 +60,12 @@ function stampaTesseraQR(socio) {
   w.document.close();
 }
 
+// Normalizza gli spazi (tolgo spazi doppi/iniziali/finali) prima di dividere
+// una ricerca in singole parole, es. "Re  Anna" -> "Re Anna".
+function termineSenzaSpaziMultipli(q) {
+  return q.trim().replace(/\s+/g, ' ')
+}
+
 function fmtData(d) {
   if (!d) return '—'
   const [y, m, day] = d.split('-')
@@ -1445,13 +1451,19 @@ export default function AnagraficaSoci() {
     setQuery(q)
     if (q.trim().length < 2) { setRisultati([]); return }
     setCercando(true)
-    const termine = q.trim()
-    const { data, error } = await supabase
+    // Ricerca per singola parola: se scrivi "Re Anna" o "Anna Re", nessuno dei
+    // due campi (nome="Anna", cognome="Re") contiene l'intera stringa insieme,
+    // quindi va cercata parola per parola — ogni parola deve corrispondere ad
+    // ALMENO uno tra nome/cognome/CF, ma parole diverse possono corrispondere
+    // a campi diversi (bug scoperto il 02/09/2026 con "Re Anna" non trovata).
+    const parole = termineSenzaSpaziMultipli(q).split(' ').filter(Boolean)
+    let query = supabase
       .from('soci')
       .select('cf, nome, cognome, email, telefono, numero_tessera, ente_tessera, scadenza_tessera, is_admin_blocked, blocco_motivo, data_nascita, comune_nascita, provincia_nascita, indirizzo, comune_residenza, provincia_residenza, cap, note')
-      .or(`nome.ilike.%${termine}%,cognome.ilike.%${termine}%,cf.ilike.%${termine}%`)
-      .order('cognome')
-      .limit(30)
+    parole.forEach(parola => {
+      query = query.or(`nome.ilike.%${parola}%,cognome.ilike.%${parola}%,cf.ilike.%${parola}%`)
+    })
+    const { data, error } = await query.order('cognome').limit(30)
     setCercando(false)
     if (!error) setRisultati(data || [])
   }
