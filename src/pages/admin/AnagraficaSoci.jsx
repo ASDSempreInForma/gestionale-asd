@@ -735,19 +735,37 @@ function componiCodiceCompleto(corso, frequenza, tipoPagamento) {
   return codice
 }
 
-function ReinviaEmailConferma({ iscrizione, socio }) {
+function ReinviaEmailConferma({ iscrizione, socio, altreIscrizioniStessaStagione = [] }) {
   const [inviando, setInviando] = useState(false)
   const [esito, setEsito] = useState(null) // null | 'ok' | 'errore'
 
   const invia = async () => {
     const corso = iscrizione.corsi
     if (!socio.email) { setEsito('errore'); return }
-    if (!window.confirm(`Reinviare l'email di conferma per "${corso?.disciplina} — ${corso?.giorni_orari}" all'indirizzo ${socio.email}?\n\nControlla che l'indirizzo sopra sia corretto prima di confermare.`)) return
+
+    // Se la persona ha altre iscrizioni attive nella stessa stagione (es. due
+    // corsi diversi con un unico pagamento cumulativo), le includiamo tutte
+    // nell'email — altrimenti risulterebbe un solo corso elencato ma
+    // l'importo totale di tutti insieme, un'email fuorviante (bug scoperto
+    // il 02/09/2026, caso Re Anna: due iscrizioni Pilates, importo 280€
+    // condiviso su entrambe le righe).
+    const tutteLeIscrizioni = [iscrizione, ...altreIscrizioniStessaStagione]
+    const elencoCorsi = tutteLeIscrizioni
+      .map((r) => r.corsi?.disciplina || r.corsi?.nome_visualizzato)
+      .filter(Boolean)
+      .join(', ')
+    const messaggioConferma = tutteLeIscrizioni.length > 1
+      ? `Reinviare l'email di conferma per "${elencoCorsi}" (${tutteLeIscrizioni.length} corsi insieme, stesso pagamento) all'indirizzo ${socio.email}?\n\nControlla che l'indirizzo sopra sia corretto prima di confermare.`
+      : `Reinviare l'email di conferma per "${corso?.disciplina} — ${corso?.giorni_orari}" all'indirizzo ${socio.email}?\n\nControlla che l'indirizzo sopra sia corretto prima di confermare.`
+    if (!window.confirm(messaggioConferma)) return
 
     setInviando(true)
     setEsito(null)
-    const codiceCompleto = componiCodiceCompleto(corso, iscrizione.frequenza, iscrizione.tipo_pagamento)
-    const causale = `${(socio.nome || '').toUpperCase()} ${(socio.cognome || '').toUpperCase()} ${codiceCompleto}`
+
+    const codiceCompletoPrincipale = componiCodiceCompleto(corso, iscrizione.frequenza, iscrizione.tipo_pagamento)
+    const causale = tutteLeIscrizioni.length > 1
+      ? `${(socio.nome || '').toUpperCase()} ${(socio.cognome || '').toUpperCase()} ${tutteLeIscrizioni.map((r) => componiCodiceCompleto(r.corsi, r.frequenza, r.tipo_pagamento)).join(' + ')}`
+      : `${(socio.nome || '').toUpperCase()} ${(socio.cognome || '').toUpperCase()} ${codiceCompletoPrincipale}`
     const labelPagamento = iscrizione.tipo_pagamento === 'quad2' ? '2ª rata quadrimestrale'
       : iscrizione.tipo_pagamento === 'quad1' ? '1ª rata quadrimestrale' : 'quota annuale'
 
@@ -759,12 +777,12 @@ function ReinviaEmailConferma({ iscrizione, socio }) {
           tipo: 'conferma_iscrizione',
           destinatarioEmail: socio.email,
           destinatarioNome: `${socio.nome} ${socio.cognome}`,
-          corsi: [{
-            nome: corso?.nome_visualizzato || corso?.disciplina,
-            sede: corso?.sedi?.nome,
-            giorniOrari: giorniOrariVisualizzati(corso, iscrizione.frequenza, iscrizione.giorno_scelto),
-            codiceCompleto,
-          }],
+          corsi: tutteLeIscrizioni.map((r) => ({
+            nome: r.corsi?.nome_visualizzato || r.corsi?.disciplina,
+            sede: r.corsi?.sedi?.nome,
+            giorniOrari: giorniOrariVisualizzati(r.corsi, r.frequenza, r.giorno_scelto),
+            codiceCompleto: componiCodiceCompleto(r.corsi, r.frequenza, r.tipo_pagamento),
+          })),
           quotaTotale: iscrizione.importo_dichiarato,
           causale,
           tipoPagamentoLabel: labelPagamento,
@@ -783,7 +801,7 @@ function ReinviaEmailConferma({ iscrizione, socio }) {
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       <button onClick={invia} disabled={inviando}
         style={{ fontSize: 12, background: '#EFF6FF', color: '#1E40AF', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>
-        {inviando ? 'Invio…' : '📧 Reinvia email di conferma'}
+        {inviando ? 'Invio…' : altreIscrizioniStessaStagione.length > 0 ? '📧 Reinvia email di conferma (tutti i corsi)' : '📧 Reinvia email di conferma'}
       </button>
       {esito === 'ok' && <span style={{ fontSize: 11, color: G }}>✓ Inviata a {socio.email}</span>}
       {esito === 'errore' && <span style={{ fontSize: 11, color: R }}>✕ Errore invio</span>}
@@ -1279,7 +1297,13 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
               )}
             </div>
             <div style={{ marginTop: 8 }}>
-              <ReinviaEmailConferma iscrizione={i} socio={socio} />
+              <ReinviaEmailConferma
+                iscrizione={i}
+                socio={socio}
+                altreIscrizioniStessaStagione={iscrizioni.filter(
+                  (altra) => altra.id !== i.id && altra.stagione_id === i.stagione_id && altra.stato_pagamento !== 'annullata'
+                )}
+              />
             </div>
             {i.note && <div style={{ fontSize: 11.5, color: SUB, marginTop: 6, fontStyle: 'italic' }}>{i.note}</div>}
             <NotaVisibileSocio iscrizione={i} />
