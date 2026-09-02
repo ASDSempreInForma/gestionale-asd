@@ -94,6 +94,14 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
   const [tessera, setTessera] = useState(row.soci?.numero_tessera || '')
   const [salvandoTessera, setSalvandoTessera] = useState(false)
   const [modaleRifiuto, setModaleRifiuto] = useState(null) // 'pagamento' | 'certificato' | null
+  // Data di scadenza modificabile: la persona può aver digitato una data
+  // sbagliata caricando il certificato (es. scambiando giorno/mese, o un
+  // anno nel passato) — permettiamo di correggerla sia PRIMA di confermare
+  // sia DOPO, se l'errore viene notato più tardi (caso segnalato da Solomon
+  // il 02/09/2026, Codenotti Vittoria: scadenza inserita prima della data
+  // stessa del certificato).
+  const [scadenzaModificata, setScadenzaModificata] = useState(row.data_scadenza_certificato || '')
+  const [modificaScadenzaAperta, setModificaScadenzaAperta] = useState(false)
 
   const socio = row.soci
   const corso = row.corsi
@@ -179,17 +187,57 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
               🩺 Certificato medico {row.stato_certificato === 'valido' && <span style={{ color: '#166534' }}>✓ confermato</span>}
               {row.stato_certificato === 'rifiutato' && <span style={{ color: '#991B1B' }}>✕ rifiutato</span>}
             </div>
-            <div style={{ fontSize: 12.5, color: SUB, lineHeight: 1.6 }}>
-              Scadenza dichiarata: <b>{fmtData(row.data_scadenza_certificato)}</b>
-              {row.verificato_il && <><br />Verificato il {fmtData(row.verificato_il.slice(0,10))} da {row.verificato_da || '—'}</>}
-            </div>
+
+            {row.stato_certificato === 'dichiarato' ? (
+              <div style={{ fontSize: 12.5, color: SUB, marginBottom: 4 }}>
+                <label style={{ display: 'block', marginBottom: 4 }}>
+                  Scadenza dichiarata dalla persona — correggila qui se sbagliata, prima di confermare:
+                </label>
+                <input
+                  type="date"
+                  value={scadenzaModificata}
+                  onChange={(e) => setScadenzaModificata(e.target.value)}
+                  style={{ padding: '6px 8px', border: `1px solid ${BD}`, borderRadius: 7, fontSize: 12.5 }}
+                />
+              </div>
+            ) : (
+              <div style={{ fontSize: 12.5, color: SUB, lineHeight: 1.6 }}>
+                Scadenza: <b>{fmtData(row.data_scadenza_certificato)}</b>
+                {row.verificato_il && <><br />Verificato il {fmtData(row.verificato_il.slice(0,10))} da {row.verificato_da || '—'}</>}
+              </div>
+            )}
+
+            {row.stato_certificato === 'valido' && !soloConsultazione && (
+              modificaScadenzaAperta ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  <input
+                    type="date"
+                    value={scadenzaModificata}
+                    onChange={(e) => setScadenzaModificata(e.target.value)}
+                    style={{ padding: '6px 8px', border: `1px solid ${BD}`, borderRadius: 7, fontSize: 12.5 }}
+                  />
+                  <button
+                    onClick={() => { aggiornaIscrizione({ data_scadenza_certificato: scadenzaModificata }); setModificaScadenzaAperta(false) }}
+                    style={{ background: G, color: 'white', border: 'none', padding: '6px 10px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                  >Salva correzione</button>
+                  <button onClick={() => { setModificaScadenzaAperta(false); setScadenzaModificata(row.data_scadenza_certificato || '') }}
+                    style={{ background: 'none', border: 'none', color: SUB, fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}
+                  >Annulla</button>
+                </div>
+              ) : (
+                <button onClick={() => setModificaScadenzaAperta(true)}
+                  style={{ background: 'none', border: 'none', color: '#4338CA', fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0, marginTop: 4 }}
+                >✏️ Correggi scadenza</button>
+              )
+            )}
+
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
               <button onClick={() => apriDocumento(row.certificato_url)} style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>👁️ Apri file</button>
               {!soloConsultazione && row.stato_certificato === 'dichiarato' && (
                 <>
                   <button
                     onClick={() => {
-                      aggiornaIscrizione({ stato_certificato: 'valido' })
+                      aggiornaIscrizione({ stato_certificato: 'valido', data_scadenza_certificato: scadenzaModificata })
                       inviaEmailDocumento({ tipo: 'documento_confermato', tipoDocumento: 'certificato', socio })
                     }}
                     style={{ background: '#DCFCE7', color: '#166534', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer', fontWeight: 600 }}

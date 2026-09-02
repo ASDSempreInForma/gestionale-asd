@@ -104,31 +104,66 @@ export default function GestioneProve() {
         .from("corsi")
         .select(`
           id, codice_corso, disciplina, giorni_orari,
-          capienza_max, prove_attive,
+          capienza_max, capienza_giorno1, capienza_giorno2, prove_attive,
           sedi ( nome ),
-          iscrizioni!iscrizioni_corso_id_fkey ( id, stato_pagamento ),
-          prove ( id, stato )
+          iscrizioni!iscrizioni_corso_id_fkey ( id, stato_pagamento, frequenza, giorno_scelto ),
+          prove ( id, stato, data_effettuata )
         `)
         .eq("stagione_id", stag.id)
         .order("codice_corso");
       if (errC) throw errC;
 
-      const corsiFormattati = corsiDB.map(c => ({
-        id: c.id,
-        codice: c.codice_corso,
-        sede: c.sedi.nome,
-        nome: c.disciplina,
-        orario: c.giorni_orari,
-        cap: c.capienza_max || 999,
-        proveAttive: c.prove_attive !== false,
-        // Le iscrizioni annullate non occupano più un posto reale: vanno escluse
-        // dal conteggio, altrimenti un'iscrizione cancellata mesi fa continua a
-        // "occupare" un posto per sempre (bug scoperto il 27/08/2026).
-        iscritti: (c.iscrizioni || []).filter(i => i.stato_pagamento !== "annullata").length,
-        proveCount: (c.prove || []).filter(p =>
-          ["in_attesa","confermata","effettuata"].includes(p.stato)
-        ).length,
-      }));
+      const corsiFormattati = corsiDB.map(c => {
+        const iscrizioniAttive = (c.iscrizioni || []).filter(i => i.stato_pagamento !== "annullata");
+        const proveAttiveList = (c.prove || []).filter(p =>
+          ["in_attesa", "confermata", "effettuata"].includes(p.stato)
+        );
+        const giorniCorso = estraiGiorniCorso(c.giorni_orari);
+        // Tracciamento per singola giornata: solo se il corso ha davvero 2
+        // giorni distinti E la segreteria ha impostato almeno un limite per
+        // giornata (capienza_giorno1/2) — altrimenti resta il conteggio
+        // unico di prima. Corretto il 02/09/2026: prima un corso bisettimanale
+        // veniva bloccato guardando iscritti+prove TOTALI contro un unico
+        // numero, anche se la maggior parte delle persone frequenta entrambi
+        // i giorni e quindi ogni singola giornata aveva ancora molto spazio.
+        const capacitaPerGiorno = giorniCorso.length === 2 && (c.capienza_giorno1 != null || c.capienza_giorno2 != null);
+
+        let giorni = null;
+        if (capacitaPerGiorno) {
+          giorni = giorniCorso.map((giorno, idx) => {
+            const capGiorno = idx === 0 ? c.capienza_giorno1 : c.capienza_giorno2;
+            const iscrittiGiorno = iscrizioniAttive.filter(i =>
+              i.frequenza === "2x" || i.giorno_scelto === giorno
+            ).length;
+            // Solo le prove già fissate su una data specifica occupano un
+            // posto in quella giornata: una richiesta ancora "in attesa" non
+            // ha ancora un giorno preciso, quindi non blocca nessuna delle due.
+            const proveGiorno = proveAttiveList.filter(p =>
+              p.data_effettuata && giornoDaData(p.data_effettuata) === giorno
+            ).length;
+            return { giorno, cap: capGiorno ?? 999, occupati: iscrittiGiorno + proveGiorno };
+          });
+        }
+        const proveNonFissate = proveAttiveList.filter(p => !p.data_effettuata).length;
+
+        return {
+          id: c.id,
+          codice: c.codice_corso,
+          sede: c.sedi.nome,
+          nome: c.disciplina,
+          orario: c.giorni_orari,
+          cap: c.capienza_max || 999,
+          proveAttive: c.prove_attive !== false,
+          // Le iscrizioni annullate non occupano più un posto reale: vanno escluse
+          // dal conteggio, altrimenti un'iscrizione cancellata mesi fa continua a
+          // "occupare" un posto per sempre (bug scoperto il 27/08/2026).
+          iscritti: iscrizioniAttive.length,
+          proveCount: proveAttiveList.length,
+          proveNonFissate,
+          capacitaPerGiorno,
+          giorni,
+        };
+      });
       setCorsi(corsiFormattati);
 
       // Prove con dati extra — solo quelle legate a corsi della stagione attiva:
@@ -172,6 +207,21 @@ export default function GestioneProve() {
       if (!error) setEccezioni(prev => { const n = { ...prev }; delete n[cf]; return n; });
     }
   }
+  // Estrae i nomi dei giorni dalla stringa "Martedì/Giovedì 19:15-20:10" -> ["Martedì","Giovedì"]
+  function estraiGiorniCorso(orario) {
+    if (!orario) return [];
+    const soloGiorni = orario.split(/\s+\d/)[0];
+    return soloGiorni.split("/").map(g => g.trim()).filter(Boolean);
+  }
+
+  const GIORNI_ITA = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
+  // Da una data (es. "2026-09-01") al nome del giorno della settimana in italiano.
+  // Mezzogiorno come orario di appoggio per evitare sbalzi di fuso vicino alla mezzanotte.
+  function giornoDaData(dataStr) {
+    if (!dataStr) return null;
+    return GIORNI_ITA[new Date(dataStr + "T12:00:00").getDay()];
+  }
+
   // Calcola la scadenza dei 2 giorni per confermare l'iscrizione a partire
   // dalla VERA data della lezione di prova (fine di quel giorno + 2 giorni),
   // non da quando la segreteria clicca "Segna effettuata" — bug corretto il
@@ -309,6 +359,22 @@ export default function GestioneProve() {
     setSaving(p => ({ ...p, ["cap_"+corsoId]: false }));
   }
 
+  // ── Aggiorna capienza per singola giornata (corsi bisettimanali) ──────────
+  async function aggiornaCapGiorno(corsoId, campo, nuovoCap) {
+    const n = parseInt(nuovoCap, 10);
+    if (isNaN(n) || n < 0) return;
+    setSaving(p => ({ ...p, [campo + "_" + corsoId]: true }));
+    const { error } = await supabase.from("corsi").update({ [campo]: n }).eq("id", corsoId);
+    if (!error) {
+      setCorsi(prev => prev.map(c => {
+        if (c.id !== corsoId || !c.giorni) return c;
+        const idx = campo === "capienza_giorno1" ? 0 : 1;
+        return { ...c, giorni: c.giorni.map((g, i) => i === idx ? { ...g, cap: n } : g) };
+      }));
+    }
+    setSaving(p => ({ ...p, [campo + "_" + corsoId]: false }));
+  }
+
   // ── Dati derivati ────────────────────────────────────────────────────────
   const sedi = [...new Set(corsi.map(c => c.sede))].sort();
   const corsiDisponibili = corsi.filter(c => !filtroSede || c.sede === filtroSede);
@@ -347,7 +413,14 @@ export default function GestioneProve() {
     return h > 0 && h <= 24;
   });
 
-  const disponibili = (c) => Math.max(0, c.cap - c.iscritti - c.proveCount);
+  // Per i corsi con capienza tracciata per singola giornata, i "posti liberi"
+  // guardano alla giornata più critica delle due — è lì che si blocca prima.
+  const disponibili = (c) => {
+    if (c.capacitaPerGiorno) {
+      return Math.min(...c.giorni.map(g => Math.max(0, g.cap - g.occupati)));
+    }
+    return Math.max(0, c.cap - c.iscritti - c.proveCount);
+  };
   const statoCorso = (c) => {
     if (disponibili(c) === 0) return "pieno";
     if (!c.proveAttive) return "bloccato";
@@ -737,8 +810,13 @@ export default function GestioneProve() {
                         <div style={{ fontSize:11, color:SUB }}>📍 {c.sede} · 🕐 {c.orario}</div>
                         <div style={{ fontSize:11, color:SUB, marginTop:2 }}>
                           {c.iscritti} iscritti · {c.proveCount} prove attive
-                          {c.cap < 999 && ` · ${disp} posti liberi`}
+                          {!c.capacitaPerGiorno && c.cap < 999 && ` · ${disp} posti liberi`}
                         </div>
+                        {c.capacitaPerGiorno && c.proveNonFissate > 0 && (
+                          <div style={{ fontSize:11, color:A, marginTop:2 }}>
+                            ⏳ {c.proveNonFissate} richiest{c.proveNonFissate === 1 ? "a" : "e"} di prova ancora da fissare su un giorno
+                          </div>
+                        )}
                       </div>
                       <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}>
                         {stato==="pieno" && <span style={{ background:RL,color:R,padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700 }}>⛔ Completo</span>}
@@ -749,7 +827,25 @@ export default function GestioneProve() {
                     </div>
 
                     {/* Barra capacità */}
-                    {c.cap < 999 && (
+                    {c.capacitaPerGiorno ? (
+                      <div style={{ marginTop:10, display:"flex", flexDirection:"column", gap:8 }}>
+                        {c.giorni.map((g) => {
+                          const pctG = g.cap < 999 ? Math.min(100, Math.round(g.occupati / g.cap * 100)) : 0;
+                          const barColG = pctG >= 100 ? R : pctG >= 75 ? A : G;
+                          return (
+                            <div key={g.giorno}>
+                              <div style={{ fontSize:10.5, color:SUB, marginBottom:2 }}>{g.giorno}</div>
+                              <div style={{ background:"#F1F5F9", borderRadius:4, height:6, overflow:"hidden" }}>
+                                <div style={{ width:`${pctG}%`, height:"100%", background:barColG, transition:"width .3s" }} />
+                              </div>
+                              <div style={{ fontSize:10, color:SUB, marginTop:2 }}>
+                                {g.occupati} / {g.cap} ({pctG}%)
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : c.cap < 999 && (
                       <div style={{ marginTop:10 }}>
                         <div style={{ background:"#F1F5F9", borderRadius:4, height:6, overflow:"hidden" }}>
                           <div style={{ width:`${pct}%`, height:"100%", background:barCol, transition:"width .3s" }} />
@@ -772,17 +868,39 @@ export default function GestioneProve() {
                       </label>
 
                       {/* Capienza max */}
-                      <div style={{ display:"flex", alignItems:"center", gap:6, marginLeft:"auto" }}>
-                        <span style={{ fontSize:11, color:SUB }}>Max posti:</span>
-                        <input type="number" min={0} max={999}
-                          defaultValue={c.cap < 999 ? c.cap : ""}
-                          placeholder="∞"
-                          onBlur={e => aggiornaCap(c.id, e.target.value || 999)}
-                          disabled={isSavingCap}
-                          style={{ width:60, padding:"4px 6px", border:`1px solid ${BD}`,
-                            borderRadius:7, fontSize:12, textAlign:"center" }} />
-                        {isSavingCap && <span style={{ fontSize:11, color:SUB }}>⏳</span>}
-                      </div>
+                      {c.capacitaPerGiorno ? (
+                        <div style={{ display:"flex", alignItems:"center", gap:12, marginLeft:"auto", flexWrap:"wrap" }}>
+                          {c.giorni.map((g, idx) => {
+                            const campo = idx === 0 ? "capienza_giorno1" : "capienza_giorno2";
+                            const isSavingG = saving[campo + "_" + c.id];
+                            return (
+                              <div key={g.giorno} style={{ display:"flex", alignItems:"center", gap:6 }}>
+                                <span style={{ fontSize:11, color:SUB }}>Max {g.giorno}:</span>
+                                <input type="number" min={0} max={999}
+                                  defaultValue={g.cap < 999 ? g.cap : ""}
+                                  placeholder="∞"
+                                  onBlur={e => aggiornaCapGiorno(c.id, campo, e.target.value || 999)}
+                                  disabled={isSavingG}
+                                  style={{ width:56, padding:"4px 6px", border:`1px solid ${BD}`,
+                                    borderRadius:7, fontSize:12, textAlign:"center" }} />
+                                {isSavingG && <span style={{ fontSize:11, color:SUB }}>⏳</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div style={{ display:"flex", alignItems:"center", gap:6, marginLeft:"auto" }}>
+                          <span style={{ fontSize:11, color:SUB }}>Max posti:</span>
+                          <input type="number" min={0} max={999}
+                            defaultValue={c.cap < 999 ? c.cap : ""}
+                            placeholder="∞"
+                            onBlur={e => aggiornaCap(c.id, e.target.value || 999)}
+                            disabled={isSavingCap}
+                            style={{ width:60, padding:"4px 6px", border:`1px solid ${BD}`,
+                              borderRadius:7, fontSize:12, textAlign:"center" }} />
+                          {isSavingCap && <span style={{ fontSize:11, color:SUB }}>⏳</span>}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

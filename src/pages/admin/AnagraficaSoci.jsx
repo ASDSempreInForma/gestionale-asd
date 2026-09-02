@@ -1130,6 +1130,53 @@ function CambiaCorso({ iscrizione, socioCf, onAggiornato }) {
   )
 }
 
+// Corregge la data di scadenza di un certificato già confermato — utile
+// quando ci si accorge dopo l'accettazione che la data inserita dalla
+// persona era sbagliata (es. scambiando giorno/mese, o addirittura una data
+// nel passato). Caso reale: Codenotti Vittoria, scadenza inserita prima
+// della data del certificato stesso (richiesto da Solomon il 02/09/2026).
+function CorreggiScadenzaCertificato({ iscrizione, onAggiornato }) {
+  const [aperto, setAperto] = useState(false)
+  const [data, setData] = useState(iscrizione.data_scadenza_certificato || '')
+  const [salvando, setSalvando] = useState(false)
+
+  const salva = async () => {
+    if (!data) return
+    setSalvando(true)
+    const { error } = await supabase.from('iscrizioni').update({ data_scadenza_certificato: data }).eq('id', iscrizione.id)
+    setSalvando(false)
+    if (error) { alert('Errore: ' + error.message); return }
+    setAperto(false)
+    onAggiornato()
+  }
+
+  if (!aperto) {
+    return (
+      <span style={{ fontSize: 11.5, color: SUB }}>
+        Scad. certificato: <b>{fmtData(iscrizione.data_scadenza_certificato)}</b>{' '}
+        <button onClick={() => setAperto(true)} style={{ background: 'none', border: 'none', color: '#4338CA', fontSize: 11.5, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+          ✏️ correggi
+        </button>
+      </span>
+    )
+  }
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <input type="date" value={data} onChange={(e) => setData(e.target.value)}
+        style={{ padding: '4px 6px', border: `1px solid ${BD}`, borderRadius: 6, fontSize: 11.5 }} />
+      <button onClick={salva} disabled={salvando}
+        style={{ background: G, color: 'white', border: 'none', borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+        {salvando ? 'Salvo…' : 'Salva'}
+      </button>
+      <button onClick={() => { setAperto(false); setData(iscrizione.data_scadenza_certificato || '') }}
+        style={{ background: 'none', border: 'none', color: SUB, fontSize: 11, cursor: 'pointer' }}>
+        Annulla
+      </button>
+    </span>
+  )
+}
+
 function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
   const [iscrizioni, setIscrizioni] = useState(null)
   const [mostraStagionePassate, setMostraStagionePassate] = useState(false)
@@ -1496,6 +1543,11 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
                 <BadgeCertificato stato={i.stato_certificato} />
               </div>
             </div>
+            {i.stato_certificato === 'valido' && (
+              <div style={{ marginTop: 6 }}>
+                <CorreggiScadenzaCertificato iscrizione={i} onAggiornato={caricaIscrizioni} />
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
               {i.ricevuta_url && <button onClick={() => apriDocumento(i.ricevuta_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Ricevuta</button>}
               {i.stato_pagamento !== 'confermato' && (
