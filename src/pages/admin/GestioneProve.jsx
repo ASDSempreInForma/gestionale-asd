@@ -172,10 +172,24 @@ export default function GestioneProve() {
       if (!error) setEccezioni(prev => { const n = { ...prev }; delete n[cf]; return n; });
     }
   }
-  async function aggiornaStato(id, nuovoStato, extraCampi = {}) {
+  // Calcola la scadenza dei 2 giorni per confermare l'iscrizione a partire
+  // dalla VERA data della lezione di prova (fine di quel giorno + 2 giorni),
+  // non da quando la segreteria clicca "Segna effettuata" — bug corretto il
+  // 02/09/2026: prima, se si segnava "effettuata" con giorni di ritardo
+  // rispetto alla prova vera, la scadenza partiva comunque da quel click,
+  // regalando tempo in più non dovuto.
+  function scadenzaDaDataProva(dataEffettuata) {
+    const d = new Date(dataEffettuata + "T23:59:59");
+    d.setDate(d.getDate() + 2);
+    return d.toISOString();
+  }
+
+  async function aggiornaStato(id, nuovoStato, extraCampi = {}, dataEffettuataPerScadenza = null) {
     setSaving(p => ({ ...p, [id]: true }));
     const extra = nuovoStato === "effettuata"
-      ? { scadenza_3gg: new Date(Date.now() + 2*24*60*60*1000).toISOString() }
+      ? { scadenza_3gg: dataEffettuataPerScadenza
+            ? scadenzaDaDataProva(dataEffettuataPerScadenza)
+            : new Date(Date.now() + 2*24*60*60*1000).toISOString() } // fallback di sicurezza, non dovrebbe mai servire
       : {};
     const { error } = await supabase
       .from("prove").update({ stato: nuovoStato, ...extra, ...extraCampi }).eq("id", id);
@@ -603,7 +617,7 @@ export default function GestioneProve() {
                         {p.stato === "confermata" && (
                           <>
                             <BtnAzione label="Segna effettuata" color={GD} bg={GL}
-                              loading={isSaving} onClick={() => aggiornaStato(p.id, "effettuata")} />
+                              loading={isSaving} onClick={() => aggiornaStato(p.id, "effettuata", {}, p.data_effettuata)} />
                             <BtnAzione label="Non presentata" color={A} bg={AL}
                               loading={isSaving} onClick={() => segnaNonPresentata(p)} />
                           </>
