@@ -43,6 +43,25 @@ const PAGAMENTI = [
 ];
 
 // ---------------------------------------------------------------------
+// EXTRA "CORSO A SETTEMBRE" (richiesto da Solomon il 02/09/2026)
+// Chi si iscrive a un corso che parte a ottobre può, SOLO durante il mese di
+// settembre, aggiungere anche un corso che è già partito a settembre (stessa
+// disciplina o diversa, in un'altra sede). Per scelta esplicita di Solomon
+// questo NON tocca il motore prezzi principale: è un sovrapprezzo fisso,
+// sommato al totale finale, che dipende solo da due cose:
+//   1) la durata del corso principale di ottobre (annuale=8 mesi o
+//      quadrimestrale=4 mesi, letta dal tipo di pagamento scelto)
+//   2) quante volte a settimana la persona vuole il corso extra di settembre
+// La persona NON viene aggiunta al gruppo/capienza del corso di settembre in
+// automatico: la segreteria la inserirà a mano, il modulo serve solo a far
+// figurare l'importo corretto da pagare fin da subito e a lasciare traccia
+// della richiesta (nota visibile alla persona nella sua area privata).
+const SOVRAPPREZZO_SETTEMBRE = {
+  annuale: { "1x": 25, "2x": 30 },
+  quadrimestrale: { "1x": 30, "2x": 35 },
+};
+
+// ---------------------------------------------------------------------
 // VALIDAZIONE CODICE FISCALE (carattere di controllo finale)
 // Blocca la maggior parte degli errori di battitura prima dell'invio.
 // ---------------------------------------------------------------------
@@ -648,6 +667,9 @@ export default function ModuloIscrizione() {
   const [corsiScelti, setCorsiScelti] = useState([
     { sede: "", corsoId: "", frequenza: "2x", pagamento: "annuale", inizioPersonalizzato: null },
   ]);
+  const [vuoleExtraSettembre, setVuoleExtraSettembre] = useState(false);
+  const [corsoExtraSettembreId, setCorsoExtraSettembreId] = useState("");
+  const [frequenzaExtraSettembre, setFrequenzaExtraSettembre] = useState("2x");
   const [regolamenti, setRegolamenti] = useState({ statuto: false, privacy: false, immagini: false });
   const [firmaSocio, setFirmaSocio] = useState(null);
   const [firmaGenitore, setFirmaGenitore] = useState(null);
@@ -849,6 +871,25 @@ export default function ModuloIscrizione() {
 
   const prezzoTotale = useMemo(() => calcolaPrezzoTotale(corsiConCodice), [corsiConCodice]);
 
+  // ── Extra "corso a settembre" (sovrapprezzo fisso, separato dal motore prezzi) ──
+  const oggiESettembre = new Date().getMonth() === 8; // 8 = settembre (mesi 0-indicizzati)
+  const corsiSettembreDisponibili = corsi.filter((c) => c.mese_inizio === "settembre");
+  const corsoExtraSettembre = corsiSettembreDisponibili.find((c) => c.id === corsoExtraSettembreId) || null;
+  // La "durata" del corso principale determina il tariffario da usare: guardo
+  // il tipo di pagamento del primo corso scelto (annuale = 8 mesi, quadrimestrale
+  // = 4 mesi). Con "q2" (nuovo tesserato da gennaio) l'opzione non ha senso
+  // cronologicamente, quindi non viene proprio mostrata (vedi sotto).
+  const pagamentoPrincipale = corsiConCodice[0]?.pagamento;
+  const bucketDurataPrincipale = pagamentoPrincipale === "annuale" ? "annuale" : pagamentoPrincipale === "q1" ? "quadrimestrale" : null;
+  const sovrapprezzoSettembre =
+    vuoleExtraSettembre && corsoExtraSettembre && bucketDurataPrincipale
+      ? SOVRAPPREZZO_SETTEMBRE[bucketDurataPrincipale][frequenzaExtraSettembre]
+      : 0;
+  const totaleConExtraSettembre =
+    prezzoTotale.totale !== null && prezzoTotale.totale !== undefined
+      ? prezzoTotale.totale + sovrapprezzoSettembre
+      : prezzoTotale.totale;
+
   // Vero se almeno un corso nel carrello sta beneficiando dello sconto per
   // stagione già iniziata (mesi già trascorsi dall'inizio del corso), per
   // mostrare una nota di trasparenza nel riepilogo finale.
@@ -878,7 +919,7 @@ export default function ModuloIscrizione() {
   const puoiProseguire = () => {
     if (step === 1) return anagrafica.nome && anagrafica.cognome && anagrafica.dataNascita && anagrafica.cf && validaCodiceFiscale(anagrafica.cf);
     if (step === 2) return residenza.indirizzo && residenza.comune && residenza.email;
-    if (step === 3) return corsiConCodice.length > 0 && corsiConCodice.every((c) => c.corso?.mese_inizio !== "settembre" || c.inizioPersonalizzato);
+    if (step === 3) return corsiConCodice.length > 0 && corsiConCodice.every((c) => c.corso?.mese_inizio !== "settembre" || c.inizioPersonalizzato) && (!vuoleExtraSettembre || corsoExtraSettembreId);
     if (step === 4) return regolamenti.statuto && regolamenti.privacy;
     if (step === 5) return firmaSocio && (!isMinorenne || firmaGenitore) && luogoFirma;
     return true;
@@ -1002,7 +1043,11 @@ export default function ModuloIscrizione() {
         giorno_scelto: c.frequenza === "1x" && c.corso.ha_variante_frequenza ? c.giornoScelto : null,
         inizio_personalizzato: c.corso.mese_inizio === "settembre" ? c.inizioPersonalizzato : null,
         tipo_pagamento: c.pagamento === "q1" ? "quad1" : c.pagamento === "q2" ? "quad2" : "annuale",
-        importo_dichiarato: prezzoTotale.totale ?? null,
+        importo_dichiarato: totaleConExtraSettembre ?? null,
+        nota_socio:
+          sovrapprezzoSettembre > 0 && corsoExtraSettembre
+            ? `🎯 Include anche ${corsoExtraSettembre.nomeVisualizzato || corsoExtraSettembre.corso} (${corsoExtraSettembre.sede}), ${frequenzaExtraSettembre === "2x" ? "2 volte" : "1 volta"} a settimana, a partire da settembre.`
+            : null,
         presa_visione_regolamenti: true,
         firma_url: firmaSocio || null,
         firma_genitore_url: isMinorenne ? (firmaGenitore || null) : null,
@@ -1018,6 +1063,9 @@ export default function ModuloIscrizione() {
           `Luogo firma: ${luogoFirma}`,
           `Data iscrizione: ${new Date().toLocaleDateString("it-IT")}`,
           prezzoTotale.incompleto ? "ATTENZIONE: quota non calcolabile automaticamente, verificare a mano" : null,
+          sovrapprezzoSettembre > 0 && corsoExtraSettembre
+            ? `EXTRA SETTEMBRE (da aggiungere a mano al gruppo): ${corsoExtraSettembre.nomeVisualizzato || corsoExtraSettembre.corso} (${corsoExtraSettembre.sede}), ${frequenzaExtraSettembre === "2x" ? "2 volte" : "1 volta"}/sett, +${sovrapprezzoSettembre}€`
+            : null,
         ].filter(Boolean).join(" | "),
       }));
 
@@ -1078,22 +1126,32 @@ export default function ModuloIscrizione() {
             tipo: "conferma_iscrizione",
             destinatarioEmail: residenza.email,
             destinatarioNome: `${anagrafica.nome} ${anagrafica.cognome}`,
-            corsi: corsiConCodice.map((c) => {
-              // Se la persona ha scelto 1 solo giorno a settimana, mostriamo in email
-              // solo quel giorno con il suo orario, non l'intera coppia bisettimanale.
-              let giorniOrariEmail = c.corso.orario;
-              if (c.frequenza === "1x" && c.corso.ha_variante_frequenza && c.giornoScelto) {
-                const trovato = estraiGiorniSingoli(c.corso.orario).find((p) => p.giorno === c.giornoScelto);
-                if (trovato) giorniOrariEmail = `${trovato.giorno} ${trovato.orario}`;
-              }
-              return {
-                nome: c.corso.nomeVisualizzato || c.corso.corso,
-                sede: c.corso.sede,
-                giorniOrari: giorniOrariEmail,
-                codiceCompleto: c.codiceCompleto,
-              };
-            }),
-            quotaTotale: prezzoTotale.totale,
+            corsi: [
+              ...corsiConCodice.map((c) => {
+                // Se la persona ha scelto 1 solo giorno a settimana, mostriamo in email
+                // solo quel giorno con il suo orario, non l'intera coppia bisettimanale.
+                let giorniOrariEmail = c.corso.orario;
+                if (c.frequenza === "1x" && c.corso.ha_variante_frequenza && c.giornoScelto) {
+                  const trovato = estraiGiorniSingoli(c.corso.orario).find((p) => p.giorno === c.giornoScelto);
+                  if (trovato) giorniOrariEmail = `${trovato.giorno} ${trovato.orario}`;
+                }
+                return {
+                  nome: c.corso.nomeVisualizzato || c.corso.corso,
+                  sede: c.corso.sede,
+                  giorniOrari: giorniOrariEmail,
+                  codiceCompleto: c.codiceCompleto,
+                };
+              }),
+              ...(sovrapprezzoSettembre > 0 && corsoExtraSettembre
+                ? [{
+                    nome: `${corsoExtraSettembre.nomeVisualizzato || corsoExtraSettembre.corso} (extra settembre)`,
+                    sede: corsoExtraSettembre.sede,
+                    giorniOrari: `${frequenzaExtraSettembre === "2x" ? "2 volte" : "1 volta"} a settimana, +${sovrapprezzoSettembre}€`,
+                    codiceCompleto: "",
+                  }]
+                : []),
+            ],
+            quotaTotale: totaleConExtraSettembre,
             causale: causaleCompleta,
             tipoPagamentoLabel: labelPagamento,
             richiedeIscrizione: true,
@@ -1449,6 +1507,72 @@ export default function ModuloIscrizione() {
                 >
                   + Aggiungi un altro corso
                 </button>
+
+                {oggiESettembre && corsiSettembreDisponibili.length > 0 && corsiConCodice.length > 0 && bucketDurataPrincipale && (
+                  <div className="border border-[#F4B384] bg-[#FFF8F3] rounded-xl p-4 mt-2">
+                    <label className="flex items-start gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={vuoleExtraSettembre}
+                        onChange={(e) => {
+                          setVuoleExtraSettembre(e.target.checked);
+                          if (!e.target.checked) setCorsoExtraSettembreId("");
+                        }}
+                      />
+                      <span className="font-medium text-slate-700">Vuoi aggiungere anche un corso a Settembre?</span>
+                    </label>
+                    <p className="text-xs text-slate-500 mt-1 ml-6">
+                      Alcuni corsi sono già iniziati a settembre. Puoi iniziare a frequentarne uno subito, in
+                      aggiunta al corso scelto sopra: verrà aggiunto alla tua quota con un piccolo sovrapprezzo, e la
+                      segreteria penserà a inserirti nel gruppo giusto.
+                    </p>
+
+                    {vuoleExtraSettembre && (
+                      <div className="mt-3 ml-6 space-y-3">
+                        <div>
+                          <label className="text-xs font-medium text-slate-600 block mb-1">Quale corso?</label>
+                          <select
+                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
+                            value={corsoExtraSettembreId}
+                            onChange={(e) => setCorsoExtraSettembreId(e.target.value)}
+                          >
+                            <option value="">Seleziona…</option>
+                            {corsiSettembreDisponibili.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.nomeVisualizzato || c.corso} — {c.sede} ({c.orario})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {corsoExtraSettembre && (
+                          <div>
+                            <label className="text-xs font-medium text-slate-600 block mb-1">Quante volte a settimana?</label>
+                            <div className="flex gap-2">
+                              <RadioPill
+                                active={frequenzaExtraSettembre === "2x"}
+                                onClick={() => setFrequenzaExtraSettembre("2x")}
+                                label="2 volte a settimana"
+                              />
+                              <RadioPill
+                                active={frequenzaExtraSettembre === "1x"}
+                                onClick={() => setFrequenzaExtraSettembre("1x")}
+                                label="1 volta a settimana"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {sovrapprezzoSettembre > 0 && (
+                          <p className="text-sm text-[#C24709]">
+                            Sovrapprezzo per il corso di settembre: <b>+{sovrapprezzoSettembre}€</b> (già incluso nel totale finale).
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -1594,12 +1718,18 @@ export default function ModuloIscrizione() {
               {corsiConCodice.map((c, i) => (
                 <p key={i} className="text-slate-600">{c.corso.nomeVisualizzato || c.corso.corso} — {c.corso.sede}</p>
               ))}
+              {sovrapprezzoSettembre > 0 && corsoExtraSettembre && (
+                <p className="text-slate-600">
+                  {corsoExtraSettembre.nomeVisualizzato || corsoExtraSettembre.corso} — {corsoExtraSettembre.sede}
+                  <span className="text-xs text-[#C24709]"> (extra settembre, {frequenzaExtraSettembre === "2x" ? "2 volte" : "1 volta"}/sett)</span>
+                </p>
+              )}
               <div className="border-t pt-2 mt-2 flex justify-between items-center">
                 <span className="text-slate-500">Quota da versare:</span>
                 {prezzoTotale.incompleto ? (
                   <span className="text-amber-600 font-medium">Da verificare in segreteria</span>
                 ) : (
-                  <span className="font-semibold text-[#C24709] text-base">{prezzoTotale.totale}€</span>
+                  <span className="font-semibold text-[#C24709] text-base">{totaleConExtraSettembre}€</span>
                 )}
               </div>
               {mostraNotaMesiTrascorsi && (
