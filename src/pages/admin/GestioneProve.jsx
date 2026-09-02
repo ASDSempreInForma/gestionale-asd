@@ -184,6 +184,19 @@ export default function GestioneProve() {
     return d.toISOString();
   }
 
+  // La colonna scadenza_3gg nel database è di tipo "solo data" (senza
+  // orario): quando la si legge, "2026-09-03" viene interpretata da
+  // JavaScript come mezzanotte UTC, che in orario italiano estivo diventa le
+  // 2 di notte — un orario fuorviante mostrato in interfaccia (bug segnalato
+  // da Solomon il 02/09/2026). La scadenza vera è "fine di quella giornata",
+  // quindi qui la reinterpretiamo sempre come 23:59:59 ORA LOCALE di quel
+  // giorno, sia per il conto alla rovescia che per la visualizzazione.
+  function fineGiornataScadenza(dataStr) {
+    if (!dataStr) return null;
+    const soloData = dataStr.slice(0, 10); // tollera sia "2026-09-03" che un timestamp completo
+    return new Date(soloData + "T23:59:59");
+  }
+
   async function aggiornaStato(id, nuovoStato, extraCampi = {}, dataEffettuataPerScadenza = null) {
     setSaving(p => ({ ...p, [id]: true }));
     const extra = nuovoStato === "effettuata"
@@ -330,7 +343,7 @@ export default function GestioneProve() {
   // Scadenze imminenti (entro 24 ore, stato effettuata)
   const scadenze = prove.filter(p => {
     if (p.stato !== "effettuata" || !p.scadenza_3gg) return false;
-    const h = (new Date(p.scadenza_3gg) - new Date()) / 36e5;
+    const h = (fineGiornataScadenza(p.scadenza_3gg) - new Date()) / 36e5;
     return h > 0 && h <= 24;
   });
 
@@ -480,7 +493,7 @@ export default function GestioneProve() {
                 {scadenze.map(p => (
                   <div key={p.id} style={{ fontSize:12, color:R, marginBottom:4 }}>
                     <strong>{p.nome} {p.cognome}</strong> — {p.corsi?.disciplina}
-                    · scade {new Date(p.scadenza_3gg).toLocaleDateString("it-IT", { hour:"2-digit", minute:"2-digit" })}
+                    · scade {new Date(p.scadenza_3gg).toLocaleDateString("it-IT")} (fine giornata)
                   </div>
                 ))}
               </div>
@@ -532,7 +545,7 @@ export default function GestioneProve() {
                   const corso = corsi.find(c => c.id === p.corso_id);
                   const isSaving = saving[p.id];
                   const hScad = p.scadenza_3gg
-                    ? (new Date(p.scadenza_3gg) - new Date()) / 36e5
+                    ? (fineGiornataScadenza(p.scadenza_3gg) - new Date()) / 36e5
                     : null;
                   const scadImm = hScad !== null && hScad > 0 && hScad <= 24;
                   const hPreavviso = p.scadenza_preavviso
