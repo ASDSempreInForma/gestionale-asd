@@ -946,7 +946,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
         stato_certificato, data_scadenza_certificato, certificato_url,
         data_iscrizione, note, nota_socio, firma_url, firma_genitore_url, modulo_cartaceo_url,
         frequenza, giorno_scelto,
-        corsi ( codice_corso, disciplina, nome_visualizzato, giorni_orari, ha_variante_frequenza, sedi ( nome ) ),
+        corsi!iscrizioni_corso_id_fkey ( codice_corso, disciplina, nome_visualizzato, giorni_orari, ha_variante_frequenza, sedi ( nome ) ),
         stagioni ( nome, attiva )
       `)
       .eq('socio_cf', socio.cf)

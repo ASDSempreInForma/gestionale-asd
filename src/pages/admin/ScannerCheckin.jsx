@@ -142,7 +142,7 @@ export default function Scanner() {
     // 2. Cerca iscrizione per la stagione attiva
     const { data: iscrizioni } = await supabase
       .from("iscrizioni")
-      .select("corso_id, stato_pagamento, stato_certificato, corsi(disciplina, sedi(nome))")
+      .select("corso_id, stato_pagamento, stato_certificato, corsi!iscrizioni_corso_id_fkey(disciplina, sedi(nome))")
       .eq("socio_cf", cfClean)
       .eq("stagione_id", stagione.id);
 

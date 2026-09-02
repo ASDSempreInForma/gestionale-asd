@@ -238,7 +238,7 @@ export default function VerificaDocumenti() {
         stato_certificato, data_scadenza_certificato, certificato_url, verificato_da, verificato_il,
         frequenza, giorno_scelto,
         soci ( cf, nome, cognome, email, numero_tessera ),
-        corsi ( disciplina, giorni_orari, sedi ( nome ) )
+        corsi!iscrizioni_corso_id_fkey ( disciplina, giorni_orari, sedi ( nome ) )
       `)
       .order('data_iscrizione', { ascending: false })
 
