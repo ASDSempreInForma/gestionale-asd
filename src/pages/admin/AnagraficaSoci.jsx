@@ -809,6 +809,94 @@ function ReinviaEmailConferma({ iscrizione, socio, altreIscrizioniStessaStagione
   )
 }
 
+// Cambia il TIPO DI PAGAMENTO e l'importo di un'iscrizione esistente, restando
+// sullo stesso corso — caso diverso da "Cambia corso" (che sposta su un altro
+// corso). Usato ad esempio quando la persona decide di passare da
+// quadrimestrale ad annuale (o viceversa) dopo essersi già iscritta.
+function ModificaPagamento({ iscrizione, onAggiornato }) {
+  const [aperto, setAperto] = useState(false)
+  const [tipoPagamento, setTipoPagamento] = useState(iscrizione.tipo_pagamento || 'annuale')
+  const [importo, setImporto] = useState(iscrizione.importo_dichiarato ?? '')
+  const [salvando, setSalvando] = useState(false)
+  const [errore, setErrore] = useState('')
+
+  const apri = () => {
+    setAperto(true)
+    setTipoPagamento(iscrizione.tipo_pagamento || 'annuale')
+    setImporto(iscrizione.importo_dichiarato ?? '')
+    setErrore('')
+  }
+
+  const etichettaTipo = (t) => t === 'quad1' ? '1° quadrimestre' : t === 'quad2' ? '2° quadrimestre' : 'Annuale'
+
+  const conferma = async () => {
+    if (importo === '' || isNaN(Number(importo))) { setErrore('Inserisci un importo valido.'); return }
+    const eraConfermato = iscrizione.stato_pagamento === 'confermato'
+    const messaggioConferma = eraConfermato
+      ? `Cambiare il pagamento in "${etichettaTipo(tipoPagamento)}" con importo ${importo}€?\n\nQuesta iscrizione risultava già confermata: dato che l'importo cambia, verrà rimessa "in attesa" finché non arriva la nuova ricevuta. Ricevuta, certificato e firma già inviati restano comunque collegati.`
+      : `Cambiare il pagamento in "${etichettaTipo(tipoPagamento)}" con importo ${importo}€?\n\nRicevuta, certificato e firma già inviati restano collegati e non vengono toccati.`
+    if (!window.confirm(messaggioConferma)) return
+
+    setSalvando(true)
+    const nuovaNota = `${iscrizione.note ? iscrizione.note + ' | ' : ''}Pagamento cambiato da "${etichettaTipo(iscrizione.tipo_pagamento)} (${iscrizione.importo_dichiarato ?? '?'}€)" a "${etichettaTipo(tipoPagamento)} (${importo}€)" il ${new Date().toLocaleDateString('it-IT')}.`
+    const payload = {
+      tipo_pagamento: tipoPagamento,
+      importo_dichiarato: Number(importo),
+      note: nuovaNota,
+    }
+    if (eraConfermato) payload.stato_pagamento = 'in_attesa'
+
+    const { error } = await supabase.from('iscrizioni').update(payload).eq('id', iscrizione.id)
+    setSalvando(false)
+    if (error) { setErrore('Errore: ' + error.message); return }
+    setAperto(false)
+    onAggiornato()
+  }
+
+  if (!aperto) {
+    return (
+      <button onClick={apri} style={{ fontSize: 12, background: '#EDE9FE', color: '#5B21B6', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>
+        ✏️ Modifica pagamento
+      </button>
+    )
+  }
+
+  return (
+    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px dashed ${BD}`, background: '#F5F3FF', borderRadius: 8, padding: 10 }}>
+      <div style={{ fontSize: 11.5, color: '#5B21B6', marginBottom: 6, fontWeight: 600 }}>Cambia tipo di pagamento e importo (stesso corso)</div>
+
+      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+        {['annuale', 'quad1', 'quad2'].map((t) => (
+          <button key={t} onClick={() => setTipoPagamento(t)}
+            style={{ flex: 1, padding: '6px', borderRadius: 6, border: `1px solid ${tipoPagamento === t ? '#5B21B6' : BD}`, background: tipoPagamento === t ? '#EDE9FE' : 'white', color: tipoPagamento === t ? '#5B21B6' : TX, fontSize: 12, cursor: 'pointer', fontWeight: tipoPagamento === t ? 600 : 400 }}>
+            {etichettaTipo(t)}
+          </button>
+        ))}
+      </div>
+
+      <label style={{ fontSize: 11, color: SUB, display: 'block', marginBottom: 4 }}>Nuovo importo dovuto (€)</label>
+      <input type="number" value={importo} onChange={(e) => setImporto(e.target.value)}
+        style={{ width: '100%', padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 12.5, marginBottom: 8, boxSizing: 'border-box' }} />
+
+      <p style={{ fontSize: 11, color: '#92400E', marginBottom: 8 }}>
+        Usa il Calcolatore Prezzi se non sei sicuro dell'importo corretto per il nuovo tipo di pagamento.
+      </p>
+
+      {errore && <p style={{ fontSize: 11.5, color: R, margin: '0 0 8px' }}>{errore}</p>}
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={() => setAperto(false)} style={{ flex: 1, padding: '7px', border: `1px solid ${BD}`, borderRadius: 7, background: 'white', color: SUB, fontSize: 12, cursor: 'pointer' }}>
+          Annulla
+        </button>
+        <button onClick={conferma} disabled={salvando}
+          style={{ flex: 1, padding: '7px', border: 'none', borderRadius: 7, background: '#5B21B6', color: 'white', fontSize: 12, fontWeight: 600, cursor: salvando ? 'default' : 'pointer' }}>
+          {salvando ? 'Salvo…' : 'Conferma'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // Permette di spostare un'iscrizione GIA' ESISTENTE su un altro corso (stessa
 // stagione), senza toccare ricevuta/certificato/firma/note già inviate — utile
 // per richieste tipo "vorrei cambiare giorno" quando il socio ha già mandato
@@ -1307,7 +1395,10 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
             </div>
             {i.note && <div style={{ fontSize: 11.5, color: SUB, marginTop: 6, fontStyle: 'italic' }}>{i.note}</div>}
             <NotaVisibileSocio iscrizione={i} />
-            <CambiaCorso iscrizione={i} onAggiornato={caricaIscrizioni} />
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <CambiaCorso iscrizione={i} onAggiornato={caricaIscrizioni} />
+              <ModificaPagamento iscrizione={i} onAggiornato={caricaIscrizioni} />
+            </div>
           </div>
         ))}
 
