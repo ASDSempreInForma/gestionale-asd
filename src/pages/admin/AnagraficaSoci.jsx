@@ -1054,7 +1054,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
     supabase
       .from('iscrizioni')
       .select(`
-        id, corso_id, tipo_pagamento, stato_pagamento, importo_dichiarato, ricevuta_url,
+        id, corso_id, stagione_id, tipo_pagamento, stato_pagamento, importo_dichiarato, ricevuta_url,
         stato_certificato, data_scadenza_certificato, certificato_url,
         data_iscrizione, note, nota_socio, firma_url, firma_genitore_url, modulo_cartaceo_url,
         frequenza, giorno_scelto,
