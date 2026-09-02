@@ -216,7 +216,7 @@ export default function LiberatoriaProva() {
             id, codice_corso, disciplina, giorni_orari,
             capienza_max, prove_attive, mese_inizio,
             sedi ( nome ),
-            iscrizioni ( id ),
+            iscrizioni!iscrizioni_corso_id_fkey ( id ),
             prove ( id, stato )
           `)
           .eq("stagione_id", stag.id)

@@ -299,7 +299,7 @@ async function getDisponibilitaCorsi() {
         quota_annuale, quota_quad1, quota_quad2, quota_adesione,
         quota_annuale_1x, quota_annuale_under65, quota_annuale_badia,
         sedi(nome),
-        iscrizioni(id),
+        iscrizioni!iscrizioni_corso_id_fkey(id),
         prove(id, stato)
       `)
       .eq("stagione_id", stag.id)

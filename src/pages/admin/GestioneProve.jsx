@@ -106,7 +106,7 @@ export default function GestioneProve() {
           id, codice_corso, disciplina, giorni_orari,
           capienza_max, prove_attive,
           sedi ( nome ),
-          iscrizioni ( id, stato_pagamento ),
+          iscrizioni!iscrizioni_corso_id_fkey ( id, stato_pagamento ),
           prove ( id, stato )
         `)
         .eq("stagione_id", stag.id)

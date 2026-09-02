@@ -311,7 +311,7 @@ async function getDisponibilitaCorsi() {
       .select(`
         disciplina, giorni_orari, capienza_max, prove_attive,
         sedi(nome),
-        iscrizioni(id),
+        iscrizioni!iscrizioni_corso_id_fkey(id),
         prove(id, stato)
       `)
       .eq("stagione_id", stag.id)
