@@ -32,6 +32,13 @@ const STEPS = ["Dati anagrafici","Residenza","Contatti","Corso","Liberatoria","F
 // Carica il font corsivo da Google Fonts una sola volta (condiviso con l'altra
 // firma), usato per la modalità "scrivi il nome" descritta sotto.
 let fontFirmaCaricato = false;
+// Estrae i giorni singoli da un orario tipo "Martedì/Giovedì 19:15-20:10" -> ["Martedì","Giovedì"]
+function estraiGiorniCorso(orario) {
+  if (!orario) return [];
+  const soloGiorni = orario.split(/\s+\d/)[0];
+  return soloGiorni.split("/").map((g) => g.trim()).filter(Boolean);
+}
+
 function assicuraFontFirma() {
   if (fontFirmaCaricato || typeof document === "undefined") return;
   fontFirmaCaricato = true;
@@ -184,6 +191,7 @@ export default function LiberatoriaProva() {
     telefono: "", email: "",
     minore: false, nomeGenitore: "", cfGenitore: "",
     corsoProvaId: "", orarioProva: "", orarioFrequenza: "",
+    frequenzaDesiderata: "", giornoPreferito: "",
     luogo: "Brescia", dataFirma: new Date().toISOString().split("T")[0],
     firma1: null, firma2: null, dichiarazioneFirma: false,
   });
@@ -292,6 +300,7 @@ export default function LiberatoriaProva() {
     }
     if (s === 4) {
       if (!d.corsoProvaId) e.corsoProvaId = "Seleziona un corso";
+      if (d.frequenzaDesiderata === "1x" && !d.giornoPreferito) e.giornoPreferito = "Seleziona quale dei due giorni";
     }
     if (s === 6) {
       if (!d.luogo.trim()) e.luogo = "Obbligatorio";
@@ -320,6 +329,8 @@ export default function LiberatoriaProva() {
         telefono: d.telefono,
         email: d.email,
         corso_id: d.corsoProvaId,
+        frequenza_desiderata: d.frequenzaDesiderata || null,
+        giorno_preferito: d.frequenzaDesiderata === "1x" ? d.giornoPreferito || null : null,
         stato: "in_attesa",
         firma_url: d.firma1 || null,
         firma2_url: d.firma2 || null,
@@ -444,7 +455,7 @@ export default function LiberatoriaProva() {
           📞 Per info: <strong>WhatsApp 327 868 1393</strong>
         </div>
         <button
-          onClick={() => { setInviato(false); setStep(1); setD({ nome:"",cognome:"",genere:"",dataNascita:"",comuneNascita:"",provinciaNascita:"",cf:"",indirizzo:"",civico:"",citta:"",provincia:"",cap:"",telefono:"",email:"",minore:false,nomeGenitore:"",cfGenitore:"",corsoProvaId:"",orarioProva:"",orarioFrequenza:"",luogo:"Brescia",dataFirma:new Date().toISOString().split("T")[0],firma1:null,firma2:null,dichiarazioneFirma:false }); }}
+          onClick={() => { setInviato(false); setStep(1); setD({ nome:"",cognome:"",genere:"",dataNascita:"",comuneNascita:"",provinciaNascita:"",cf:"",indirizzo:"",civico:"",citta:"",provincia:"",cap:"",telefono:"",email:"",minore:false,nomeGenitore:"",cfGenitore:"",corsoProvaId:"",orarioProva:"",orarioFrequenza:"",frequenzaDesiderata:"",giornoPreferito:"",luogo:"Brescia",dataFirma:new Date().toISOString().split("T")[0],firma1:null,firma2:null,dichiarazioneFirma:false }); }}
           style={{ padding: "10px 24px", background: GL, border: `1px solid ${G}44`, borderRadius: 10, fontSize: 13, fontWeight: 600, color: GD, cursor: "pointer" }}>
           Nuova richiesta
         </button>
@@ -630,7 +641,7 @@ export default function LiberatoriaProva() {
                     const isBlocked = stato === "pieno" || stato === "prove_bloccate";
                     const isSelected = d.corsoProvaId === c.id;
                     return (
-                      <div key={c.id} onClick={() => !isBlocked && (set("corsoProvaId", c.id), setLimiteBloccato(null))}
+                      <div key={c.id} onClick={() => !isBlocked && (setLimiteBloccato(null), setD((prev) => ({ ...prev, corsoProvaId: c.id, frequenzaDesiderata: "", giornoPreferito: "" })))}
                         style={{ border: `1.5px solid ${isSelected?G:isBlocked?"#E5E7EB":BD}`, borderRadius: 10, padding: "11px 14px",
                           cursor: isBlocked?"not-allowed":"pointer", background: isSelected?GL:isBlocked?"#FAFAFA":"white",
                           opacity: isBlocked?0.7:1, transition: "all .15s" }}>
@@ -658,6 +669,43 @@ export default function LiberatoriaProva() {
                 </>
               )}
               {errs.corsoProvaId && <p style={{ fontSize: 11, color: R, marginTop: -6, marginBottom: 8 }}>{errs.corsoProvaId}</p>}
+
+              {(() => {
+                const corsoSel = corsi.find((c) => c.id === d.corsoProvaId);
+                const giorniCorsoSel = corsoSel ? estraiGiorniCorso(corsoSel.orario) : [];
+                if (giorniCorsoSel.length !== 2) return null;
+                return (
+                  <div style={{ background: "#F8FAFC", border: `1px solid ${BD}`, borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: TX, marginBottom: 8 }}>
+                      Questo corso si svolge 2 volte a settimana. Se poi deciderai di iscriverti, vorresti frequentarlo:
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginBottom: d.frequenzaDesiderata === "1x" ? 10 : 0 }}>
+                      <div onClick={() => set("frequenzaDesiderata", "2x")}
+                        style={{ flex: 1, border: `1.5px solid ${d.frequenzaDesiderata === "2x" ? G : BD}`, background: d.frequenzaDesiderata === "2x" ? GL : "white", borderRadius: 8, padding: "9px 10px", fontSize: 12.5, textAlign: "center", cursor: "pointer", fontWeight: d.frequenzaDesiderata === "2x" ? 600 : 400, color: d.frequenzaDesiderata === "2x" ? GD : TX }}>
+                        Entrambi i giorni
+                      </div>
+                      <div onClick={() => set("frequenzaDesiderata", "1x")}
+                        style={{ flex: 1, border: `1.5px solid ${d.frequenzaDesiderata === "1x" ? G : BD}`, background: d.frequenzaDesiderata === "1x" ? GL : "white", borderRadius: 8, padding: "9px 10px", fontSize: 12.5, textAlign: "center", cursor: "pointer", fontWeight: d.frequenzaDesiderata === "1x" ? 600 : 400, color: d.frequenzaDesiderata === "1x" ? GD : TX }}>
+                        Solo 1 giorno
+                      </div>
+                    </div>
+                    {d.frequenzaDesiderata === "1x" && (
+                      <div style={{ display: "flex", gap: 8 }}>
+                        {giorniCorsoSel.map((g) => (
+                          <div key={g} onClick={() => set("giornoPreferito", g)}
+                            style={{ flex: 1, border: `1.5px solid ${d.giornoPreferito === g ? G : BD}`, background: d.giornoPreferito === g ? GL : "white", borderRadius: 8, padding: "8px 10px", fontSize: 12.5, textAlign: "center", cursor: "pointer", fontWeight: d.giornoPreferito === g ? 600 : 400, color: d.giornoPreferito === g ? GD : TX }}>
+                            {g}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {errs.giornoPreferito && <p style={{ fontSize: 11, color: R, margin: "6px 0 0" }}>{errs.giornoPreferito}</p>}
+                    <div style={{ fontSize: 11, color: SUB, marginTop: 8 }}>
+                      Nessun impegno: ci serve solo per capire quanto spazio riservare in ciascuna giornata.
+                    </div>
+                  </div>
+                );
+              })()}
               {limiteBloccato && (
                 <div style={{ background: RL, border: `1px solid ${R}33`, borderRadius: 10, padding: "12px 14px", marginTop: 4 }}>
                   <p style={{ fontSize: 13, color: R, margin: 0, fontWeight: 600 }}>Non puoi procedere con questa richiesta</p>

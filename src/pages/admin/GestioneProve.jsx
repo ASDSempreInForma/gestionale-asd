@@ -107,7 +107,7 @@ export default function GestioneProve() {
           capienza_max, capienza_giorno1, capienza_giorno2, prove_attive,
           sedi ( nome ),
           iscrizioni!iscrizioni_corso_id_fkey ( id, stato_pagamento, frequenza, giorno_scelto ),
-          prove ( id, stato, data_effettuata )
+          prove ( id, stato, data_effettuata, frequenza_desiderata, giorno_preferito )
         `)
         .eq("stagione_id", stag.id)
         .order("codice_corso");
@@ -130,18 +130,36 @@ export default function GestioneProve() {
 
         let giorni = null;
         if (capacitaPerGiorno) {
-          giorni = giorniCorso.map((giorno, idx) => {
-            const capGiorno = idx === 0 ? c.capienza_giorno1 : c.capienza_giorno2;
+          // Prima passata: occupazione garantita dai soli iscritti reali
+          // (dato certo, indipendente dalle prove).
+          const baseGiorni = giorniCorso.map((giorno, idx) => {
+            const capGiorno = (idx === 0 ? c.capienza_giorno1 : c.capienza_giorno2) ?? 999;
             const iscrittiGiorno = iscrizioniAttive.filter(i =>
               i.frequenza === "2x" || i.giorno_scelto === giorno
             ).length;
-            // Solo le prove già fissate su una data specifica occupano un
-            // posto in quella giornata: una richiesta ancora "in attesa" non
-            // ha ancora un giorno preciso, quindi non blocca nessuna delle due.
-            const proveGiorno = proveAttiveList.filter(p =>
-              p.data_effettuata && giornoDaData(p.data_effettuata) === giorno
-            ).length;
-            return { giorno, cap: capGiorno ?? 999, occupati: iscrittiGiorno + proveGiorno };
+            return { giorno, capGiorno, iscrittiGiorno };
+          });
+          const giorniLiberi = baseGiorni.filter(g => g.iscrittiGiorno < g.capGiorno).map(g => g.giorno);
+
+          // Per ogni prova, quanto "pesa" su ciascuna giornata:
+          // - se una delle due giornate è GIÀ PIENA di iscritti reali, conta
+          //   sempre e solo su quella libera, qualunque cosa la persona abbia
+          //   risposto nel modulo — non può comunque ottenere un posto sulla
+          //   giornata satura, quindi la sua preferenza dichiarata non conta
+          //   in quel caso (chiarito da Solomon il 03/09/2026);
+          // - altrimenti (entrambe le giornate hanno ancora posto), usiamo la
+          //   risposta reale se presente (2x pesa su entrambe, 1x solo sul
+          //   giorno indicato), o la stima prudente su entrambe se la persona
+          //   non ha risposto (richieste più vecchie).
+          giorni = baseGiorni.map(g => {
+            const soloUnGiornoLibero = giorniLiberi.length === 1;
+            const proveDaContare = proveAttiveList.filter(p => {
+              if (soloUnGiornoLibero) return g.giorno === giorniLiberi[0];
+              if (p.frequenza_desiderata === "2x") return true;
+              if (p.frequenza_desiderata === "1x") return p.giorno_preferito === g.giorno;
+              return true; // nessuna risposta: stima prudente su entrambe
+            }).length;
+            return { giorno: g.giorno, cap: g.capGiorno, occupati: g.iscrittiGiorno + proveDaContare };
           });
         }
         const proveNonFissate = proveAttiveList.filter(p => !p.data_effettuata).length;
@@ -212,14 +230,6 @@ export default function GestioneProve() {
     if (!orario) return [];
     const soloGiorni = orario.split(/\s+\d/)[0];
     return soloGiorni.split("/").map(g => g.trim()).filter(Boolean);
-  }
-
-  const GIORNI_ITA = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
-  // Da una data (es. "2026-09-01") al nome del giorno della settimana in italiano.
-  // Mezzogiorno come orario di appoggio per evitare sbalzi di fuso vicino alla mezzanotte.
-  function giornoDaData(dataStr) {
-    if (!dataStr) return null;
-    return GIORNI_ITA[new Date(dataStr + "T12:00:00").getDay()];
   }
 
   // Calcola la scadenza dei 2 giorni per confermare l'iscrizione a partire
