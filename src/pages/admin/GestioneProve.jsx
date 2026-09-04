@@ -76,7 +76,7 @@ export default function GestioneProve() {
   // Salvataggio in corso
   const [saving, setSaving] = useState({});
   const [dataProvaScelta, setDataProvaScelta] = useState({});
-  const [modaleAnnulla, setModaleAnnulla] = useState(null); // la prova da annullare, o null
+  const [modaleAnnulla, setModaleAnnulla] = useState(null); // { prova, soloEmail } o null
   const [eccezioni, setEccezioni] = useState({}); // {cf: motivo}
 
   // Tab "Stampa registro"
@@ -733,7 +733,11 @@ export default function GestioneProve() {
                         )}
                         {["in_attesa","confermata"].includes(p.stato) && (
                           <BtnAzione label="Annulla" color={R} bg={RL}
-                            loading={isSaving} onClick={() => setModaleAnnulla(p)} />
+                            loading={isSaving} onClick={() => setModaleAnnulla({ prova: p, soloEmail: false })} />
+                        )}
+                        {p.stato === "annullata" && p.email && (
+                          <BtnAzione label="📧 Invia email di avviso" color={BL} bg={BLL}
+                            loading={isSaving} onClick={() => setModaleAnnulla({ prova: p, soloEmail: true })} />
                         )}
                         {p.firma_url && (
                           <button onClick={() => generaPdfLiberatoria({ prova: p }).catch(err => alert("Impossibile generare il PDF: " + err.message))}
@@ -1045,8 +1049,9 @@ export default function GestioneProve() {
 
       {modaleAnnulla && (
         <ModaleAnnullaProva
-          prova={modaleAnnulla}
-          corso={corsi.find((c) => c.id === modaleAnnulla.corso_id)}
+          prova={modaleAnnulla.prova}
+          corso={corsi.find((c) => c.id === modaleAnnulla.prova.corso_id)}
+          soloEmail={modaleAnnulla.soloEmail}
           onAggiornaStato={aggiornaStato}
           onClose={() => setModaleAnnulla(null)}
           onConfermato={() => setModaleAnnulla(null)}
@@ -1078,7 +1083,7 @@ const MOTIVI_ANNULLA_PROVA = [
   "Nessuna risposta ai contatti della segreteria",
   "Altro",
 ];
-function ModaleAnnullaProva({ prova, corso, onClose, onConfermato, onAggiornaStato }) {
+function ModaleAnnullaProva({ prova, corso, soloEmail = false, onClose, onConfermato, onAggiornaStato }) {
   const [motivo, setMotivo] = useState(MOTIVI_ANNULLA_PROVA[0]);
   const [motivoAltro, setMotivoAltro] = useState("");
   const [inviaEmailAllaPersona, setInviaEmailAllaPersona] = useState(true);
@@ -1088,8 +1093,10 @@ function ModaleAnnullaProva({ prova, corso, onClose, onConfermato, onAggiornaSta
 
   const conferma = async () => {
     setSalvando(true);
-    const notaAggiornata = `${prova.note ? prova.note + " | " : ""}Richiesta annullata dalla segreteria il ${new Date().toLocaleDateString("it-IT")} — motivo: ${motivoFinale}.`;
-    await onAggiornaStato(prova.id, "annullata", { note: notaAggiornata });
+    if (!soloEmail) {
+      const notaAggiornata = `${prova.note ? prova.note + " | " : ""}Richiesta annullata dalla segreteria il ${new Date().toLocaleDateString("it-IT")} — motivo: ${motivoFinale}.`;
+      await onAggiornaStato(prova.id, "annullata", { note: notaAggiornata });
+    }
     if (inviaEmailAllaPersona && prova.email) {
       await inviaEmail({
         tipo: "richiesta_prova_annullata",
@@ -1107,9 +1114,12 @@ function ModaleAnnullaProva({ prova, corso, onClose, onConfermato, onAggiornaSta
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }} onClick={onClose}>
       <div style={{ background: "white", borderRadius: 12, padding: 20, maxWidth: 420, width: "100%" }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: TX, marginBottom: 4 }}>Annullare la richiesta?</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: TX, marginBottom: 4 }}>
+          {soloEmail ? "Invia email di avviso" : "Annullare la richiesta?"}
+        </div>
         <div style={{ fontSize: 13, color: SUB, marginBottom: 14 }}>
           {prova.nome} {prova.cognome} — {corso?.nome} {corso?.sede ? `(${corso.sede})` : ""}
+          {soloEmail && <div style={{ marginTop: 4, color: A }}>Richiesta già annullata — questo invia solo l'email di avviso, non cambia nulla nel sistema.</div>}
         </div>
 
         <label style={{ fontSize: 12, fontWeight: 600, color: TX, display: "block", marginBottom: 5 }}>Motivo</label>
@@ -1123,21 +1133,26 @@ function ModaleAnnullaProva({ prova, corso, onClose, onConfermato, onAggiornaSta
             style={{ width: "100%", padding: "7px 9px", border: `1px solid ${BD}`, borderRadius: 8, fontSize: 13, marginBottom: 14, boxSizing: "border-box" }} />
         )}
 
-        <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: TX, marginBottom: 16, cursor: prova.email ? "pointer" : "default" }}>
-          <input type="checkbox" checked={inviaEmailAllaPersona && !!prova.email} disabled={!prova.email}
-            onChange={(e) => setInviaEmailAllaPersona(e.target.checked)} style={{ marginTop: 2 }} />
-          {prova.email
-            ? `Avvisa via email (${prova.email}) spiegando il motivo`
-            : "Nessuna email in anagrafica: non è possibile avvisarla automaticamente"}
-        </label>
+        {!soloEmail && (
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: TX, marginBottom: 16, cursor: prova.email ? "pointer" : "default" }}>
+            <input type="checkbox" checked={inviaEmailAllaPersona && !!prova.email} disabled={!prova.email}
+              onChange={(e) => setInviaEmailAllaPersona(e.target.checked)} style={{ marginTop: 2 }} />
+            {prova.email
+              ? `Avvisa via email (${prova.email}) spiegando il motivo`
+              : "Nessuna email in anagrafica: non è possibile avvisarla automaticamente"}
+          </label>
+        )}
+        {soloEmail && !prova.email && (
+          <div style={{ fontSize: 12, color: R, marginBottom: 16 }}>Questa persona non ha un'email in anagrafica.</div>
+        )}
 
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={onClose} style={{ flex: 1, padding: "9px", border: `1px solid ${BD}`, borderRadius: 8, background: "white", color: SUB, fontSize: 13, cursor: "pointer" }}>
             Indietro
           </button>
-          <button onClick={conferma} disabled={salvando}
-            style={{ flex: 1, padding: "9px", border: "none", borderRadius: 8, background: R, color: "white", fontSize: 13, fontWeight: 600, cursor: salvando ? "default" : "pointer" }}>
-            {salvando ? "Salvo…" : "Conferma annullamento"}
+          <button onClick={conferma} disabled={salvando || (soloEmail && !prova.email)}
+            style={{ flex: 1, padding: "9px", border: "none", borderRadius: 8, background: R, color: "white", fontSize: 13, fontWeight: 600, cursor: salvando ? "default" : "pointer", opacity: (soloEmail && !prova.email) ? 0.5 : 1 }}>
+            {salvando ? "Invio…" : soloEmail ? "Invia email" : "Conferma annullamento"}
           </button>
         </div>
       </div>
