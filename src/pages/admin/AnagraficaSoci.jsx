@@ -823,6 +823,166 @@ function ReinviaEmailConferma({ iscrizione, socio, altreIscrizioniStessaStagione
 // sullo stesso corso — caso diverso da "Cambia corso" (che sposta su un altro
 // corso). Usato ad esempio quando la persona decide di passare da
 // quadrimestrale ad annuale (o viceversa) dopo essersi già iscritta.
+// Stesso tariffario fisso usato in ModuloIscrizione.jsx per l'extra settembre
+// (vedi quel file per i dettagli): dipende solo dalla durata del corso
+// principale (annuale/quadrimestrale) e da quante volte a settimana la
+// persona vuole il corso extra di settembre.
+const SOVRAPPREZZO_SETTEMBRE = {
+  annuale: { '1x': 25, '2x': 30 },
+  quadrimestrale: { '1x': 30, '2x': 35 },
+}
+
+// Aggiunge l'extra settembre a un'iscrizione GIÀ ESISTENTE — utile quando una
+// persona già iscritta (corso di ottobre) decide in un secondo momento di
+// aggiungere anche un corso di settembre, es. pagando la differenza in
+// contanti direttamente in palestra. Fino ad ora questo era possibile solo
+// durante la compilazione del modulo pubblico, non su un'iscrizione già
+// esistente (richiesto da Solomon il 04/09/2026).
+function AggiungiExtraSettembre({ iscrizione, onAggiornato }) {
+  const [aperto, setAperto] = useState(false)
+  const [corsi, setCorsi] = useState(null)
+  const [corsoId, setCorsoId] = useState('')
+  const [frequenza, setFrequenza] = useState('2x')
+  const [importo, setImporto] = useState('')
+  const [pagatoContanti, setPagatoContanti] = useState(true)
+  const [errore, setErrore] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  const bucket = iscrizione.tipo_pagamento === 'annuale' ? 'annuale'
+    : ['quad1', 'quad2'].includes(iscrizione.tipo_pagamento) ? 'quadrimestrale' : null
+  const sovrapprezzoSuggerito = bucket ? SOVRAPPREZZO_SETTEMBRE[bucket][frequenza] : null
+
+  const apri = () => {
+    setAperto(true)
+    setCorsoId('')
+    setFrequenza('2x')
+    setImporto(bucket ? String(SOVRAPPREZZO_SETTEMBRE[bucket]['2x']) : '')
+    setErrore('')
+    if (!corsi) {
+      supabase.from('stagioni').select('id').eq('attiva', true).maybeSingle().then(({ data: stagione }) => {
+        if (!stagione) { setErrore('Nessuna stagione attiva.'); setCorsi([]); return }
+        supabase.from('corsi')
+          .select('id, disciplina, nome_visualizzato, giorni_orari, sedi(nome)')
+          .eq('stagione_id', stagione.id)
+          .eq('mese_inizio', 'settembre')
+          .order('codice_corso')
+          .then(({ data }) => setCorsi(data || []))
+      })
+    }
+  }
+
+  const cambiaFrequenza = (f) => {
+    setFrequenza(f)
+    if (bucket) setImporto(String(SOVRAPPREZZO_SETTEMBRE[bucket][f]))
+  }
+
+  const corso = corsi?.find(c => c.id === corsoId)
+
+  const salva = async () => {
+    if (!corsoId) { setErrore('Seleziona il corso di settembre.'); return }
+    if (importo === '' || isNaN(Number(importo))) { setErrore('Inserisci un importo valido.'); return }
+    setSalvando(true)
+    const importoNum = Number(importo)
+    const nuovoTotale = (Number(iscrizione.importo_dichiarato) || 0) + importoNum
+    const etichettaCorso = `${corso.nome_visualizzato || corso.disciplina} (${corso.sedi?.nome})`
+    const notaBadge = `🎯 Include anche ${etichettaCorso}, ${frequenza === '2x' ? '2 volte' : '1 volta'} a settimana, a partire da settembre.`
+    const notaInterna = `${iscrizione.note ? iscrizione.note + ' | ' : ''}Aggiunto extra settembre (${etichettaCorso}, ${frequenza === '2x' ? '2x' : '1x'}) il ${new Date().toLocaleDateString('it-IT')}: +${importoNum}€${pagatoContanti ? ' pagati in contanti in palestra' : ''}.`
+
+    const { error } = await supabase.from('iscrizioni').update({
+      corso_extra_settembre_id: corsoId,
+      frequenza_extra_settembre: frequenza,
+      sovrapprezzo_extra_settembre: importoNum,
+      importo_dichiarato: nuovoTotale,
+      nota_socio: iscrizione.nota_socio ? `${iscrizione.nota_socio} ${notaBadge}` : notaBadge,
+      note: notaInterna,
+    }).eq('id', iscrizione.id)
+
+    setSalvando(false)
+    if (error) { setErrore('Errore: ' + error.message); return }
+    setAperto(false)
+    onAggiornato()
+  }
+
+  // Se questa iscrizione ha già un extra settembre collegato, mostriamo solo
+  // un richiamo informativo invece del pulsante per aggiungerne un altro.
+  if (iscrizione.corso_extra_settembre_id) {
+    return (
+      <span style={{ fontSize: 11.5, color: '#92400E', background: '#FEF3C7', borderRadius: 6, padding: '4px 9px' }}>
+        🎯 Extra settembre già collegato (+{iscrizione.sovrapprezzo_extra_settembre}€, {iscrizione.frequenza_extra_settembre === '2x' ? '2x' : '1x'}/sett.)
+      </span>
+    )
+  }
+
+  if (!aperto) {
+    return (
+      <button onClick={apri} style={{ fontSize: 12, background: '#FEF3C7', color: '#92400E', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>
+        🎯 Aggiungi extra settembre
+      </button>
+    )
+  }
+
+  return (
+    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px dashed ${BD}`, background: '#FFFBEB', borderRadius: 8, padding: 10 }}>
+      <div style={{ fontSize: 11.5, color: '#92400E', marginBottom: 6, fontWeight: 600 }}>
+        Aggiungi un corso di settembre a questa iscrizione
+      </div>
+
+      {corsi === null ? (
+        <div style={{ fontSize: 12, color: SUB }}>Caricamento corsi di settembre…</div>
+      ) : corsi.length === 0 ? (
+        <div style={{ fontSize: 12, color: SUB }}>Nessun corso di settembre trovato in questa stagione.</div>
+      ) : (
+        <>
+          <select value={corsoId} onChange={e => setCorsoId(e.target.value)}
+            style={{ width: '100%', padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 12.5, marginBottom: 8 }}>
+            <option value="">— Seleziona il corso di settembre —</option>
+            {corsi.map(c => (
+              <option key={c.id} value={c.id}>{c.nome_visualizzato || c.disciplina} — {c.sedi?.nome} — {c.giorni_orari}</option>
+            ))}
+          </select>
+
+          <div style={{ fontSize: 11, color: SUB, marginBottom: 4 }}>Quante volte a settimana</div>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            {['2x', '1x'].map(f => (
+              <button key={f} onClick={() => cambiaFrequenza(f)}
+                style={{ flex: 1, padding: '6px', borderRadius: 6, border: `1px solid ${frequenza === f ? '#92400E' : BD}`, background: frequenza === f ? '#FEF3C7' : 'white', color: frequenza === f ? '#92400E' : TX, fontSize: 12, cursor: 'pointer', fontWeight: frequenza === f ? 600 : 400 }}>
+                {f === '2x' ? '2 volte/sett.' : '1 volta/sett.'}
+              </button>
+            ))}
+          </div>
+
+          <label style={{ fontSize: 11, color: SUB, display: 'block', marginBottom: 4 }}>
+            Sovrapprezzo (€){bucket && <span> — suggerito {sovrapprezzoSuggerito}€ in base al suo tipo di pagamento</span>}
+          </label>
+          <input type="number" value={importo} onChange={e => setImporto(e.target.value)}
+            style={{ width: '100%', padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 12.5, marginBottom: 8, boxSizing: 'border-box' }} />
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: TX, marginBottom: 10, cursor: 'pointer' }}>
+            <input type="checkbox" checked={pagatoContanti} onChange={e => setPagatoContanti(e.target.checked)} />
+            Pagato in contanti in palestra
+          </label>
+
+          <p style={{ fontSize: 11, color: '#92400E', marginBottom: 8 }}>
+            L'importo verrà sommato alla quota già dichiarata (attualmente {iscrizione.importo_dichiarato ?? 0}€ → diventerà {(Number(iscrizione.importo_dichiarato) || 0) + (Number(importo) || 0)}€), e comparirà il badge nella sua area privata. Ricordati di aggiungerla a mano al gruppo del corso di settembre.
+          </p>
+
+          {errore && <p style={{ fontSize: 11.5, color: R, margin: '0 0 8px' }}>{errore}</p>}
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setAperto(false)} style={{ flex: 1, padding: '7px', border: `1px solid ${BD}`, borderRadius: 7, background: 'white', color: SUB, fontSize: 12, cursor: 'pointer' }}>
+              Annulla
+            </button>
+            <button onClick={salva} disabled={salvando}
+              style={{ flex: 1, padding: '7px', border: 'none', borderRadius: 7, background: '#92400E', color: 'white', fontSize: 12, fontWeight: 600, cursor: salvando ? 'default' : 'pointer' }}>
+              {salvando ? 'Salvo…' : 'Conferma'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function ModificaPagamento({ iscrizione, onAggiornato }) {
   const [aperto, setAperto] = useState(false)
   const [tipoPagamento, setTipoPagamento] = useState(iscrizione.tipo_pagamento || 'annuale')
@@ -1227,6 +1387,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
         stato_certificato, data_scadenza_certificato, certificato_url,
         data_iscrizione, note, nota_socio, firma_url, firma_genitore_url, modulo_cartaceo_url,
         frequenza, giorno_scelto,
+        corso_extra_settembre_id, frequenza_extra_settembre, sovrapprezzo_extra_settembre,
         corsi!iscrizioni_corso_id_fkey ( codice_corso, disciplina, nome_visualizzato, giorni_orari, ha_variante_frequenza, sedi ( nome ) ),
         stagioni ( nome, attiva )
       `)
@@ -1590,6 +1751,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <CambiaCorso iscrizione={i} socioCf={socio.cf} onAggiornato={caricaIscrizioni} />
               <ModificaPagamento iscrizione={i} onAggiornato={caricaIscrizioni} />
+              <AggiungiExtraSettembre iscrizione={i} onAggiornato={caricaIscrizioni} />
             </div>
           </div>
         ))}
