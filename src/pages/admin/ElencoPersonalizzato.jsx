@@ -24,6 +24,17 @@ function bottoneAssicurazione(attivo) {
 // passare dei giorni: va sempre confrontato con la data di scadenza reale,
 // altrimenti un certificato scaduto risulta ancora "consegnato" nelle
 // liste stampate (bug segnalato da Solomon il 02/09/2026).
+// Data di inizio effettiva di un corso: 1° settembre se il corso parte a
+// settembre e la persona non ha scelto di aspettare ottobre, altrimenti 1°
+// ottobre — stessa logica usata in ModuloIscrizione.jsx e nel controllo
+// automatico dei certificati. Serve per capire se qualcuno si è iscritto
+// "a corsi già iniziati" (richiesto da Solomon il 03/09/2026).
+function dataInizioCorsoEffettiva(meseInizioCorso, inizioPersonalizzato, annoStagione) {
+  const partenzaSettembre = meseInizioCorso === "settembre" && inizioPersonalizzato !== "ottobre";
+  const mese = partenzaSettembre ? 9 : 10; // 1-indicizzato
+  return new Date(annoStagione, mese - 1, 1).toISOString().slice(0, 10);
+}
+
 function certificatoStatoEffettivo(stato, scadenza) {
   if (stato !== "valido" || !scadenza) return stato;
   const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
@@ -47,6 +58,7 @@ const GRUPPI_COLONNE = [
       { id: "pagamento", label: "Pagamento", calc: (r) => (r._isProva || r._isExtraSettembre ? "" : labelPagamento(r.stato_pagamento)) },
       { id: "frequenza", label: "Freq.", calc: (r) => labelFrequenza(r) },
       { id: "combinazione", label: "Comb. corsi", calc: (r) => r._combinazione || "" },
+      { id: "mese_inizio", label: "Iniziato il", calc: (r) => r._iniziatoIl || "" },
     ],
   },
   {
@@ -212,6 +224,7 @@ export default function ElencoPersonalizzato() {
   const [titoloPDF, setTitoloPDF] = useState(OPZIONI_TITOLO[0]);
   const [titoloPersonalizzato, setTitoloPersonalizzato] = useState("");
   const [righeVuoteExtra, setRigheVuoteExtra] = useState(4);
+  const [elencoNumerato, setElencoNumerato] = useState(false);
   const [spaziaturaRighe, setSpaziaturaRighe] = useState("medio"); // stretto | medio | largo
 
   useEffect(() => {
@@ -223,13 +236,13 @@ export default function ElencoPersonalizzato() {
     setErrore(null);
     try {
       const { data: stag, error: errS } = await supabase
-        .from("stagioni").select("id,nome").eq("attiva", true).single();
+        .from("stagioni").select("id,nome,data_inizio").eq("attiva", true).single();
       if (errS) throw errS;
       setStagione(stag);
 
       const { data: corsiDB, error: errC } = await supabase
         .from("corsi")
-        .select("id, codice_corso, disciplina, nome_visualizzato, giorni_orari, sedi(nome)")
+        .select("id, codice_corso, disciplina, nome_visualizzato, giorni_orari, mese_inizio, sedi(nome)")
         .eq("stagione_id", stag.id)
         .order("codice_corso");
       if (errC) throw errC;
@@ -237,7 +250,7 @@ export default function ElencoPersonalizzato() {
 
       const { data: iscDB, error: errI } = await supabase
         .from("iscrizioni")
-        .select("id, corso_id, frequenza, giorno_scelto, tipo_pagamento, stato_pagamento, stato_certificato, data_scadenza_certificato, note, soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera, ente_tessera, scadenza_tessera )")
+        .select("id, corso_id, frequenza, giorno_scelto, tipo_pagamento, stato_pagamento, stato_certificato, data_scadenza_certificato, data_iscrizione, inizio_personalizzato, note, soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera, ente_tessera, scadenza_tessera )")
         .eq("stagione_id", stag.id)
         .neq("stato_pagamento", "annullata")
         .order("id");
@@ -265,13 +278,26 @@ export default function ElencoPersonalizzato() {
         }
         return [disc, sede, giorni].filter(Boolean).join(" ");
       };
+      const annoStagione = new Date(stag.data_inizio + "T12:00:00").getFullYear();
+
       const arricchite = (iscDB || []).map((r) => {
         const cf = r.soci && r.soci.cf;
         const altri = (righePerSocio[cf] || []).filter((rr) => rr.corso_id !== r.corso_id);
         const corsoRiga = (corsiDB || []).find((cc) => cc.id === r.corso_id);
+        const inizioCorso = dataInizioCorsoEffettiva(corsoRiga?.mese_inizio, r.inizio_personalizzato, annoStagione);
+        const dataIscr = (r.data_iscrizione || "").slice(0, 10);
+        // Se si è iscritta DOPO che il corso era già partito (corsi già
+        // iniziati), mostriamo la data esatta della sua iscrizione invece
+        // del generico "Settembre"/"Ottobre" — più utile per capire da
+        // quando frequenta davvero.
+        const iniziatoAcorsiGiaAvviati = dataIscr && dataIscr > inizioCorso;
+        const meseInizioEffettivoLabel =
+          corsoRiga?.mese_inizio === "settembre" && r.inizio_personalizzato !== "ottobre" ? "Settembre" : "Ottobre";
         return Object.assign({}, r, {
           _combinazione: altri.map(nomeCorsoAbbreviato).join(" + "),
           _giorniOrari: corsoRiga ? corsoRiga.giorni_orari : "",
+          _meseInizio: corsoRiga ? corsoRiga.mese_inizio : "",
+          _iniziatoIl: iniziatoAcorsiGiaAvviati ? fmtData(dataIscr) : meseInizioEffettivoLabel,
         });
       });
 
@@ -284,21 +310,26 @@ export default function ElencoPersonalizzato() {
         .in("stato", ["in_attesa", "confermata", "effettuata"]);
       if (errPr) throw errPr;
 
-      const proveArricchite = (proveDB || []).map((p) => ({
-        id: "prova:" + p.id,
-        _isProva: true,
-        corso_id: p.corso_id,
-        frequenza: null,
-        giorno_scelto: null,
-        tipo_pagamento: null,
-        stato_pagamento: null,
-        stato_certificato: null,
-        data_scadenza_certificato: null,
-        note: "Prova",
-        _combinazione: "",
-        _giorniOrari: "",
-        soci: { cf: p.cf, nome: p.nome, cognome: p.cognome, data_nascita: p.data_nascita, telefono: p.telefono },
-      }));
+      const proveArricchite = (proveDB || []).map((p) => {
+        const corsoRiga = (corsiDB || []).find((cc) => cc.id === p.corso_id);
+        return {
+          id: "prova:" + p.id,
+          _isProva: true,
+          corso_id: p.corso_id,
+          frequenza: null,
+          giorno_scelto: null,
+          tipo_pagamento: null,
+          stato_pagamento: null,
+          stato_certificato: null,
+          data_scadenza_certificato: null,
+          note: "Prova",
+          _combinazione: "",
+          _giorniOrari: "",
+          _meseInizio: corsoRiga ? corsoRiga.mese_inizio : "",
+          _iniziatoIl: corsoRiga ? (corsoRiga.mese_inizio === "settembre" ? "Settembre" : "Ottobre") : "",
+          soci: { cf: p.cf, nome: p.nome, cognome: p.cognome, data_nascita: p.data_nascita, telefono: p.telefono },
+        };
+      });
 
       // Persone che in fase di iscrizione hanno dichiarato di voler aggiungere
       // ANCHE un corso di settembre (sovrapprezzo fisso, vedi ModuloIscrizione.jsx).
@@ -334,6 +365,8 @@ export default function ElencoPersonalizzato() {
           note: `Extra settembre (+${r.sovrapprezzo_extra_settembre ?? "?"}€) — corso principale: ${nomePrincipaleAbbr || "?"}`,
           _combinazione: nomePrincipaleAbbr ? `Da ${nomePrincipaleAbbr}` : "",
           _giorniOrari: corsoSettembre ? corsoSettembre.giorni_orari : "",
+          _meseInizio: corsoSettembre ? corsoSettembre.mese_inizio : "",
+          _iniziatoIl: corsoSettembre ? (corsoSettembre.mese_inizio === "settembre" ? "Settembre" : "Ottobre") : "",
           soci: r.soci,
         };
       });
@@ -413,22 +446,32 @@ export default function ElencoPersonalizzato() {
   }, [iscrizioniSelezionate, corsi]);
 
   function generaEsportazione() {
-    const intestazione = colonneOrdinate.map((c) => c.label);
-    const righe = iscrizioniSelezionate.map((r) => colonneOrdinate.map((c) => c.calc(r)));
-    const righeExtra = Array.from({ length: Math.max(0, righeVuoteExtra) }).map(() => colonneOrdinate.map(() => ""));
+    const intestazione = [...(elencoNumerato ? ["N."] : []), ...colonneOrdinate.map((c) => c.label)];
+    const righe = iscrizioniSelezionate.map((r, i) => [
+      ...(elencoNumerato ? [i + 1] : []),
+      ...colonneOrdinate.map((c) => c.calc(r)),
+    ]);
+    const righeExtra = Array.from({ length: Math.max(0, righeVuoteExtra) }).map(() => [
+      ...(elencoNumerato ? [""] : []),
+      ...colonneOrdinate.map(() => ""),
+    ]);
 
     const ws = XLSX.utils.aoa_to_sheet([intestazione, ...righe, ...righeExtra]);
-    ws["!cols"] = colonneOrdinate.map(() => ({ wch: 20 }));
+    ws["!cols"] = [...(elencoNumerato ? [{ wch: 5 }] : []), ...colonneOrdinate.map(() => ({ wch: 20 }))];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Elenco");
     XLSX.writeFile(wb, "Elenco_personalizzato_" + new Date().toISOString().slice(0, 10) + ".xlsx");
   }
 
   function generaEsportazionePDF() {
-    const righe = iscrizioniSelezionate.map((r) => colonneOrdinate.map((c) => c.calc(r)));
+    const colonneConNumero = elencoNumerato ? [{ id: "numero", label: "N." }, ...colonneOrdinate] : colonneOrdinate;
+    const righe = iscrizioniSelezionate.map((r, i) => [
+      ...(elencoNumerato ? [i + 1] : []),
+      ...colonneOrdinate.map((c) => c.calc(r)),
+    ]);
     const titolo = titoloPDF === "ALTRO" ? (titoloPersonalizzato || "SOCI E TESSERATI") : titoloPDF;
     generaElencoPDF({
-      colonne: colonneOrdinate,
+      colonne: colonneConNumero,
       righe,
       corsoUnico,
       stagioneNome: stagione?.nome || "",
@@ -598,6 +641,11 @@ export default function ElencoPersonalizzato() {
                   onChange={(e) => setRigheVuoteExtra(Math.max(0, parseInt(e.target.value) || 0))}
                   style={{ width: 60, padding: "6px 8px", border: `1px solid ${BD}`, borderRadius: 7, fontSize: 13, textAlign: "center" }} />
               </div>
+
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: TX, marginTop: 12, cursor: "pointer" }}>
+                <input type="checkbox" checked={elencoNumerato} onChange={(e) => setElencoNumerato(e.target.checked)} />
+                Elenco numerato (aggiunge una colonna "N." con il numero progressivo)
+              </label>
 
               <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
                 <button

@@ -222,21 +222,58 @@ export default function LiberatoriaProva() {
           .from("corsi")
           .select(`
             id, codice_corso, disciplina, giorni_orari,
-            capienza_max, prove_attive, mese_inizio,
+            capienza_max, capienza_giorno1, capienza_giorno2, prove_attive, mese_inizio,
             sedi ( nome ),
-            iscrizioni!iscrizioni_corso_id_fkey ( id ),
-            prove ( id, stato )
+            iscrizioni!iscrizioni_corso_id_fkey ( id, stato_pagamento, frequenza, giorno_scelto ),
+            prove ( id, stato, frequenza_desiderata, giorno_preferito )
           `)
           .eq("stagione_id", stag.id)
           .order("codice_corso");
         if (errC) throw errC;
 
         const corsiFormattati = corsiDB.map(c => {
-          const iscritti = c.iscrizioni?.length || 0;
-          const proveAttive = (c.prove || []).filter(p =>
+          const iscrizioniAttive = (c.iscrizioni || []).filter(i => i.stato_pagamento !== "annullata");
+          const proveAttiveList = (c.prove || []).filter(p =>
             ["in_attesa","confermata","effettuata"].includes(p.stato)
-          ).length;
-          const cap = c.capienza_max || 999;
+          );
+          const giorniCorso = estraiGiorniCorso(c.giorni_orari);
+          // Stessa logica di GestioneProve.jsx (Capienza Corsi): per i corsi
+          // bisettimanali con un limite impostato per singola giornata, la
+          // disponibilità va calcolata giorno per giorno, non con un unico
+          // numero — altrimenti (come qui, capienza_max vuoto) il modulo
+          // pubblico li considera illimitati anche quando una delle due
+          // giornate è già sovra-prenotata (bug scoperto il 04/09/2026 su
+          // segnalazione di Solomon, caso Pilates Bovezzo Martedì/Venerdì).
+          const capacitaPerGiorno = giorniCorso.length === 2 && (c.capienza_giorno1 != null || c.capienza_giorno2 != null);
+
+          let giorni = null;
+          let cap = c.capienza_max || 999;
+          let iscritti = iscrizioniAttive.length;
+          let prove = proveAttiveList.length;
+          if (capacitaPerGiorno) {
+            const baseGiorni = giorniCorso.map((giorno, idx) => {
+              const capGiorno = (idx === 0 ? c.capienza_giorno1 : c.capienza_giorno2) ?? 999;
+              const iscrittiGiorno = iscrizioniAttive.filter(i =>
+                i.frequenza === "2x" || i.giorno_scelto === giorno
+              ).length;
+              return { giorno, capGiorno, iscrittiGiorno };
+            });
+            const giorniLiberi = baseGiorni.filter(g => g.iscrittiGiorno < g.capGiorno).map(g => g.giorno);
+            giorni = baseGiorni.map(g => {
+              const soloUnGiornoLibero = giorniLiberi.length === 1;
+              const proveDaContare = proveAttiveList.filter(p => {
+                if (soloUnGiornoLibero) return g.giorno === giorniLiberi[0];
+                if (p.frequenza_desiderata === "2x") return true;
+                if (p.frequenza_desiderata === "1x") return p.giorno_preferito === g.giorno;
+                return true;
+              }).length;
+              return { giorno: g.giorno, cap: g.capGiorno, occupati: g.iscrittiGiorno + proveDaContare, liberi: Math.max(0, g.capGiorno - g.iscrittiGiorno - proveDaContare) };
+            });
+            // Per il badge generico sulla card usiamo la giornata più critica
+            // delle due (calcolato direttamente in getDisp/statoDisp) — qui
+            // cap/iscritti/prove restano solo come valori di fallback.
+            cap = Math.max(...giorni.map(g => g.cap));
+          }
           return {
             id: c.id,
             sede: c.sedi.nome,
@@ -244,7 +281,9 @@ export default function LiberatoriaProva() {
             orario: c.giorni_orari,
             cap,
             iscritti,
-            prove: proveAttive,
+            prove,
+            capacitaPerGiorno,
+            giorni,
             accettaProve: c.prove_attive !== false,
             mese_inizio: c.mese_inizio,
           };
@@ -266,7 +305,10 @@ export default function LiberatoriaProva() {
     carica();
   }, []);
 
-  function getDisp(c) { return Math.max(0, c.cap - c.iscritti - c.prove); }
+  function getDisp(c) {
+    if (c.capacitaPerGiorno) return Math.min(...c.giorni.map(g => g.liberi));
+    return Math.max(0, c.cap - c.iscritti - c.prove);
+  }
   function statoDisp(c) {
     const d = getDisp(c);
     if (d === 0) return "pieno";
@@ -674,15 +716,16 @@ export default function LiberatoriaProva() {
                 const corsoSel = corsi.find((c) => c.id === d.corsoProvaId);
                 const giorniCorsoSel = corsoSel ? estraiGiorniCorso(corsoSel.orario) : [];
                 if (giorniCorsoSel.length !== 2) return null;
+                const entrambiDisponibili = !corsoSel?.giorni || corsoSel.giorni.every((g) => g.liberi > 0);
                 return (
                   <div style={{ background: "#F8FAFC", border: `1px solid ${BD}`, borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
                     <div style={{ fontSize: 13, fontWeight: 500, color: TX, marginBottom: 8 }}>
                       Questo corso si svolge 2 volte a settimana. Se poi deciderai di iscriverti, vorresti frequentarlo:
                     </div>
                     <div style={{ display: "flex", gap: 8, marginBottom: d.frequenzaDesiderata === "1x" ? 10 : 0 }}>
-                      <div onClick={() => set("frequenzaDesiderata", "2x")}
-                        style={{ flex: 1, border: `1.5px solid ${d.frequenzaDesiderata === "2x" ? G : BD}`, background: d.frequenzaDesiderata === "2x" ? GL : "white", borderRadius: 8, padding: "9px 10px", fontSize: 12.5, textAlign: "center", cursor: "pointer", fontWeight: d.frequenzaDesiderata === "2x" ? 600 : 400, color: d.frequenzaDesiderata === "2x" ? GD : TX }}>
-                        Entrambi i giorni
+                      <div onClick={() => entrambiDisponibili && set("frequenzaDesiderata", "2x")}
+                        style={{ flex: 1, border: `1.5px solid ${!entrambiDisponibili ? "#E5E7EB" : d.frequenzaDesiderata === "2x" ? G : BD}`, background: !entrambiDisponibili ? "#FAFAFA" : d.frequenzaDesiderata === "2x" ? GL : "white", borderRadius: 8, padding: "9px 10px", fontSize: 12.5, textAlign: "center", cursor: entrambiDisponibili ? "pointer" : "not-allowed", fontWeight: d.frequenzaDesiderata === "2x" ? 600 : 400, color: !entrambiDisponibili ? SUB : d.frequenzaDesiderata === "2x" ? GD : TX, opacity: entrambiDisponibili ? 1 : 0.7 }}>
+                        Entrambi i giorni{!entrambiDisponibili && " (non disponibile)"}
                       </div>
                       <div onClick={() => set("frequenzaDesiderata", "1x")}
                         style={{ flex: 1, border: `1.5px solid ${d.frequenzaDesiderata === "1x" ? G : BD}`, background: d.frequenzaDesiderata === "1x" ? GL : "white", borderRadius: 8, padding: "9px 10px", fontSize: 12.5, textAlign: "center", cursor: "pointer", fontWeight: d.frequenzaDesiderata === "1x" ? 600 : 400, color: d.frequenzaDesiderata === "1x" ? GD : TX }}>
@@ -691,12 +734,16 @@ export default function LiberatoriaProva() {
                     </div>
                     {d.frequenzaDesiderata === "1x" && (
                       <div style={{ display: "flex", gap: 8 }}>
-                        {giorniCorsoSel.map((g) => (
-                          <div key={g} onClick={() => set("giornoPreferito", g)}
-                            style={{ flex: 1, border: `1.5px solid ${d.giornoPreferito === g ? G : BD}`, background: d.giornoPreferito === g ? GL : "white", borderRadius: 8, padding: "8px 10px", fontSize: 12.5, textAlign: "center", cursor: "pointer", fontWeight: d.giornoPreferito === g ? 600 : 400, color: d.giornoPreferito === g ? GD : TX }}>
-                            {g}
-                          </div>
-                        ))}
+                        {giorniCorsoSel.map((g) => {
+                          const infoGiorno = corsoSel?.giorni?.find((x) => x.giorno === g);
+                          const giornoPieno = infoGiorno && infoGiorno.liberi <= 0;
+                          return (
+                            <div key={g} onClick={() => !giornoPieno && set("giornoPreferito", g)}
+                              style={{ flex: 1, border: `1.5px solid ${giornoPieno ? "#E5E7EB" : d.giornoPreferito === g ? G : BD}`, background: giornoPieno ? "#FAFAFA" : d.giornoPreferito === g ? GL : "white", borderRadius: 8, padding: "8px 10px", fontSize: 12.5, textAlign: "center", cursor: giornoPieno ? "not-allowed" : "pointer", fontWeight: d.giornoPreferito === g ? 600 : 400, color: giornoPieno ? SUB : d.giornoPreferito === g ? GD : TX, opacity: giornoPieno ? 0.7 : 1 }}>
+                              {g}{giornoPieno && " (completo)"}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                     {errs.giornoPreferito && <p style={{ fontSize: 11, color: R, margin: "6px 0 0" }}>{errs.giornoPreferito}</p>}
