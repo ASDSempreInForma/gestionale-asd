@@ -76,6 +76,7 @@ export default function GestioneProve() {
   // Salvataggio in corso
   const [saving, setSaving] = useState({});
   const [dataProvaScelta, setDataProvaScelta] = useState({});
+  const [modaleAnnulla, setModaleAnnulla] = useState(null); // la prova da annullare, o null
   const [eccezioni, setEccezioni] = useState({}); // {cf: motivo}
 
   // Tab "Stampa registro"
@@ -732,7 +733,7 @@ export default function GestioneProve() {
                         )}
                         {["in_attesa","confermata"].includes(p.stato) && (
                           <BtnAzione label="Annulla" color={R} bg={RL}
-                            loading={isSaving} onClick={() => aggiornaStato(p.id, "annullata")} />
+                            loading={isSaving} onClick={() => setModaleAnnulla(p)} />
                         )}
                         {p.firma_url && (
                           <button onClick={() => generaPdfLiberatoria({ prova: p }).catch(err => alert("Impossibile generare il PDF: " + err.message))}
@@ -1041,6 +1042,16 @@ export default function GestioneProve() {
           </div>
         )}
       </div>
+
+      {modaleAnnulla && (
+        <ModaleAnnullaProva
+          prova={modaleAnnulla}
+          corso={corsi.find((c) => c.id === modaleAnnulla.corso_id)}
+          onAggiornaStato={aggiornaStato}
+          onClose={() => setModaleAnnulla(null)}
+          onConfermato={() => setModaleAnnulla(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1054,5 +1065,82 @@ function BtnAzione({ label, color, bg, loading, disabled, onClick }) {
         cursor:(loading||disabled)?"not-allowed":"pointer", opacity:(loading||disabled)?0.6:1 }}>
       {loading ? "…" : label}
     </button>
+  );
+}
+
+// Chiede conferma e un motivo prima di annullare una richiesta di prova, con
+// la possibilità di avvisare la persona via email — prima cliccando
+// "Annulla" non succedeva nulla lato persona, spariva e basta dalla lista
+// senza nessuna spiegazione (richiesto da Solomon il 04/09/2026).
+const MOTIVI_ANNULLA_PROVA = [
+  "Corso al completo",
+  "Richiesta duplicata",
+  "Nessuna risposta ai contatti della segreteria",
+  "Altro",
+];
+function ModaleAnnullaProva({ prova, corso, onClose, onConfermato, onAggiornaStato }) {
+  const [motivo, setMotivo] = useState(MOTIVI_ANNULLA_PROVA[0]);
+  const [motivoAltro, setMotivoAltro] = useState("");
+  const [inviaEmailAllaPersona, setInviaEmailAllaPersona] = useState(true);
+  const [salvando, setSalvando] = useState(false);
+
+  const motivoFinale = motivo === "Altro" ? (motivoAltro.trim() || "Altro") : motivo;
+
+  const conferma = async () => {
+    setSalvando(true);
+    const notaAggiornata = `${prova.note ? prova.note + " | " : ""}Richiesta annullata dalla segreteria il ${new Date().toLocaleDateString("it-IT")} — motivo: ${motivoFinale}.`;
+    await onAggiornaStato(prova.id, "annullata", { note: notaAggiornata });
+    if (inviaEmailAllaPersona && prova.email) {
+      await inviaEmail({
+        tipo: "richiesta_prova_annullata",
+        destinatarioEmail: prova.email,
+        destinatarioNome: prova.nome,
+        corsoNome: corso?.nome,
+        corsoSede: corso?.sede,
+        motivo: motivoFinale,
+      });
+    }
+    setSalvando(false);
+    onConfermato();
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }} onClick={onClose}>
+      <div style={{ background: "white", borderRadius: 12, padding: 20, maxWidth: 420, width: "100%" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: TX, marginBottom: 4 }}>Annullare la richiesta?</div>
+        <div style={{ fontSize: 13, color: SUB, marginBottom: 14 }}>
+          {prova.nome} {prova.cognome} — {corso?.nome} {corso?.sede ? `(${corso.sede})` : ""}
+        </div>
+
+        <label style={{ fontSize: 12, fontWeight: 600, color: TX, display: "block", marginBottom: 5 }}>Motivo</label>
+        <select value={motivo} onChange={(e) => setMotivo(e.target.value)}
+          style={{ width: "100%", padding: "7px 9px", border: `1px solid ${BD}`, borderRadius: 8, fontSize: 13, marginBottom: motivo === "Altro" ? 8 : 14 }}>
+          {MOTIVI_ANNULLA_PROVA.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+        {motivo === "Altro" && (
+          <input type="text" value={motivoAltro} onChange={(e) => setMotivoAltro(e.target.value)}
+            placeholder="Scrivi il motivo…"
+            style={{ width: "100%", padding: "7px 9px", border: `1px solid ${BD}`, borderRadius: 8, fontSize: 13, marginBottom: 14, boxSizing: "border-box" }} />
+        )}
+
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: TX, marginBottom: 16, cursor: prova.email ? "pointer" : "default" }}>
+          <input type="checkbox" checked={inviaEmailAllaPersona && !!prova.email} disabled={!prova.email}
+            onChange={(e) => setInviaEmailAllaPersona(e.target.checked)} style={{ marginTop: 2 }} />
+          {prova.email
+            ? `Avvisa via email (${prova.email}) spiegando il motivo`
+            : "Nessuna email in anagrafica: non è possibile avvisarla automaticamente"}
+        </label>
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "9px", border: `1px solid ${BD}`, borderRadius: 8, background: "white", color: SUB, fontSize: 13, cursor: "pointer" }}>
+            Indietro
+          </button>
+          <button onClick={conferma} disabled={salvando}
+            style={{ flex: 1, padding: "9px", border: "none", borderRadius: 8, background: R, color: "white", fontSize: 13, fontWeight: 600, cursor: salvando ? "default" : "pointer" }}>
+            {salvando ? "Salvo…" : "Conferma annullamento"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
