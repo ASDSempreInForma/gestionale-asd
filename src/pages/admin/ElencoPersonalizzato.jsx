@@ -344,7 +344,7 @@ export default function ElencoPersonalizzato() {
         .neq("stato_pagamento", "annullata");
       if (errExtra) throw errExtra;
 
-      const extraSettembreArricchite = (extraSettembreDB || []).map((r) => {
+      const extraSettembreArricchiteConDuplicati = (extraSettembreDB || []).map((r) => {
         const corsoPrincipale = (corsiDB || []).find((cc) => cc.id === r.corso_id);
         const corsoSettembre = (corsiDB || []).find((cc) => cc.id === r.corso_extra_settembre_id);
         const nomePrincipaleAbbr = corsoPrincipale
@@ -367,9 +367,34 @@ export default function ElencoPersonalizzato() {
           _giorniOrari: corsoSettembre ? corsoSettembre.giorni_orari : "",
           _meseInizio: corsoSettembre ? corsoSettembre.mese_inizio : "",
           _iniziatoIl: corsoSettembre ? (corsoSettembre.mese_inizio === "settembre" ? "Settembre" : "Ottobre") : "",
+          _chiaveSocioCorso: `${r.soci?.cf}::${r.corso_extra_settembre_id}`,
+          _sovrapprezzo: r.sovrapprezzo_extra_settembre,
           soci: r.soci,
         };
       });
+
+      // Chi si iscrive a PIÙ corsi in un unico modulo (carrello) si ritrova la
+      // stessa richiesta di extra settembre ripetuta su ognuna delle sue righe
+      // di iscrizione — qui compariva quindi più volte per lo stesso corso di
+      // settembre (bug segnalato da Solomon il 04/09/2026, caso Fiorini Grazia:
+      // 4 corsi principali nello stesso modulo, comparsa 4 volte). Raggruppiamo
+      // per persona+corso extra, tenendo traccia di TUTTI i corsi principali
+      // invece di mostrarne uno a caso.
+      const gruppi = new Map();
+      for (const r of extraSettembreArricchiteConDuplicati) {
+        const esistente = gruppi.get(r._chiaveSocioCorso);
+        if (esistente) {
+          if (r._combinazione && !esistente._combinazione.includes(r._combinazione)) {
+            esistente._combinazione = `${esistente._combinazione} + ${r._combinazione.replace(/^Da /, "")}`;
+          }
+        } else {
+          gruppi.set(r._chiaveSocioCorso, { ...r });
+        }
+      }
+      const extraSettembreArricchite = Array.from(gruppi.values()).map((r) => ({
+        ...r,
+        note: `Extra settembre (+${r._sovrapprezzo ?? "?"}€) — corso${r._combinazione.includes("+") ? "i" : ""} principal${r._combinazione.includes("+") ? "i" : "e"}: ${r._combinazione.replace(/^Da /, "") || "?"}`,
+      }));
 
       setIscrizioni([...arricchite, ...proveArricchite, ...extraSettembreArricchite]);
     } catch (err) {
