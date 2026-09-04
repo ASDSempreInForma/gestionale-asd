@@ -29,10 +29,18 @@ function bottoneAssicurazione(attivo) {
 // ottobre — stessa logica usata in ModuloIscrizione.jsx e nel controllo
 // automatico dei certificati. Serve per capire se qualcuno si è iscritto
 // "a corsi già iniziati" (richiesto da Solomon il 03/09/2026).
+// NOTA: costruiamo la stringa "AAAA-MM-01" direttamente, SENZA passare da un
+// oggetto Date/toISOString(): farlo (come nella prima versione) sposta la
+// data indietro di un giorno per via del fuso orario italiano (es. "1°
+// settembre" locale diventa "31 agosto" una volta convertito in UTC), e il
+// confronto con data_iscrizione (stringa già in UTC dal database) risultava
+// quindi sbagliato di un giorno — bug scoperto il 04/09/2026 su segnalazione
+// di Solomon (casi Brian Laura e Sambrici Daniela, iscritte esattamente il
+// giorno di inizio ma mostrate come "iscritte a corso già iniziato").
 function dataInizioCorsoEffettiva(meseInizioCorso, inizioPersonalizzato, annoStagione) {
   const partenzaSettembre = meseInizioCorso === "settembre" && inizioPersonalizzato !== "ottobre";
-  const mese = partenzaSettembre ? 9 : 10; // 1-indicizzato
-  return new Date(annoStagione, mese - 1, 1).toISOString().slice(0, 10);
+  const mese = partenzaSettembre ? "09" : "10";
+  return `${annoStagione}-${mese}-01`;
 }
 
 function certificatoStatoEffettivo(stato, scadenza) {
