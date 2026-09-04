@@ -77,6 +77,7 @@ export default function GestioneProve() {
   const [saving, setSaving] = useState({});
   const [dataProvaScelta, setDataProvaScelta] = useState({});
   const [modaleAnnulla, setModaleAnnulla] = useState(null); // { prova, soloEmail } o null
+  const [modaleSposta, setModaleSposta] = useState(null); // la prova da spostare su un altro corso, o null
   const [eccezioni, setEccezioni] = useState({}); // {cf: motivo}
 
   // Tab "Stampa registro"
@@ -709,6 +710,8 @@ export default function GestioneProve() {
                             <BtnAzione label="↻ Ripristina con nuova data" color={BL} bg={BLL}
                               loading={isSaving} disabled={!dataProvaScelta[p.id]}
                               onClick={() => ripristinaConNuovaData(p, dataProvaScelta[p.id])} />
+                            <BtnAzione label="🔄 Sposta su un altro corso" color={BL} bg={BLL}
+                              loading={isSaving} onClick={() => setModaleSposta(p)} />
                           </>
                         )}
                         {p.stato === "confermata" && (
@@ -1057,11 +1060,99 @@ export default function GestioneProve() {
           onConfermato={() => setModaleAnnulla(null)}
         />
       )}
+      {modaleSposta && (
+        <ModaleSpostaProva
+          prova={modaleSposta}
+          corsi={corsi}
+          onClose={() => setModaleSposta(null)}
+          onConfermato={() => { setModaleSposta(null); caricaDati(); }}
+        />
+      )}
     </div>
   );
 }
 
 // ── Helper bottone azione ──────────────────────────────────────────────────
+// Sposta una richiesta di prova (già annullata) su un ALTRO corso e la
+// riconferma con una nuova data — utile quando la persona, dopo essere stata
+// annullata (es. corso pieno), accetta di provare un orario diverso. Non le
+// si fa ricompilare una nuova liberatoria: si riusa quella già firmata e si
+// manda una nuova email di conferma con il nuovo corso/data (richiesto da
+// Solomon il 04/09/2026).
+function ModaleSpostaProva({ prova, corsi, onClose, onConfermato }) {
+  const [corsoId, setCorsoId] = useState('')
+  const [dataScelta, setDataScelta] = useState('')
+  const [errore, setErrore] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  const nuovoCorso = corsi.find(c => c.id === corsoId)
+
+  const conferma = async () => {
+    if (!corsoId) { setErrore('Seleziona il nuovo corso.'); return }
+    if (!dataScelta) { setErrore('Scegli la data della prova.'); return }
+    setSalvando(true)
+    const vecchioCorso = corsi.find(c => c.id === prova.corso_id)
+    const notaAggiornata = `${prova.note ? prova.note + " | " : ""}Spostata da "${vecchioCorso?.nome} ${vecchioCorso?.orario}" a "${nuovoCorso.nome} ${nuovoCorso.orario}" il ${new Date().toLocaleDateString("it-IT")} — stessa liberatoria già firmata, nessun nuovo modulo richiesto.`
+    const { error } = await supabase.from('prove').update({
+      corso_id: corsoId,
+      stato: 'confermata',
+      data_effettuata: dataScelta,
+      note: notaAggiornata,
+    }).eq('id', prova.id)
+    if (error) { setErrore('Errore: ' + error.message); setSalvando(false); return }
+    if (prova.email) {
+      await inviaEmail({
+        tipo: 'conferma_prova',
+        destinatarioEmail: prova.email,
+        destinatarioNome: prova.nome,
+        corsoNome: nuovoCorso.nome,
+        corsoSede: nuovoCorso.sede,
+        corsoOrario: nuovoCorso.orario,
+        dataProva: dataScelta,
+      })
+    }
+    setSalvando(false)
+    onConfermato()
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }} onClick={onClose}>
+      <div style={{ background: "white", borderRadius: 12, padding: 20, maxWidth: 420, width: "100%" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: TX, marginBottom: 4 }}>Sposta su un altro corso</div>
+        <div style={{ fontSize: 13, color: SUB, marginBottom: 14 }}>{prova.nome} {prova.cognome}</div>
+
+        <label style={{ fontSize: 12, fontWeight: 600, color: TX, display: "block", marginBottom: 5 }}>Nuovo corso</label>
+        <select value={corsoId} onChange={(e) => setCorsoId(e.target.value)}
+          style={{ width: "100%", padding: "7px 9px", border: `1px solid ${BD}`, borderRadius: 8, fontSize: 13, marginBottom: 12 }}>
+          <option value="">— Seleziona —</option>
+          {corsi.map((c) => <option key={c.id} value={c.id}>{c.nome} — {c.sede} — {c.orario}</option>)}
+        </select>
+
+        <label style={{ fontSize: 12, fontWeight: 600, color: TX, display: "block", marginBottom: 5 }}>Data della prova</label>
+        <input type="date" value={dataScelta} onChange={(e) => setDataScelta(e.target.value)}
+          style={{ width: "100%", padding: "7px 9px", border: `1px solid ${BD}`, borderRadius: 8, fontSize: 13, marginBottom: 14, boxSizing: "border-box" }} />
+
+        <div style={{ fontSize: 11.5, color: SUB, marginBottom: 16 }}>
+          {prova.email
+            ? `Partirà una nuova email di conferma prova a ${prova.email} con il nuovo corso e la nuova data.`
+            : "Questa persona non ha un'email in anagrafica: non potrà ricevere la conferma automaticamente."}
+        </div>
+
+        {errore && <p style={{ fontSize: 11.5, color: R, margin: "0 0 8px" }}>{errore}</p>}
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "9px", border: `1px solid ${BD}`, borderRadius: 8, background: "white", color: SUB, fontSize: 13, cursor: "pointer" }}>
+            Indietro
+          </button>
+          <button onClick={conferma} disabled={salvando}
+            style={{ flex: 1, padding: "9px", border: "none", borderRadius: 8, background: BL, color: "white", fontSize: 13, fontWeight: 600, cursor: salvando ? "default" : "pointer" }}>
+            {salvando ? "Salvo…" : "Conferma spostamento"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 function BtnAzione({ label, color, bg, loading, disabled, onClick }) {
   return (
     <button onClick={onClick} disabled={loading || disabled}
