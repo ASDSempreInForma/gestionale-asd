@@ -1199,36 +1199,35 @@ export default function ModuloIscrizione() {
       // andavano persi in silenzio — pur risultando "riuscito" agli occhi della
       // persona, che riceveva comunque l'email di conferma con tutti i corsi.
       // Bug scoperto e corretto il 27/08/2026 (caso reale: Verginella Natalia).
+      //
+      // Uso una funzione del database (RPC) invece di un .insert() diretto:
+      // il controllo "ci sono ancora posti" mostrato nel form viene calcolato
+      // una sola volta al caricamento della pagina, e con un modulo di 5 passi
+      // può restare "vecchio" per minuti o ore — nel frattempo altre persone
+      // possono aver preso gli ultimi posti. La funzione ricontrolla la
+      // capienza in tempo reale, con un lock che mette in coda le richieste
+      // concorrenti per lo stesso corso, e rifiuta l'inserimento se il giorno
+      // richiesto è nel frattempo diventato pieno (corretto il 04/09/2026 dopo
+      // due episodi reali di sovra-iscrizione, es. BVZ05 arrivato a 36/33).
+      let corsoRisultatoPieno = null;
       for (const riga of iscrizioniDaInserire) {
-        const { error: errRiga } = await supabase.from("iscrizioni").insert([riga]);
-        if (errRiga && errRiga.code === "23505") {
-          // Esiste già una riga per questo socio+questo corso+questa stagione.
-          // Se quella riga era stata ANNULLATA (es. la segreteria l'aveva
-          // cancellata perché la persona aveva sbagliato qualcosa, come nei
-          // casi reali di Verginella Natalia e Murace Cristian), la
-          // "rianimiamo" aggiornandola con i nuovi dati appena compilati,
-          // invece di scartare in silenzio la nuova iscrizione — altrimenti la
-          // persona riceve comunque l'email di conferma ma in segreteria non
-          // risulta nulla di nuovo. Se la riga esistente è invece ancora
-          // attiva, resta un vero doppione e viene ignorata come prima.
-          // Corretto il 29/08/2026 dopo il secondo caso reale.
-          const { data: esistente } = await supabase
-            .from("iscrizioni")
-            .select("id, stato_pagamento")
-            .eq("socio_cf", riga.socio_cf)
-            .eq("corso_id", riga.corso_id)
-            .eq("stagione_id", riga.stagione_id)
-            .maybeSingle();
-          if (esistente && esistente.stato_pagamento === "annullata") {
-            const { error: errRianima } = await supabase
-              .from("iscrizioni")
-              .update({ ...riga, motivo_annullamento: null, data_annullamento: null })
-              .eq("id", esistente.id);
-            if (errRianima) throw errRianima;
+        const { data: esito, error: errRiga } = await supabase.rpc("inserisci_iscrizione_con_capienza", { p_riga: riga });
+        if (errRiga) {
+          if (errRiga.message && errRiga.message.includes("CORSO_PIENO")) {
+            const corsoInfo = corsiConCodice.find((c) => c.corso.id === riga.corso_id)?.corso;
+            corsoRisultatoPieno = corsoInfo?.nomeVisualizzato || corsoInfo?.corso || "il corso scelto";
+            break;
           }
-        } else if (errRiga) {
           throw errRiga;
         }
+      }
+
+      if (corsoRisultatoPieno) {
+        setErroreInvio(
+          `Nel frattempo si sono esauriti i posti per "${corsoRisultatoPieno}": qualcun altro si è iscritto pochi istanti fa. Ricarica la pagina per vedere la disponibilità aggiornata, oppure contatta la segreteria al 327 868 1393 per la lista d'attesa.`
+        );
+        setInviando(false);
+        return;
       }
 
       // 3. Invia l'email di conferma con quota, causale e coordinate di pagamento.
