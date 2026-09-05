@@ -750,6 +750,14 @@ function FirmaCanvas({ label, onChange }) {
 // ---------------------------------------------------------------------
 export default function ModuloIscrizione() {
   const [step, setStep] = useState(1);
+  // Blocco per certificato mancante l'anno precedente o altro motivo deciso
+  // dalla segreteria (campo "Blocca nuove iscrizioni" in Anagrafica Soci) —
+  // fino ad ora quel blocco era solo visivo (badge admin + avviso nell'area
+  // privata) ma non impediva davvero una nuova iscrizione dal modulo
+  // pubblico: corretto il 05/09/2026 su segnalazione di Solomon (caso
+  // Guerini Mariapaola, riuscita a iscriversi nonostante il blocco attivo).
+  const [bloccoAmmin, setBloccoAmmin] = useState(null); // { motivo } oppure null
+  const [verificandoBlocco, setVerificandoBlocco] = useState(false);
 
   // Dati dal DB
   const [corsi, setCorsi] = useState([]);
@@ -1367,6 +1375,14 @@ export default function ModuloIscrizione() {
 
       <div className="bg-white rounded-2xl shadow p-6">
 
+        {bloccoAmmin && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 text-sm text-red-700">
+            <p className="font-semibold mb-1">Non è possibile procedere con l'iscrizione</p>
+            <p>{bloccoAmmin.motivo}</p>
+            <p className="mt-2">💬 WhatsApp 327 868 1393 · 📧 info@asdsempreinforma.it</p>
+          </div>
+        )}
+
         {/* ── STEP 1 — Dati anagrafici ─────────────────────────────── */}
         {step === 1 && (
           <div className="space-y-4">
@@ -1904,11 +1920,34 @@ export default function ModuloIscrizione() {
           {step < totaleSteps ? (
             <button
               type="button"
-              disabled={!puoiProseguire()}
-              onClick={() => setStep((s) => s + 1)}
+              disabled={!puoiProseguire() || verificandoBlocco}
+              onClick={async () => {
+                if (step === 1) {
+                  setVerificandoBlocco(true);
+                  setBloccoAmmin(null);
+                  try {
+                    const res = await fetch(`${SUPABASE_URL}/functions/v1/verifica-blocco-socio`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+                      body: JSON.stringify({ cf: anagrafica.cf }),
+                    });
+                    const dataRes = await res.json();
+                    setVerificandoBlocco(false);
+                    if (dataRes.ok && dataRes.bloccato) {
+                      setBloccoAmmin({ motivo: dataRes.motivo });
+                      window.scrollTo(0, 0);
+                      return;
+                    }
+                  } catch (_) {
+                    setVerificandoBlocco(false);
+                    // In caso di errore di rete non blocchiamo la persona: meglio un falso negativo che impedire l'iscrizione
+                  }
+                }
+                setStep((s) => s + 1);
+              }}
               className="px-5 py-2 text-sm font-medium text-white bg-[#E8590C] rounded-lg disabled:bg-slate-300"
             >
-              Avanti →
+              {verificandoBlocco ? "Verifica…" : "Avanti →"}
             </button>
           ) : (
             <button
