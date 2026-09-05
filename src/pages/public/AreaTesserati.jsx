@@ -485,6 +485,57 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato }) {
   );
 }
 
+// ─── Sezione attestati di pagamento e frequenza ─────────────────────────────
+// Mostra gli attestati che la segreteria ha reso disponibili (dopo averli
+// generati, stampati, firmati a mano e ricaricati firmati). Se non ce ne sono,
+// la sezione non compare affatto.
+function SezioneAttestati({ callFnWithAuth }) {
+  const [attestati, setAttestati] = useState(null); // null = non ancora caricati
+  const [scaricandoId, setScaricandoId] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const r = await callFnWithAuth({ action: "lista_attestati" });
+      if (r.ok) setAttestati(r.attestati || []);
+      else setAttestati([]);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const scarica = async (id) => {
+    setScaricandoId(id);
+    const r = await callFnWithAuth({ action: "url_attestato", attestato_id: id });
+    setScaricandoId(null);
+    if (r.ok) window.open(r.url, "_blank");
+    else alert(r.error || "Impossibile scaricare l'attestato in questo momento.");
+  };
+
+  if (!attestati || attestati.length === 0) return null;
+
+  return (
+    <div style={{ ...styles.card, marginBottom: 24 }}>
+      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>🧾 I tuoi attestati</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {attestati.map((a) => (
+          <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+            gap: 10, flexWrap: "wrap", borderTop: "1px solid #e2e8f0", paddingTop: 10 }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{a.nome_attivita}</div>
+              <div style={{ color: "#64748b", fontSize: 12.5 }}>
+                €{a.importo} · {a.durata_testo}
+                {a.data_inizio && a.data_fine ? ` · dal ${fmtData(a.data_inizio)} al ${fmtData(a.data_fine)}` : ""}
+              </div>
+            </div>
+            <button onClick={() => scarica(a.id)} disabled={scaricandoId === a.id} style={styles.btnSmall}>
+              {scaricandoId === a.id ? "Apertura..." : "📄 Scarica PDF"}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Componente principale ─────────────────────────────────────────────────
 export default function AreaTesserati() {
   const [cf, setCf] = useState("");
@@ -734,6 +785,8 @@ export default function AreaTesserati() {
             </button>
           </div>
         )}
+
+        <SezioneAttestati callFnWithAuth={callFnWithAuth} />
 
         <h3>La tua stagione in corso {stagioneAttivaNome ? `— ${stagioneAttivaNome}` : ""}</h3>
         {iscrizioniAttive.length === 0 && (
