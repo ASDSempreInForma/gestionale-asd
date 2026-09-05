@@ -40,6 +40,7 @@ const oggiIT = () => {
 
 const FORM_VUOTO = {
   socio_cf: '',
+  cfSocio: '',
   nomeSocio: '',
   cognomeSocio: '',
   dataNascitaSocio: '',
@@ -73,7 +74,18 @@ export default function GenerazioneAttestati() {
   const [firmaSalvataUrl, setFirmaSalvataUrl] = useState(null);
   const [firmaSalvataAssente, setFirmaSalvataAssente] = useState(false);
   const [suggerimentiStagioni, setSuggerimentiStagioni] = useState([]);
-  const [suggerimentiAttivita, setSuggerimentiAttivita] = useState([]);
+  // Nomi canonici delle attività, sempre proposti indipendentemente da come sono
+  // salvati i singoli corsi a database (dove possono variare per sede/orario).
+  const ATTIVITA_CANONICHE = [
+    'STEP-BODYTONIC-G.A.G',
+    'Ginnastica Posturale con metodo Pilates',
+    'Fitness Musicale con metodo Zumba',
+    'Cross-Training',
+    'Ginnastica Dolce',
+    'Yoga',
+    'Balli di Gruppo',
+  ];
+  const [suggerimentiAttivita, setSuggerimentiAttivita] = useState(ATTIVITA_CANONICHE);
 
   useEffect(() => {
     (async () => {
@@ -83,7 +95,7 @@ export default function GenerazioneAttestati() {
       const { data: corsi } = await supabase.from('corsi').select('nome_visualizzato, disciplina');
       if (corsi) {
         const nomi = corsi.map((c) => c.nome_visualizzato || c.disciplina).filter(Boolean);
-        setSuggerimentiAttivita([...new Set(nomi)].sort());
+        setSuggerimentiAttivita([...new Set([...ATTIVITA_CANONICHE, ...nomi])].sort());
       }
     })();
   }, []);
@@ -151,6 +163,7 @@ export default function GenerazioneAttestati() {
     setForm((f) => ({
       ...f,
       socio_cf: socio.cf,
+      cfSocio: socio.cf,
       nomeSocio: socio.nome,
       cognomeSocio: socio.cognome,
       dataNascitaSocio: socio.data_nascita,

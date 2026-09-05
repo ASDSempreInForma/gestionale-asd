@@ -253,7 +253,7 @@ export async function generaAttestatoPdf(dati) {
   // ── Luogo e data / firma, verso il fondo pagina ─────────────────────────────
   const bottomY = 200;
   page.drawText('Luogo e data', { x: marginX, y: bottomY, size: 11, font: fontRegular });
-  page.drawText(dati.luogoData || '', { x: marginX + 90, y: bottomY, size: 11, font: fontItalic });
+  page.drawText(dati.luogoData || '', { x: marginX, y: bottomY - 18, size: 11, font: fontItalic });
 
   const firmaLabel = 'Firma del Legale Rappresentante dell\'Associazione';
   const firmaLabelWidth = fontRegular.widthOfTextAtSize(firmaLabel, 10);
@@ -261,10 +261,11 @@ export async function generaAttestatoPdf(dati) {
   const firmaLabelY = bottomY - 34;
 
   // L'etichetta va sopra; la firma (se presente) va disegnata SOTTO la scritta,
-  // e la riga per l'eventuale firma autografa sta ancora più in basso.
+  // con la riga sovrapposta alla firma stessa (come una vera riga per firmare,
+  // con la firma che vi "poggia" sopra) invece che separata più in basso.
   page.drawText(firmaLabel, { x: firmaLabelX, y: firmaLabelY, size: 10, font: fontRegular });
 
-  let lineY = firmaLabelY - 40;
+  let lineY = firmaLabelY - 55;
 
   if (dati.firmaBase64) {
     try {
@@ -274,25 +275,37 @@ export async function generaAttestatoPdf(dati) {
       const fw = firmaImg.width * scale;
       const fh = firmaImg.height * scale;
       const imgY = firmaLabelY - 18 - fh;
+      lineY = imgY + fh * 0.18; // la riga passa dietro alla parte bassa della firma, sovrapposta
+      page.drawLine({
+        start: { x: firmaLabelX, y: lineY },
+        end: { x: width - marginX, y: lineY },
+        thickness: 0.5,
+        color: rgb(0.4, 0.4, 0.4),
+      });
       page.drawImage(firmaImg, {
         x: width - marginX - fw,
         y: imgY,
         width: fw,
         height: fh,
       });
-      lineY = imgY - 8;
     } catch (e) {
       console.warn('Impossibile inserire la firma salvata:', e);
+      page.drawLine({
+        start: { x: firmaLabelX, y: lineY },
+        end: { x: width - marginX, y: lineY },
+        thickness: 0.5,
+        color: rgb(0.4, 0.4, 0.4),
+      });
     }
+  } else {
+    // nessuna firma digitale: riga vuota da firmare a mano, in posizione normale
+    page.drawLine({
+      start: { x: firmaLabelX, y: lineY },
+      end: { x: width - marginX, y: lineY },
+      thickness: 0.5,
+      color: rgb(0.4, 0.4, 0.4),
+    });
   }
-
-  // riga per la firma autografa (sempre presente, anche senza firma digitale)
-  page.drawLine({
-    start: { x: firmaLabelX, y: lineY },
-    end: { x: width - marginX, y: lineY },
-    thickness: 0.5,
-    color: rgb(0.4, 0.4, 0.4),
-  });
 
   const pdfBytes = await pdfDoc.save();
   return pdfBytes;
