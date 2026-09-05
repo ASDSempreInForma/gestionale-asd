@@ -503,11 +503,20 @@ function SezioneAttestati({ callFnWithAuth }) {
   }, []);
 
   const scarica = async (id) => {
+    // Apriamo subito una scheda vuota, nello stesso istante del click: alcuni browser
+    // bloccano silenziosamente window.open() se arriva DOPO un'attesa (await) sul server,
+    // perché non lo riconoscono più come azione diretta dell'utente.
+    const finestra = window.open("", "_blank");
     setScaricandoId(id);
     const r = await callFnWithAuth({ action: "url_attestato", attestato_id: id });
     setScaricandoId(null);
-    if (r.ok) window.open(r.url, "_blank");
-    else alert(r.error || "Impossibile scaricare l'attestato in questo momento.");
+    if (r.ok) {
+      if (finestra) finestra.location.href = r.url;
+      else window.open(r.url, "_blank"); // fallback se comunque bloccata
+    } else {
+      if (finestra) finestra.close();
+      alert(r.error || "Impossibile scaricare l'attestato in questo momento.");
+    }
   };
 
   if (!attestati || attestati.length === 0) return null;

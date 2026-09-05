@@ -282,6 +282,10 @@ export default function GenerazioneAttestati() {
       setMessaggio({ tipo: 'errore', testo: 'Carica prima la firma salvata di Sabina, qui sopra.' });
       return;
     }
+    // Apriamo la scheda per l'anteprima SUBITO al click (anche se ancora vuota):
+    // farlo dopo la generazione/upload (con vari await di mezzo) rischia il blocco
+    // popup del browser, che non riconosce più l'apertura come azione diretta dell'utente.
+    const finestraAnteprima = window.open('', '_blank');
     setCaricamento(true);
     setMessaggio(null);
     try {
@@ -324,13 +328,15 @@ export default function GenerazioneAttestati() {
       });
       if (error) throw error;
 
-      // Apri subito l'anteprima per il controllo prima di renderlo disponibile
+      // L'anteprima era già stata aperta all'inizio: ora le assegniamo il PDF pronto
       const previewUrl = URL.createObjectURL(pdfBlob);
-      window.open(previewUrl, '_blank');
+      if (finestraAnteprima) finestraAnteprima.location.href = previewUrl;
+      else window.open(previewUrl, '_blank'); // fallback se comunque bloccata
 
       setMessaggio({ tipo: 'ok', testo: 'PDF generato con firma digitale. Controlla l\'anteprima appena aperta, poi clicca "✅ Rendi disponibile" nell\'elenco qui sotto per farlo vedere al socio.' });
       caricaElenco();
     } catch (e) {
+      if (finestraAnteprima) finestraAnteprima.close();
       setMessaggio({ tipo: 'errore', testo: 'Errore nella generazione: ' + e.message });
     } finally {
       setCaricamento(false);
@@ -361,9 +367,15 @@ export default function GenerazioneAttestati() {
 
   async function apriAnteprima(riga) {
     if (!riga.file_url) return;
+    const finestra = window.open('', '_blank');
     const { data, error } = await supabase.storage.from('documenti-soci').createSignedUrl(riga.file_url, 120);
-    if (error) { setMessaggio({ tipo: 'errore', testo: 'Impossibile aprire l\'anteprima: ' + error.message }); return; }
-    window.open(data.signedUrl, '_blank');
+    if (error) {
+      if (finestra) finestra.close();
+      setMessaggio({ tipo: 'errore', testo: 'Impossibile aprire l\'anteprima: ' + error.message });
+      return;
+    }
+    if (finestra) finestra.location.href = data.signedUrl;
+    else window.open(data.signedUrl, '_blank');
   }
 
   async function rendiDisponibile(riga) {
