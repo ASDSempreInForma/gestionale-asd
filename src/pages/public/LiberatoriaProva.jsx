@@ -438,7 +438,7 @@ export default function LiberatoriaProva() {
         const res = await fetch(`${SUPABASE_URL}/functions/v1/verifica-limite-prova`, {
           method: "POST",
           headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
-          body: JSON.stringify({ cf: d.cf, corso_id: d.corsoProvaId }),
+          body: JSON.stringify({ cf: d.cf, corso_id: d.corsoProvaId, email: d.email }),
         });
         const dataRes = await res.json();
         setVerificandoLimite(false);
