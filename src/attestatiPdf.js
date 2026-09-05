@@ -178,6 +178,43 @@ export async function generaAttestatoPdf(dati) {
     y -= gapAfter - lineHeight;
   }
 
+  // Come drawParagraph, ma i "segments" permettono di alternare grassetto e testo
+  // normale nella stessa frase (es. per mettere in grassetto solo il nome del corso).
+  function drawRichParagraph(segments, { size = bodySize, gapAfter = lineHeight } = {}) {
+    const tokens = [];
+    segments.forEach((seg) => {
+      seg.text.split(' ').filter(Boolean).forEach((w) => tokens.push({ word: w, bold: !!seg.bold }));
+    });
+    const spaceWidth = fontRegular.widthOfTextAtSize(' ', size);
+
+    const righe = [[]];
+    let larghezzaRiga = 0;
+    tokens.forEach((tok) => {
+      const f = tok.bold ? fontBold : fontRegular;
+      const w = f.widthOfTextAtSize(tok.word, size);
+      const rigaCorrente = righe[righe.length - 1];
+      const extra = rigaCorrente.length ? spaceWidth + w : w;
+      if (larghezzaRiga + extra > maxWidth && rigaCorrente.length) {
+        righe.push([tok]);
+        larghezzaRiga = w;
+      } else {
+        rigaCorrente.push(tok);
+        larghezzaRiga += extra;
+      }
+    });
+
+    righe.forEach((riga) => {
+      let x = marginX;
+      riga.forEach((tok) => {
+        const f = tok.bold ? fontBold : fontRegular;
+        page.drawText(tok.word, { x, y, size, font: f });
+        x += f.widthOfTextAtSize(tok.word, size) + spaceWidth;
+      });
+      y -= lineHeight;
+    });
+    y -= gapAfter - lineHeight;
+  }
+
   // Le prime righe sono fisse (dati dell'associazione), replicate identiche all'originale
   drawLine(`La sottoscritta Sabina Pappalardo – Cod. Fiscale: PPPSBN62P65F839J`);
   y -= 4;
@@ -207,9 +244,11 @@ export async function generaAttestatoPdf(dati) {
 
   drawParagraph(`la somma di euro ${dati.importo} (${dati.importoLettere}/00)`, { bold: true, gapAfter: lineHeight + 8 });
 
-  drawParagraph(
-    `quale corrispettivo per l'iscrizione al corso di: "${dati.nomeAttivita || ''}" per la stagione sportiva ${dati.annoSportivo || ''}, della durata di ${Math.round(dati.durataMesi || 0)} (${meseInLettere(dati.durataMesi)}) MESI, dal ${formattaDataIT(dati.dataInizio)} al ${formattaDataIT(dati.dataFine)}.`
-  );
+  drawRichParagraph([
+    { text: `quale corrispettivo per l'iscrizione al corso di:` },
+    { text: `"${dati.nomeAttivita || ''}"`, bold: true },
+    { text: `per la stagione sportiva ${dati.annoSportivo || ''}, della durata di ${Math.round(dati.durataMesi || 0)} (${meseInLettere(dati.durataMesi)}) MESI, dal ${formattaDataIT(dati.dataInizio)} al ${formattaDataIT(dati.dataFine)}.` },
+  ]);
 
   // ── Luogo e data / firma, verso il fondo pagina ─────────────────────────────
   const bottomY = 200;
@@ -230,13 +269,13 @@ export async function generaAttestatoPdf(dati) {
   if (dati.firmaBase64) {
     try {
       const firmaImg = await pdfDoc.embedPng(base64ToUint8Array(dati.firmaBase64));
-      const maxW = 170, maxH = 38;
+      const maxW = 260, maxH = 85;
       const scale = Math.min(maxW / firmaImg.width, maxH / firmaImg.height);
       const fw = firmaImg.width * scale;
       const fh = firmaImg.height * scale;
-      const imgY = firmaLabelY - 16 - fh;
+      const imgY = firmaLabelY - 18 - fh;
       page.drawImage(firmaImg, {
-        x: firmaLabelX + (firmaLabelWidth - fw) / 2,
+        x: width - marginX - fw,
         y: imgY,
         width: fw,
         height: fh,
