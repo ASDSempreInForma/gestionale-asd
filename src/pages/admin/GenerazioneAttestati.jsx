@@ -72,6 +72,21 @@ export default function GenerazioneAttestati() {
   const [fileFirmatoPerId, setFileFirmatoPerId] = useState({});
   const [firmaSalvataUrl, setFirmaSalvataUrl] = useState(null);
   const [firmaSalvataAssente, setFirmaSalvataAssente] = useState(false);
+  const [suggerimentiStagioni, setSuggerimentiStagioni] = useState([]);
+  const [suggerimentiAttivita, setSuggerimentiAttivita] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      const { data: stagioni } = await supabase.from('stagioni').select('nome').order('data_inizio', { ascending: false });
+      if (stagioni) setSuggerimentiStagioni([...new Set(stagioni.map((s) => s.nome).filter(Boolean))]);
+
+      const { data: corsi } = await supabase.from('corsi').select('nome_visualizzato, disciplina');
+      if (corsi) {
+        const nomi = corsi.map((c) => c.nome_visualizzato || c.disciplina).filter(Boolean);
+        setSuggerimentiAttivita([...new Set(nomi)].sort());
+      }
+    })();
+  }, []);
 
   const caricaFirmaSalvata = useCallback(async () => {
     const { data, error } = await supabase.storage.from('documenti-soci').download(FIRMA_PATH);
@@ -468,13 +483,20 @@ export default function GenerazioneAttestati() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <label>Stagione sportiva
                 <input value={form.annoSportivo} onChange={(e) => aggiorna('annoSportivo', e.target.value)}
-                  placeholder="2026/2027" style={campoStile} />
+                  placeholder="2026/2027" list="lista-stagioni" style={campoStile} />
+                <datalist id="lista-stagioni">
+                  {suggerimentiStagioni.map((s) => <option key={s} value={s} />)}
+                </datalist>
               </label>
               <label>Importo (€)
                 <input type="number" value={form.importo} onChange={(e) => aggiorna('importo', e.target.value)} style={campoStile} />
               </label>
               <label style={{ gridColumn: '1 / -1' }}>Nome dell'attività / corso
-                <input value={form.nomeAttivita} onChange={(e) => aggiorna('nomeAttivita', e.target.value)} style={campoStile} />
+                <input value={form.nomeAttivita} onChange={(e) => aggiorna('nomeAttivita', e.target.value)}
+                  list="lista-attivita" style={campoStile} />
+                <datalist id="lista-attivita">
+                  {suggerimentiAttivita.map((a) => <option key={a} value={a} />)}
+                </datalist>
               </label>
               <label>Data inizio periodo
                 <input type="date" value={form.dataInizio || ''} onChange={(e) => aggiorna('dataInizio', e.target.value)} style={campoStile} />

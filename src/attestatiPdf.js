@@ -95,7 +95,7 @@ export async function generaAttestatoPdf(dati) {
     const footerImg = await pdfDoc.embedJpg(base64ToUint8Array(FOOTER_BASE64));
     const footerW = width;
     const footerH = (footerImg.height / footerImg.width) * footerW;
-    page.drawImage(footerImg, { x: 0, y: 0, width: footerW, height: footerH });
+    page.drawImage(footerImg, { x: 0, y: 0, width: footerW, height: footerH, opacity: 0.55 });
   } catch (e) {
     // se l'immagine non si carica, il documento resta comunque valido senza la grafica
     console.warn('Impossibile inserire la grafica decorativa:', e);
@@ -145,18 +145,18 @@ export async function generaAttestatoPdf(dati) {
 
   // ── Corpo del testo ──────────────────────────────────────────────────────
   const bodySize = 11;
-  const lineHeight = 16;
-  y -= 40;
+  const lineHeight = 18;
+  y -= 44;
 
-  function drawLine(text, { size = bodySize, bold = false, center = false, x = marginX } = {}) {
-    const useFont = bold ? fontBold : fontRegular;
+  function drawLine(text, { size = bodySize, bold = false, italic = false, center = false, x = marginX } = {}) {
+    const useFont = bold ? fontBold : italic ? fontItalic : fontRegular;
     const drawX = center ? (width - useFont.widthOfTextAtSize(text, size)) / 2 : x;
     page.drawText(text, { x: drawX, y, size, font: useFont });
     y -= lineHeight;
   }
 
-  function drawParagraph(text, { size = bodySize, bold = false, center = false, gapAfter = lineHeight } = {}) {
-    const useFont = bold ? fontBold : fontRegular;
+  function drawParagraph(text, { size = bodySize, bold = false, italic = false, center = false, gapAfter = lineHeight } = {}) {
+    const useFont = bold ? fontBold : italic ? fontItalic : fontRegular;
     const words = text.split(' ');
     const righe = [];
     let riga = '';
@@ -180,67 +180,77 @@ export async function generaAttestatoPdf(dati) {
 
   // Le prime righe sono fisse (dati dell'associazione), replicate identiche all'originale
   drawLine(`La sottoscritta Sabina Pappalardo – Cod. Fiscale: PPPSBN62P65F839J`);
+  y -= 4;
   drawLine(`Legale Rappresentante dell'Associazione A.S.D. Sempre In Forma`);
+  y -= 4;
   drawLine(`Con sede legale a Brescia in Via del Brolo 63 - 25136`);
-  y -= 6;
-  drawLine('Codice Fiscale: 98087620179');
   y -= 12;
+  drawLine('Codice Fiscale: 98087620179', { bold: true });
+  y -= 18;
 
   drawLine('DICHIARA', { bold: true, center: true });
-  y -= 4;
+  y -= 6;
   drawParagraph(
     `che è in corso di validità l'iscrizione al "Registro Nazionale delle Associazioni e Società Sportive dilettantistiche del CONI", per la stagione sportiva ${dati.annoSportivo || ''}`,
-    { center: true, gapAfter: lineHeight + 14 }
+    { center: true, italic: true, gapAfter: lineHeight + 20 }
   );
 
   drawLine('DICHIARA INOLTRE', { bold: true, center: true });
-  y -= 12;
+  y -= 18;
 
   const nomeCompleto = `${(dati.cognomeSocio || '').toUpperCase()} ${(dati.nomeSocio || '').toUpperCase()}`;
-  drawParagraph(`di aver ricevuto da: ${nomeCompleto} – Cod. Fiscale: ${dati.cfSocio || ''}`);
+  drawParagraph(`di aver ricevuto da: ${nomeCompleto} – Cod. Fiscale: ${dati.cfSocio || ''}`, { gapAfter: lineHeight + 4 });
   drawParagraph(
     `nat${dati.sessoSocio === 'M' ? 'o' : 'a'} a ${dati.comuneNascitaSocio || ''} (${dati.provinciaNascitaSocio || ''}) il ${formattaDataIT(dati.dataNascitaSocio)} e residente a ${dati.comuneResidenzaSocio || ''} in ${dati.indirizzoSocio || ''} ${dati.capSocio || ''} (${dati.provinciaResidenzaSocio || ''})`,
-    { gapAfter: lineHeight + 8 }
+    { gapAfter: lineHeight + 14 }
   );
 
-  drawParagraph(`la somma di euro ${dati.importo} (${dati.importoLettere}/00)`, { bold: true, gapAfter: lineHeight + 4 });
+  drawParagraph(`la somma di euro ${dati.importo} (${dati.importoLettere}/00)`, { bold: true, gapAfter: lineHeight + 8 });
 
   drawParagraph(
     `quale corrispettivo per l'iscrizione al corso di: "${dati.nomeAttivita || ''}" per la stagione sportiva ${dati.annoSportivo || ''}, della durata di ${Math.round(dati.durataMesi || 0)} (${meseInLettere(dati.durataMesi)}) MESI, dal ${formattaDataIT(dati.dataInizio)} al ${formattaDataIT(dati.dataFine)}.`
   );
 
   // ── Luogo e data / firma, verso il fondo pagina ─────────────────────────────
-  const bottomY = 195;
+  const bottomY = 200;
   page.drawText('Luogo e data', { x: marginX, y: bottomY, size: 11, font: fontRegular });
   page.drawText(dati.luogoData || '', { x: marginX + 90, y: bottomY, size: 11, font: fontItalic });
 
   const firmaLabel = 'Firma del Legale Rappresentante dell\'Associazione';
   const firmaLabelWidth = fontRegular.widthOfTextAtSize(firmaLabel, 10);
+  const firmaLabelX = width - marginX - firmaLabelWidth;
+  const firmaLabelY = bottomY - 34;
 
-  // Firma digitale salvata (immagine PNG), se fornita: la disegniamo sopra la riga
+  // L'etichetta va sopra; la firma (se presente) va disegnata SOTTO la scritta,
+  // e la riga per l'eventuale firma autografa sta ancora più in basso.
+  page.drawText(firmaLabel, { x: firmaLabelX, y: firmaLabelY, size: 10, font: fontRegular });
+
+  let lineY = firmaLabelY - 40;
+
   if (dati.firmaBase64) {
     try {
       const firmaImg = await pdfDoc.embedPng(base64ToUint8Array(dati.firmaBase64));
-      const maxW = 170, maxH = 42;
+      const maxW = 170, maxH = 38;
       const scale = Math.min(maxW / firmaImg.width, maxH / firmaImg.height);
       const fw = firmaImg.width * scale;
       const fh = firmaImg.height * scale;
+      const imgY = firmaLabelY - 16 - fh;
       page.drawImage(firmaImg, {
-        x: width - marginX - firmaLabelWidth + (firmaLabelWidth - fw) / 2,
-        y: bottomY - 44,
+        x: firmaLabelX + (firmaLabelWidth - fw) / 2,
+        y: imgY,
         width: fw,
         height: fh,
       });
+      lineY = imgY - 8;
     } catch (e) {
       console.warn('Impossibile inserire la firma salvata:', e);
     }
   }
 
-  page.drawText(firmaLabel, { x: width - marginX - firmaLabelWidth, y: bottomY - 45, size: 10, font: fontRegular });
-  // riga per la firma autografa
+  // riga per la firma autografa (sempre presente, anche senza firma digitale)
   page.drawLine({
-    start: { x: width - marginX - firmaLabelWidth, y: bottomY - 50 },
-    end: { x: width - marginX, y: bottomY - 50 },
+    start: { x: firmaLabelX, y: lineY },
+    end: { x: width - marginX, y: lineY },
     thickness: 0.5,
     color: rgb(0.4, 0.4, 0.4),
   });
