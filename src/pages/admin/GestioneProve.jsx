@@ -71,6 +71,8 @@ export default function GestioneProve() {
   const [filtroSede, setFiltroSede] = useState("");
   const [filtroStato, setFiltroStato] = useState("");
   const [filtroCorsoPk, setFiltroCorsoPk] = useState("");
+  const [ricercaTesto, setRicercaTesto] = useState("");
+  const [soloOggi, setSoloOggi] = useState(false);
   const [vistaProve, setVistaProve] = useState("attive"); // attive | storico
 
   // Salvataggio in corso
@@ -408,6 +410,20 @@ export default function GestioneProve() {
       const corsoDellaProva = corsi.find(c => c.id === p.corso_id);
       if (!corsoDellaProva || corsoDellaProva.sede !== filtroSede) return false;
     }
+    // Cerca per nome, cognome, CF, email o telefono — la lista sta diventando
+    // lunga (88+ richieste), utile per trovare subito una persona specifica
+    // (richiesto da Solomon il 05/09/2026).
+    if (ricercaTesto.trim()) {
+      const t = ricercaTesto.trim().toLowerCase();
+      const campi = [p.nome, p.cognome, p.cf, p.email, p.telefono].map(v => (v || "").toLowerCase());
+      if (!campi.some(v => v.includes(t))) return false;
+    }
+    // Solo le prove con lezione fissata OGGI — per sapere a colpo d'occhio
+    // chi si presenta in palestra nella data odierna.
+    if (soloOggi) {
+      const oggiStr = new Date().toISOString().slice(0, 10);
+      if (p.data_effettuata !== oggiStr) return false;
+    }
     return true;
   });
   const opzioniStato = STATI_PROVA.filter(s => (vistaProve === "attive" ? STATI_ATTIVI : STATI_STORICO).includes(s.value));
@@ -424,6 +440,14 @@ export default function GestioneProve() {
     const h = (fineGiornataScadenza(p.scadenza_3gg) - new Date()) / 36e5;
     return h > 0 && h <= 24;
   });
+
+  // Prove fissate per OGGI (data_effettuata), utile per sapere a colpo
+  // d'occhio chi si presenta in palestra nella data odierna (richiesto da
+  // Solomon il 05/09/2026).
+  const oggiStr = new Date().toISOString().slice(0, 10);
+  const proveOggi = prove.filter(p =>
+    ["confermata", "effettuata"].includes(p.stato) && p.data_effettuata === oggiStr
+  );
 
   // Per i corsi con capienza tracciata per singola giornata, i "posti liberi"
   // guardano alla giornata più critica delle due — è lì che si blocca prima.
@@ -584,6 +608,22 @@ export default function GestioneProve() {
               </div>
             )}
 
+            {/* Prove di oggi */}
+            {vistaProve === "attive" && proveOggi.length > 0 && (
+              <div style={{ background:BLL, border:`1px solid ${BL}33`, borderRadius:10,
+                padding:"12px 14px", marginBottom:14 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:BL, marginBottom:6 }}>
+                  📅 Prove di oggi ({proveOggi.length})
+                </div>
+                {proveOggi.map(p => (
+                  <div key={p.id} style={{ fontSize:12, color:BL, marginBottom:4 }}>
+                    <strong>{p.nome} {p.cognome}</strong> — {p.corsi?.disciplina} · {p.corsi?.sedi?.nome}
+                    {p.telefono && <> · {p.telefono}</>}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Vista: in corso / storico */}
             <div style={{ display:"flex", gap:8, marginBottom:14 }}>
               <button onClick={() => { setVistaProve("attive"); setFiltroStato(""); }}
@@ -617,6 +657,19 @@ export default function GestioneProve() {
                 <option value="">Tutti gli stati</option>
                 {opzioniStato.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
+            </div>
+
+            {/* Ricerca testuale + filtro "solo oggi" */}
+            <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+              <input type="text" value={ricercaTesto} onChange={e => setRicercaTesto(e.target.value)}
+                placeholder="🔍 Cerca per nome, cognome, CF, email o telefono…"
+                style={{ flex:1, padding:"8px 10px", border:`1px solid ${BD}`, borderRadius:8, fontSize:12.5 }} />
+              <button onClick={() => setSoloOggi(v => !v)}
+                style={{ padding:"8px 14px", borderRadius:8, border:`1px solid ${soloOggi?G:BD}`,
+                  background:soloOggi?GL:"white", color:soloOggi?GD:SUB,
+                  fontSize:12.5, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>
+                📅 Solo oggi
+              </button>
             </div>
 
             {/* Lista prove */}
