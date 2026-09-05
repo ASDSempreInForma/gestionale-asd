@@ -84,29 +84,57 @@ export async function generaAttestatoPdf(dati) {
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const fontItalic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
 
-  // Logo in alto a sinistra (file JPEG nonostante l'estensione .png del progetto)
-  const logoImg = await pdfDoc.embedJpg(base64ToUint8Array(LOGO_BASE64));
-  const logoW = 70;
-  const logoH = (logoImg.height / logoImg.width) * logoW;
-  page.drawImage(logoImg, { x: 45, y: height - 45 - logoH, width: logoW, height: logoH });
+  const marginX = 55;
+  const maxWidth = width - marginX * 2;
 
-  // Dati associazione (in alto a destra del logo)
-  const infoX = 130;
-  let y = height - 55;
+  // ── Grafica decorativa a triangoli, disegnata PER PRIMA come sfondo: ────────
+  // sulla carta intestata originale il testo scorre sopra questa immagine
+  // (in Word è impostata "dietro al testo"), qui replichiamo lo stesso effetto
+  // disegnandola prima di tutto il resto.
+  try {
+    const footerImg = await pdfDoc.embedJpg(base64ToUint8Array(FOOTER_BASE64));
+    const footerW = width;
+    const footerH = (footerImg.height / footerImg.width) * footerW;
+    page.drawImage(footerImg, { x: 0, y: 0, width: footerW, height: footerH });
+  } catch (e) {
+    // se l'immagine non si carica, il documento resta comunque valido senza la grafica
+    console.warn('Impossibile inserire la grafica decorativa:', e);
+  }
+
+  // ── Riquadro con logo e dati associazione, in alto a sinistra ───────────────
+  const boxX = marginX - 10;
+  const boxW = 195;
+  const boxTop = height - 40;
+  const boxH = 148;
+  page.drawRectangle({
+    x: boxX, y: boxTop - boxH, width: boxW, height: boxH,
+    borderColor: rgb(0.6, 0.6, 0.6), borderWidth: 0.75,
+  });
+
+  const logoImg = await pdfDoc.embedJpg(base64ToUint8Array(LOGO_BASE64));
+  const logoSize = 62;
+  page.drawImage(logoImg, {
+    x: boxX + (boxW - logoSize) / 2,
+    y: boxTop - 12 - logoSize,
+    width: logoSize,
+    height: logoSize,
+  });
+
   const infoLines = [
     'Codice affiliazione CONI 02500493',
     'Cod.fisc. 98087620179',
     'Email: info@asdsempreinforma.it',
     'Mobile: +39 3204128267',
   ];
-  page.setFont(fontRegular);
+  let infoY = boxTop - 12 - logoSize - 16;
   infoLines.forEach((line) => {
-    page.drawText(line, { x: infoX, y, size: 9, font: fontRegular, color: rgb(0.25, 0.25, 0.25) });
-    y -= 12;
+    const lw = fontRegular.widthOfTextAtSize(line, 8);
+    page.drawText(line, { x: boxX + (boxW - lw) / 2, y: infoY, size: 8, font: fontRegular, color: rgb(0.25, 0.25, 0.25) });
+    infoY -= 11;
   });
 
-  // Titolo
-  y = height - 150;
+  // ── Titolo ───────────────────────────────────────────────────────────────
+  let y = boxTop - boxH - 35;
   const titolo = 'ATTESTAZIONE DI PAGAMENTO E FREQUENZA';
   const titoloWidth = fontBold.widthOfTextAtSize(titolo, 14);
   page.drawText(titolo, { x: (width - titoloWidth) / 2, y, size: 14, font: fontBold });
@@ -115,66 +143,74 @@ export async function generaAttestatoPdf(dati) {
   const sottotitoloWidth = fontRegular.widthOfTextAtSize(sottotitolo, 11);
   page.drawText(sottotitolo, { x: (width - sottotitoloWidth) / 2, y, size: 11, font: fontRegular });
 
-  // Corpo del testo, con a capo automatico
-  const marginX = 55;
-  const maxWidth = width - marginX * 2;
+  // ── Corpo del testo ──────────────────────────────────────────────────────
   const bodySize = 11;
   const lineHeight = 16;
-  y -= 45;
+  y -= 40;
 
-  function drawParagraph(text, { size = bodySize, font = fontRegular, gapAfter = lineHeight, bold = false } = {}) {
-    const useFont = bold ? fontBold : font;
-    const words = text.split(' ');
-    let line = '';
-    for (const word of words) {
-      const test = line ? line + ' ' + word : word;
-      if (useFont.widthOfTextAtSize(test, size) > maxWidth) {
-        page.drawText(line, { x: marginX, y, size, font: useFont });
-        y -= lineHeight;
-        line = word;
-      } else {
-        line = test;
-      }
-    }
-    if (line) {
-      page.drawText(line, { x: marginX, y, size, font: useFont });
-      y -= gapAfter;
-    }
+  function drawLine(text, { size = bodySize, bold = false, center = false, x = marginX } = {}) {
+    const useFont = bold ? fontBold : fontRegular;
+    const drawX = center ? (width - useFont.widthOfTextAtSize(text, size)) / 2 : x;
+    page.drawText(text, { x: drawX, y, size, font: useFont });
+    y -= lineHeight;
   }
 
+  function drawParagraph(text, { size = bodySize, bold = false, center = false, gapAfter = lineHeight } = {}) {
+    const useFont = bold ? fontBold : fontRegular;
+    const words = text.split(' ');
+    const righe = [];
+    let riga = '';
+    for (const word of words) {
+      const test = riga ? riga + ' ' + word : word;
+      if (useFont.widthOfTextAtSize(test, size) > maxWidth) {
+        righe.push(riga);
+        riga = word;
+      } else {
+        riga = test;
+      }
+    }
+    if (riga) righe.push(riga);
+    righe.forEach((r) => {
+      const drawX = center ? (width - useFont.widthOfTextAtSize(r, size)) / 2 : marginX;
+      page.drawText(r, { x: drawX, y, size, font: useFont });
+      y -= lineHeight;
+    });
+    y -= gapAfter - lineHeight;
+  }
+
+  // Le prime righe sono fisse (dati dell'associazione), replicate identiche all'originale
+  drawLine(`La sottoscritta Sabina Pappalardo – Cod. Fiscale: PPPSBN62P65F839J`);
+  drawLine(`Legale Rappresentante dell'Associazione A.S.D. Sempre In Forma`);
+  drawLine(`Con sede legale a Brescia in Via del Brolo 63 - 25136`);
+  y -= 6;
+  drawLine('Codice Fiscale: 98087620179');
+  y -= 12;
+
+  drawLine('DICHIARA', { bold: true, center: true });
+  y -= 4;
   drawParagraph(
-    `La sottoscritta Sabina Pappalardo – Cod. Fiscale: PPPSBN62P65F839J, Legale Rappresentante dell'Associazione A.S.D. Sempre In Forma, con sede legale a Brescia in Via del Brolo 63 - 25136, Codice Fiscale: 98087620179`
+    `che è in corso di validità l'iscrizione al "Registro Nazionale delle Associazioni e Società Sportive dilettantistiche del CONI", per la stagione sportiva ${dati.annoSportivo || ''}`,
+    { center: true, gapAfter: lineHeight + 14 }
   );
-  y -= 8;
 
-  drawParagraph('DICHIARA', { bold: true, gapAfter: lineHeight + 6 });
-
-  drawParagraph(
-    `che è in corso di validità l'iscrizione al "Registro Nazionale delle Associazioni e Società Sportive dilettantistiche del CONI", per la stagione sportiva ${dati.annoSportivo || ''}`
-  );
-  y -= 8;
-
-  drawParagraph('DICHIARA INOLTRE', { bold: true, gapAfter: lineHeight + 6 });
+  drawLine('DICHIARA INOLTRE', { bold: true, center: true });
+  y -= 12;
 
   const nomeCompleto = `${(dati.cognomeSocio || '').toUpperCase()} ${(dati.nomeSocio || '').toUpperCase()}`;
   drawParagraph(`di aver ricevuto da: ${nomeCompleto} – Cod. Fiscale: ${dati.cfSocio || ''}`);
   drawParagraph(
-    `nat${dati.sessoSocio === 'M' ? 'o' : 'a'} a ${dati.comuneNascitaSocio || ''} (${dati.provinciaNascitaSocio || ''}) il ${formattaDataIT(dati.dataNascitaSocio)} e residente a ${dati.comuneResidenzaSocio || ''} in ${dati.indirizzoSocio || ''} ${dati.capSocio || ''} (${dati.provinciaResidenzaSocio || ''})`
+    `nat${dati.sessoSocio === 'M' ? 'o' : 'a'} a ${dati.comuneNascitaSocio || ''} (${dati.provinciaNascitaSocio || ''}) il ${formattaDataIT(dati.dataNascitaSocio)} e residente a ${dati.comuneResidenzaSocio || ''} in ${dati.indirizzoSocio || ''} ${dati.capSocio || ''} (${dati.provinciaResidenzaSocio || ''})`,
+    { gapAfter: lineHeight + 8 }
   );
-  y -= 8;
 
-  drawParagraph(
-    `la somma di euro ${dati.importo} (${dati.importoLettere}/00)`,
-    { bold: true }
-  );
-  y -= 4;
+  drawParagraph(`la somma di euro ${dati.importo} (${dati.importoLettere}/00)`, { bold: true, gapAfter: lineHeight + 4 });
 
   drawParagraph(
     `quale corrispettivo per l'iscrizione al corso di: "${dati.nomeAttivita || ''}" per la stagione sportiva ${dati.annoSportivo || ''}, della durata di ${Math.round(dati.durataMesi || 0)} (${meseInLettere(dati.durataMesi)}) MESI, dal ${formattaDataIT(dati.dataInizio)} al ${formattaDataIT(dati.dataFine)}.`
   );
 
-  // Luogo e data / firma, in fondo alla pagina (sopra la grafica decorativa)
-  const bottomY = 190;
+  // ── Luogo e data / firma, verso il fondo pagina ─────────────────────────────
+  const bottomY = 195;
   page.drawText('Luogo e data', { x: marginX, y: bottomY, size: 11, font: fontRegular });
   page.drawText(dati.luogoData || '', { x: marginX + 90, y: bottomY, size: 11, font: fontItalic });
 
@@ -206,19 +242,8 @@ export async function generaAttestatoPdf(dati) {
     start: { x: width - marginX - firmaLabelWidth, y: bottomY - 50 },
     end: { x: width - marginX, y: bottomY - 50 },
     thickness: 0.5,
-    color: rgb(0.5, 0.5, 0.5),
+    color: rgb(0.4, 0.4, 0.4),
   });
-
-  // Grafica decorativa in calce, come sulla carta intestata originale
-  try {
-    const footerImg = await pdfDoc.embedJpg(base64ToUint8Array(FOOTER_BASE64));
-    const footerW = width;
-    const footerH = (footerImg.height / footerImg.width) * footerW;
-    page.drawImage(footerImg, { x: 0, y: 0, width: footerW, height: Math.min(footerH, 140) });
-  } catch (e) {
-    // se l'immagine non si carica, il documento resta comunque valido senza la grafica
-    console.warn('Impossibile inserire la grafica decorativa:', e);
-  }
 
   const pdfBytes = await pdfDoc.save();
   return pdfBytes;
