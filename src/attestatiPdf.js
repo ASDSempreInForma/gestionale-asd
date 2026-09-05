@@ -180,6 +180,26 @@ export async function generaAttestatoPdf(dati) {
 
   const firmaLabel = 'Firma del Legale Rappresentante dell\'Associazione';
   const firmaLabelWidth = fontRegular.widthOfTextAtSize(firmaLabel, 10);
+
+  // Firma digitale salvata (immagine PNG), se fornita: la disegniamo sopra la riga
+  if (dati.firmaBase64) {
+    try {
+      const firmaImg = await pdfDoc.embedPng(base64ToUint8Array(dati.firmaBase64));
+      const maxW = 170, maxH = 42;
+      const scale = Math.min(maxW / firmaImg.width, maxH / firmaImg.height);
+      const fw = firmaImg.width * scale;
+      const fh = firmaImg.height * scale;
+      page.drawImage(firmaImg, {
+        x: width - marginX - firmaLabelWidth + (firmaLabelWidth - fw) / 2,
+        y: bottomY - 44,
+        width: fw,
+        height: fh,
+      });
+    } catch (e) {
+      console.warn('Impossibile inserire la firma salvata:', e);
+    }
+  }
+
   page.drawText(firmaLabel, { x: width - marginX - firmaLabelWidth, y: bottomY - 45, size: 10, font: fontRegular });
   // riga per la firma autografa
   page.drawLine({
