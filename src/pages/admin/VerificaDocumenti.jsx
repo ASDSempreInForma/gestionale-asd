@@ -96,20 +96,53 @@ function ModaleRifiuto({ onClose, onConfirm }) {
 // corretto (es. tipo pagamento diverso da quanto dichiarato, come nel caso
 // Lonardini Sabrina del 05/09/2026: 160€ dichiarati come "annuale" erano in
 // realtà il 1° quadrimestre 1x/settimana — importo giusto, tipo sbagliato).
-function ModaleConfermaNota({ onClose, onConfirm }) {
+const SUGGERIMENTI_NOTA = {
+  pagamento: [
+    { etichetta: '1° quad. invece di annuale', testo: 'Il tuo pagamento è stato registrato come 1° quadrimestre anziché annuale: l\'importo corrisponde comunque a quanto dovuto per la tua frequenza.' },
+    { etichetta: '2° quad. invece di annuale', testo: 'Il tuo pagamento è stato registrato come 2° quadrimestre anziché annuale: l\'importo corrisponde comunque a quanto dovuto per la tua frequenza.' },
+    { etichetta: 'Annuale invece di quadrimestrale', testo: 'Il tuo pagamento è stato registrato come quota annuale anziché quadrimestrale: l\'importo versato corrisponde a quanto dovuto per l\'intera stagione.' },
+    { etichetta: 'Importo leggermente diverso', testo: 'L\'importo dichiarato è leggermente diverso da quello previsto per il tuo corso, ma la segreteria ha deciso di accettarlo comunque.' },
+    { etichetta: 'Corso/giorno corretto', testo: 'Il pagamento è stato confermato correggendo il corso/giorno indicato in fase di caricamento, in base a quanto risultava dalla tua iscrizione.' },
+  ],
+  certificato: [
+    { etichetta: 'Scadenza corretta', testo: 'Abbiamo corretto la data di scadenza del certificato rispetto a quella inserita, in base a quanto riportato sul documento caricato.' },
+    { etichetta: 'Qualifica/tipo diverso', testo: 'Il certificato è stato accettato anche se il tipo/qualifica indicato differiva leggermente da quanto atteso.' },
+  ],
+}
+
+function ModaleConfermaNota({ tipo, onClose, onConfirm }) {
   const [nota, setNota] = useState('')
+  const suggerimenti = SUGGERIMENTI_NOTA[tipo] || []
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }} onClick={onClose}>
-      <div style={{ background: 'white', borderRadius: 14, padding: 22, width: '100%', maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: 'white', borderRadius: 14, padding: 22, width: '100%', maxWidth: 460 }} onClick={e => e.stopPropagation()}>
         <h3 style={{ marginTop: 0 }}>Conferma con nota per il socio</h3>
         <p style={{ fontSize: 13, color: SUB }}>
           Il documento viene confermato comunque. La nota sarà visibile alla persona nella sua Area Tesserati
           (utile per spiegare una correzione, es. "importo giusto ma registrato come 1° quadrimestre anziché annuale").
         </p>
+
+        {suggerimenti.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11.5, color: SUB, marginBottom: 6 }}>Suggerimenti (clicca per usarli, poi modifica se serve):</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {suggerimenti.map((s, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setNota(s.testo)}
+                  style={{ background: '#ECFDF5', color: '#065F46', border: '1px solid #A7F3D0', padding: '5px 10px', borderRadius: 20, fontSize: 11.5, cursor: 'pointer' }}
+                >
+                  {s.etichetta}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <textarea
           value={nota}
           onChange={e => setNota(e.target.value)}
-          rows={3}
+          rows={4}
           placeholder="Es. Il tuo pagamento è stato registrato come 1° quadrimestre anziché annuale: l'importo corrisponde comunque a quanto dovuto"
           style={{ width: '100%', padding: 10, borderRadius: 8, border: `1px solid ${BD}`, fontFamily: 'inherit', fontSize: 14, boxSizing: 'border-box' }}
         />
@@ -317,6 +350,7 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
 
       {modaleConfermaNota && (
         <ModaleConfermaNota
+          tipo={modaleConfermaNota}
           onClose={() => setModaleConfermaNota(null)}
           onConfirm={(nota) => {
             const payload = modaleConfermaNota === 'pagamento'
