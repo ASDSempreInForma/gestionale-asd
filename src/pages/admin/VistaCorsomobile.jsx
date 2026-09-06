@@ -417,8 +417,9 @@ export default function App() {
   const [contantiImporto, setContantiImporto] = useState("");
   const [contantiTipo, setContantiTipo] = useState("annuale");
   const [modaleRecupero, setModaleRecupero] = useState(false);
-  const [recuperoCf, setRecuperoCf] = useState("");
-  const [recuperoRisultato, setRecuperoRisultato] = useState(null);
+  const [recuperoQuery, setRecuperoQuery] = useState("");
+  const [recuperoRisultati, setRecuperoRisultati] = useState([]);
+  const [recuperoSelezionato, setRecuperoSelezionato] = useState(null);
   const [recuperoErrore, setRecuperoErrore] = useState("");
   const [recuperoCercando, setRecuperoCercando] = useState(false);
 
@@ -655,30 +656,31 @@ export default function App() {
     if (error) { alert("Errore: " + error.message); ricaricaNote(); }
   }
 
-  // ── Segna un recupero: cerca un socio per CF (anche non iscritto a
+  // ── Segna un recupero: cerca un socio per cognome (anche non iscritto a
   // questo corso) e registra una presenza di tipo "recupero" per oggi ──
   async function cercaSocioRecupero() {
-    const cfPulito = recuperoCf.trim().toUpperCase();
-    if (cfPulito.length < 6) { setRecuperoErrore("Inserisci un codice fiscale valido."); return; }
+    const query = recuperoQuery.trim();
+    if (query.length < 2) { setRecuperoErrore("Scrivi almeno 2 lettere del cognome."); return; }
     setRecuperoCercando(true);
     setRecuperoErrore("");
-    const { data, error } = await supabase.from("soci").select("cf, nome, cognome").eq("cf", cfPulito).maybeSingle();
+    const { data, error } = await supabase.from("soci").select("cf, nome, cognome").ilike("cognome", `%${query}%`).order("cognome").limit(10);
     setRecuperoCercando(false);
     if (error) { setRecuperoErrore("Errore nella ricerca: " + error.message); return; }
-    if (!data) { setRecuperoErrore("Nessun socio trovato con questo codice fiscale."); return; }
-    setRecuperoRisultato(data);
+    if (!data || data.length === 0) { setRecuperoErrore("Nessun socio trovato con questo cognome."); setRecuperoRisultati([]); return; }
+    setRecuperoRisultati(data);
   }
 
   async function confermaRecupero(corsoId) {
-    if (!recuperoRisultato) return;
+    if (!recuperoSelezionato) return;
     const { data, error } = await supabase.from("presenze")
-      .insert({ socio_cf: recuperoRisultato.cf, corso_id: corsoId, data_presenza: oggiISO(), tipo: "recupero" })
+      .insert({ socio_cf: recuperoSelezionato.cf, corso_id: corsoId, data_presenza: oggiISO(), tipo: "recupero" })
       .select("id, socio_cf, data_presenza, tipo, soci(nome,cognome)").single();
     if (!error && data) {
       setPresenzeCorso(prev => [...prev, data]);
       setModaleRecupero(false);
-      setRecuperoCf("");
-      setRecuperoRisultato(null);
+      setRecuperoQuery("");
+      setRecuperoRisultati([]);
+      setRecuperoSelezionato(null);
     } else {
       setRecuperoErrore("Errore: " + (error?.message || "riprova"));
     }
@@ -1133,21 +1135,22 @@ export default function App() {
         {/* MODALE SEGNA RECUPERO */}
         {modaleRecupero && (
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 }}
-            onClick={() => { setModaleRecupero(false); setRecuperoCf(""); setRecuperoRisultato(null); setRecuperoErrore(""); }}>
+            onClick={() => { setModaleRecupero(false); setRecuperoQuery(""); setRecuperoRisultati([]); setRecuperoSelezionato(null); setRecuperoErrore(""); }}>
             <div style={{ background: "white", borderRadius: 14, padding: 20, width: "100%", maxWidth: 380 }} onClick={e => e.stopPropagation()}>
               <div style={{ fontSize: 15, fontWeight: 600, color: TX, marginBottom: 4 }}>🔁 Segna un recupero</div>
               <div style={{ fontSize: 12, color: GR, marginBottom: 14 }}>
                 Per una persona iscritta altrove che frequenta oggi qui come recupero.
               </div>
 
-              {!recuperoRisultato ? (
+              {!recuperoSelezionato ? (
                 <>
                   <div style={{ display: "flex", gap: 8 }}>
                     <input
-                      value={recuperoCf}
-                      onChange={(e) => setRecuperoCf(e.target.value)}
+                      value={recuperoQuery}
+                      onChange={(e) => setRecuperoQuery(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && cercaSocioRecupero()}
-                      placeholder="Codice fiscale"
+                      placeholder="Cognome"
+                      autoFocus
                       style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13 }}
                     />
                     <button onClick={cercaSocioRecupero} disabled={recuperoCercando}
@@ -1156,14 +1159,24 @@ export default function App() {
                     </button>
                   </div>
                   {recuperoErrore && <div style={{ color: R, fontSize: 12, marginTop: 8 }}>{recuperoErrore}</div>}
+                  {recuperoRisultati.length > 0 && (
+                    <div style={{ marginTop: 12, maxHeight: 260, overflowY: "auto" }}>
+                      {recuperoRisultati.map(s => (
+                        <div key={s.cf} onClick={() => setRecuperoSelezionato(s)}
+                          style={{ padding: "10px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13, color: TX, borderBottom: `0.5px solid ${BD}` }}>
+                          <b>{s.cognome}</b> {s.nome}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
                   <div style={{ background: "#F0FDFA", border: "0.5px solid #99F6E4", borderRadius: 10, padding: 12, marginBottom: 14, fontSize: 13, color: "#0D9488", fontWeight: 600 }}>
-                    {recuperoRisultato.cognome} {recuperoRisultato.nome}
+                    {recuperoSelezionato.cognome} {recuperoSelezionato.nome}
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={() => { setRecuperoRisultato(null); setRecuperoCf(""); }}
+                    <button onClick={() => { setRecuperoSelezionato(null); setRecuperoRisultati([]); setRecuperoQuery(""); }}
                       style={{ flex: 1, padding: "10px", borderRadius: 10, border: `0.5px solid ${BD}`, background: "white", color: GR, fontSize: 13, cursor: "pointer" }}>
                       Cerca un'altra persona
                     </button>
