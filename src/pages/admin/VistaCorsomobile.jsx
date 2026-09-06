@@ -428,7 +428,7 @@ export default function App() {
       const { data: iscDB, error: errI } = await supabase
         .from("iscrizioni")
         .select(`
-          id, stato_pagamento, stato_certificato, data_scadenza_certificato, corso_id, frequenza, giorno_scelto, inizio_personalizzato,
+          id, stato_pagamento, tipo_pagamento, stato_certificato, data_scadenza_certificato, corso_id, frequenza, giorno_scelto, inizio_personalizzato,
           soci ( cf, nome, cognome )
         `)
         .eq("stagione_id", stag.id)
@@ -541,6 +541,14 @@ export default function App() {
     }
     if (i.stato_certificato === "scaduto") return "scaduto";
     return "attesa";
+  }
+  // Etichetta breve per il tipo di pagamento dichiarato/confermato.
+  // Torna null finché non è ancora noto (nessuna ricevuta caricata/confermata).
+  function tipoPagamentoLabel(i) {
+    if (i.tipo_pagamento === "annuale") return "Annuale";
+    if (i.tipo_pagamento === "quad1") return "1° Quad.";
+    if (i.tipo_pagamento === "quad2") return "2° Quad.";
+    return null;
   }
 
   const corso = selected ? corsi.find(c => c.id === selected) : null;
@@ -737,6 +745,11 @@ export default function App() {
                     ) : (
                       <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 500, background: cs === "scaduto" ? RL : WL, color: cs === "scaduto" ? R : W }}>
                         {cs === "scaduto" ? "❌ Scaduto" : "⚠️ Mancante"}
+                      </span>
+                    )}
+                    {tipoPagamentoLabel(i) && (
+                      <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 500, background: "#F0FDFA", color: "#0D9488" }}>
+                        💶 {tipoPagamentoLabel(i)}
                       </span>
                     )}
                     {corsoBisettimanale && (
