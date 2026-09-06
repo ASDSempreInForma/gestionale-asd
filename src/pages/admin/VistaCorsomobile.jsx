@@ -407,6 +407,71 @@ export default function App() {
   const [filterTipoPagamento, setFilterTipoPagamento] = useState("tutti"); // "tutti" | "annuale" | "quad1" | "quad2"
   const [ordinamento, setOrdinamento] = useState("cognome"); // "cognome" | "data_iscrizione"
 
+  // ── Nuovi stati per le funzionalità da palestra (tablet) ────────────
+  const [presenzeCorso, setPresenzeCorso] = useState([]); // presenze del corso attualmente aperto (tutte le date)
+  const [noteAperte, setNoteAperte] = useState([]); // note rapide non ancora completate, globali
+  const [vistaNote, setVistaNote] = useState(false); // true = si sta guardando la vista dedicata "📝 Note"
+  const [notaInputPer, setNotaInputPer] = useState(null); // id iscrizione per cui è aperto il campo "nuova nota"
+  const [notaTesto, setNotaTesto] = useState("");
+  const [modaleContanti, setModaleContanti] = useState(null); // riga iscrizione per cui è aperto "Incassa contanti"
+  const [contantiImporto, setContantiImporto] = useState("");
+  const [contantiTipo, setContantiTipo] = useState("annuale");
+  const [modaleRecupero, setModaleRecupero] = useState(false);
+  const [recuperoCf, setRecuperoCf] = useState("");
+  const [recuperoRisultato, setRecuperoRisultato] = useState(null);
+  const [recuperoErrore, setRecuperoErrore] = useState("");
+  const [recuperoCercando, setRecuperoCercando] = useState(false);
+
+  function oggiISO() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  // ── Schermo sempre acceso mentre si sta guardando un corso ──────────
+  // Utile in palestra col tablet in mano: evita che si spenga da solo tra un
+  // controllo e l'altro. Non tutti i browser lo supportano — se manca,
+  // semplicemente non si attiva, senza bloccare nient'altro.
+  useEffect(() => {
+    let sentinel = null;
+    async function richiedi() {
+      try {
+        if ("wakeLock" in navigator && selected) {
+          sentinel = await navigator.wakeLock.request("screen");
+        }
+      } catch (e) { /* non supportato o negato: nessun problema, si continua senza */ }
+    }
+    richiedi();
+    function onVisibility() {
+      if (document.visibilityState === "visible" && selected) richiedi();
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (sentinel) sentinel.release().catch(() => {});
+    };
+  }, [selected]);
+
+  // ── Carica le presenze del corso aperto (per check-in, recuperi, assenze) ──
+  useEffect(() => {
+    if (!selected) { setPresenzeCorso([]); return; }
+    (async () => {
+      const { data } = await supabase
+        .from("presenze")
+        .select("id, socio_cf, data_presenza, tipo, soci(nome,cognome)")
+        .eq("corso_id", selected);
+      setPresenzeCorso(data || []);
+    })();
+  }, [selected]);
+
+  async function ricaricaNote() {
+    const { data } = await supabase
+      .from("note_rapide")
+      .select("id, socio_cf, corso_id, testo, creata_il, soci(nome,cognome), corsi(disciplina)")
+      .eq("completata", false)
+      .order("creata_il", { ascending: true });
+    setNoteAperte(data || []);
+  }
+
   // ── Caricamento dati ──────────────────────────────────────────────
   useEffect(() => { caricaDati(); }, []);
 
@@ -444,6 +509,7 @@ export default function App() {
         map[i.corso_id].push(i);
       });
       setIscritti(map);
+      await ricaricaNote();
     } catch (err) {
       setErrore("Errore caricamento. Riprova.");
     } finally {
@@ -495,6 +561,127 @@ export default function App() {
       }));
     }
     setSaving(p => ({ ...p, [key]: false }));
+  }
+
+  // ── Segna/togli presenza al volo (oggi) ────────────────────────────
+  async function toggloPresenza(socioCf, corsoId) {
+    const oggi = oggiISO();
+    const key = `pres_${socioCf}`;
+    const esistente = presenzeCorso.find(p => p.socio_cf === socioCf && p.data_presenza === oggi && p.tipo !== "recupero");
+    setSaving(s => ({ ...s, [key]: true }));
+    if (esistente) {
+      const { error } = await supabase.from("presenze").delete().eq("id", esistente.id);
+      if (!error) setPresenzeCorso(prev => prev.filter(p => p.id !== esistente.id));
+    } else {
+      const { data, error } = await supabase.from("presenze")
+        .insert({ socio_cf: socioCf, corso_id: corsoId, data_presenza: oggi, tipo: "normale" })
+        .select("id, socio_cf, data_presenza, tipo, soci(nome,cognome)").single();
+      if (!error && data) setPresenzeCorso(prev => [...prev, data]);
+    }
+    setSaving(s => ({ ...s, [key]: false }));
+  }
+
+  function presenteOggi(socioCf) {
+    const oggi = oggiISO();
+    return presenzeCorso.some(p => p.socio_cf === socioCf && p.data_presenza === oggi && p.tipo !== "recupero");
+  }
+
+  // ── "Chi manca da un po'" — ultima presenza registrata su questo corso,
+  // oppure data di iscrizione se non è mai stata segnata una presenza ────
+  function ultimaPresenza(socioCf) {
+    const date = presenzeCorso.filter(p => p.socio_cf === socioCf && p.tipo !== "recupero").map(p => p.data_presenza).sort();
+    return date.length ? date[date.length - 1] : null;
+  }
+  function settimaneAssenza(i) {
+    const riferimento = ultimaPresenza(i.soci?.cf) || (i.data_iscrizione ? i.data_iscrizione.slice(0, 10) : null);
+    if (!riferimento) return 0;
+    const giorni = Math.floor((new Date() - new Date(riferimento)) / 86400000);
+    return Math.floor(giorni / 7);
+  }
+
+  // ── Incassa contanti sul posto: conferma pagamento + importo in un colpo solo ──
+  async function incassaContanti() {
+    if (!modaleContanti || !contantiImporto) return;
+    const key = `contanti_${modaleContanti.id}`;
+    setSaving(s => ({ ...s, [key]: true }));
+    const { data: userData } = await supabase.auth.getUser();
+    const { error } = await supabase.from("iscrizioni").update({
+      stato_pagamento: "confermato",
+      tipo_pagamento: contantiTipo,
+      importo_dichiarato: Number(contantiImporto),
+      data_pagamento: oggiISO(),
+      nota_pagamento: "Incassato in contanti in palestra",
+      verificato_da: userData?.user?.email,
+      verificato_il: new Date().toISOString(),
+    }).eq("id", modaleContanti.id);
+    if (!error) {
+      setIscritti(prev => ({
+        ...prev,
+        [modaleContanti.corso_id]: prev[modaleContanti.corso_id].map(i =>
+          i.id === modaleContanti.id ? { ...i, stato_pagamento: "confermato", tipo_pagamento: contantiTipo } : i
+        ),
+      }));
+      setModaleContanti(null);
+      setContantiImporto("");
+    } else {
+      alert("Errore: " + error.message);
+    }
+    setSaving(s => ({ ...s, [key]: false }));
+  }
+
+  // ── Nota rapida sul posto ───────────────────────────────────────────
+  async function salvaNotaRapida(i) {
+    if (!notaTesto.trim()) return;
+    const { data: userData } = await supabase.auth.getUser();
+    const { error } = await supabase.from("note_rapide").insert({
+      socio_cf: i.soci?.cf,
+      iscrizione_id: i.id,
+      corso_id: i.corso_id,
+      testo: notaTesto.trim(),
+      creata_da: userData?.user?.email,
+    });
+    if (!error) {
+      setNotaTesto("");
+      setNotaInputPer(null);
+      await ricaricaNote();
+    } else {
+      alert("Errore nel salvare la nota: " + error.message);
+    }
+  }
+
+  async function completaNota(id) {
+    setNoteAperte(prev => prev.filter(n => n.id !== id)); // scompare subito, poi confermiamo su Supabase
+    const { error } = await supabase.from("note_rapide").update({ completata: true, completata_il: new Date().toISOString() }).eq("id", id);
+    if (error) { alert("Errore: " + error.message); ricaricaNote(); }
+  }
+
+  // ── Segna un recupero: cerca un socio per CF (anche non iscritto a
+  // questo corso) e registra una presenza di tipo "recupero" per oggi ──
+  async function cercaSocioRecupero() {
+    const cfPulito = recuperoCf.trim().toUpperCase();
+    if (cfPulito.length < 6) { setRecuperoErrore("Inserisci un codice fiscale valido."); return; }
+    setRecuperoCercando(true);
+    setRecuperoErrore("");
+    const { data, error } = await supabase.from("soci").select("cf, nome, cognome").eq("cf", cfPulito).maybeSingle();
+    setRecuperoCercando(false);
+    if (error) { setRecuperoErrore("Errore nella ricerca: " + error.message); return; }
+    if (!data) { setRecuperoErrore("Nessun socio trovato con questo codice fiscale."); return; }
+    setRecuperoRisultato(data);
+  }
+
+  async function confermaRecupero(corsoId) {
+    if (!recuperoRisultato) return;
+    const { data, error } = await supabase.from("presenze")
+      .insert({ socio_cf: recuperoRisultato.cf, corso_id: corsoId, data_presenza: oggiISO(), tipo: "recupero" })
+      .select("id, socio_cf, data_presenza, tipo, soci(nome,cognome)").single();
+    if (!error && data) {
+      setPresenzeCorso(prev => [...prev, data]);
+      setModaleRecupero(false);
+      setRecuperoCf("");
+      setRecuperoRisultato(null);
+    } else {
+      setRecuperoErrore("Errore: " + (error?.message || "riprova"));
+    }
   }
 
   // ── Annulla iscrizione (es. infortunio con certificato medico) ────
@@ -610,6 +797,7 @@ export default function App() {
     // scorrere tutta la lista a mano (richiesto da Solomon il 30/08/2026).
     if (filter === "manca_pagamento") lista = lista.filter(i => pagStatus(i) !== "ok");
     if (filter === "manca_certificato") lista = lista.filter(i => certStatus(i) !== "ok");
+    if (filter === "assenti") lista = lista.filter(i => settimaneAssenza(i) >= 3);
 
     // Ordinamento: alfabetico per cognome (default) oppure per data di iscrizione,
     // dalla più recente. Facciamo una copia con [...lista] perché .sort() muta l'array.
@@ -667,6 +855,10 @@ export default function App() {
             </div>
           </div>
           <button onClick={caricaDati} style={{ fontSize: 18, background: "none", border: "none", cursor: "pointer" }}>↻</button>
+          <button onClick={() => setModaleRecupero(true)}
+            style={{ fontSize: 11, fontWeight: 600, background: "#F0FDFA", color: "#0D9488", border: "none", borderRadius: 8, padding: "6px 10px", cursor: "pointer", whiteSpace: "nowrap" }}>
+            🔁 Recupero
+          </button>
           <button onClick={() => setModaleAggiungi(true)}
             style={{ fontSize: 11, fontWeight: 600, background: GL, color: G, border: "none", borderRadius: 8, padding: "6px 10px", cursor: "pointer", whiteSpace: "nowrap" }}>
             + Aggiungi
@@ -695,7 +887,8 @@ export default function App() {
           {[
             ["tutti", `Tutti (${tot})`],
             attenzione > 0 ? ["warn", `⚠️ Attenzione (${attenzione})`] : null,
-            ["ok", `✅ Ok (${corsoIscrittiFiltrati.filter(i => certStatus(i) === "ok" && pagStatus(i) === "ok").length})`]
+            ["ok", `✅ Ok (${corsoIscrittiFiltrati.filter(i => certStatus(i) === "ok" && pagStatus(i) === "ok").length})`],
+            (() => { const nAssenti = corsoIscrittiFiltrati.filter(i => settimaneAssenza(i) >= 3).length; return nAssenti > 0 ? ["assenti", `😴 Assenti (${nAssenti})`] : null; })(),
           ].filter(Boolean).map(([k, l]) => (
             <button key={k} onClick={() => setFilter(k)}
               style={{ padding: "5px 12px", border: `0.5px solid ${filter === k ? G : BD}`, borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", background: filter === k ? GL : "white", color: filter === k ? G : GR, flexShrink: 0 }}>
@@ -758,6 +951,19 @@ export default function App() {
           ))}
         </div>
 
+        {/* RECUPERI DI OGGI — persone non iscritte a questo corso ma segnate
+            come presenti oggi per un recupero (vedi pulsante "🔁 Recupero" sopra) */}
+        {presenzeCorso.filter(p => p.tipo === "recupero" && p.data_presenza === oggiISO()).length > 0 && (
+          <div style={{ padding: "0 14px 10px" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#0D9488", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>🔁 Recuperi di oggi</div>
+            {presenzeCorso.filter(p => p.tipo === "recupero" && p.data_presenza === oggiISO()).map(p => (
+              <div key={p.id} style={{ background: "#F0FDFA", border: "0.5px solid #99F6E4", borderRadius: 10, padding: "8px 12px", marginBottom: 6, fontSize: 12.5, color: "#0D9488" }}>
+                {p.soci?.cognome} {p.soci?.nome}
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* LISTA */}
         <div style={{ padding: "0 14px 80px" }}>
           {lista.map(i => {
@@ -808,13 +1014,47 @@ export default function App() {
                         {(i.inizio_personalizzato || "settembre") === "ottobre" ? "🗓️ Da ottobre" : "🗓️ Da settembre"}
                       </span>
                     )}
+                    {settimaneAssenza(i) >= 3 && (
+                      <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 500, background: "#FEF2F2", color: "#B91C1C" }}>
+                        😴 Assente da {settimaneAssenza(i)} sett.
+                      </span>
+                    )}
+                    {noteAperte.filter(n => n.socio_cf === i.soci?.cf).length > 0 && (
+                      <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 500, background: "#FFFBEB", color: "#92400E" }}>
+                        📝 {noteAperte.filter(n => n.socio_cf === i.soci?.cf).length} nota/e
+                      </span>
+                    )}
                   </div>
+                  {notaInputPer === i.id && (
+                    <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <input
+                        value={notaTesto}
+                        onChange={e => setNotaTesto(e.target.value)}
+                        placeholder="Es. Porta il certificato la prossima volta"
+                        style={{ flex: 1, minWidth: 160, padding: "6px 8px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 12 }}
+                      />
+                      <button onClick={() => salvaNotaRapida(i)} style={{ padding: "6px 10px", border: "none", borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: "pointer", background: "#FFFBEB", color: "#92400E" }}>Salva</button>
+                      <button onClick={() => { setNotaInputPer(null); setNotaTesto(""); }} style={{ padding: "6px 10px", border: "none", borderRadius: 8, fontSize: 11, cursor: "pointer", background: "none", color: GR }}>Annulla</button>
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
+                  <button
+                    onClick={() => toggloPresenza(i.soci?.cf, corso.id)}
+                    disabled={saving[`pres_${i.soci?.cf}`]}
+                    style={{ padding: "4px 8px", border: `0.5px solid ${presenteOggi(i.soci?.cf) ? G : BD}`, borderRadius: 8, fontSize: 10, fontWeight: 500, cursor: "pointer", background: presenteOggi(i.soci?.cf) ? GL : "white", color: presenteOggi(i.soci?.cf) ? G : GR, opacity: saving[`pres_${i.soci?.cf}`] ? 0.5 : 1 }}>
+                    {presenteOggi(i.soci?.cf) ? "✅ Qui oggi" : "◻️ Segna qui"}
+                  </button>
                   {ps !== "ok" && (
                     <button onClick={() => { if (window.confirm(`Confermi il pagamento di ${i.soci?.nome} ${i.soci?.cognome}?`)) update(i.id, corso.id, "pag", "ok"); }} disabled={saving[pagKey]}
                       style={{ padding: "4px 8px", border: `0.5px solid ${G}`, borderRadius: 8, fontSize: 10, fontWeight: 500, cursor: "pointer", background: GL, color: G, opacity: saving[pagKey] ? 0.5 : 1 }}>
                       {saving[pagKey] ? "…" : "✓ Pagato"}
+                    </button>
+                  )}
+                  {ps !== "ok" && (
+                    <button onClick={() => { setModaleContanti(i); setContantiTipo(i.tipo_pagamento || "annuale"); setContantiImporto(""); }}
+                      style={{ padding: "4px 8px", border: `0.5px solid #0D9488`, borderRadius: 8, fontSize: 10, fontWeight: 500, cursor: "pointer", background: "#F0FDFA", color: "#0D9488" }}>
+                      💶 Contanti
                     </button>
                   )}
                   {cs !== "ok" && (
@@ -823,6 +1063,10 @@ export default function App() {
                       {saving[certKey] ? "…" : "✓ Cert."}
                     </button>
                   )}
+                  <button onClick={() => { setNotaInputPer(notaInputPer === i.id ? null : i.id); setNotaTesto(""); }}
+                    style={{ padding: "4px 8px", border: `0.5px solid #FDE68A`, borderRadius: 8, fontSize: 10, fontWeight: 500, cursor: "pointer", background: "#FFFBEB", color: "#92400E" }}>
+                    📝 Nota
+                  </button>
                   <button
                     onClick={() => setAnnullamento({ iscrizioneId: i.id, corsoId: corso.id, nome: `${i.soci?.nome} ${i.soci?.cognome}` })}
                     style={{ padding: "4px 8px", border: `0.5px solid ${BD}`, borderRadius: 8, fontSize: 10, fontWeight: 500, cursor: "pointer", background: "white", color: GR }}
@@ -843,6 +1087,96 @@ export default function App() {
           <button onClick={() => window.print()}
             style={{ flex: 2, padding: "10px", border: `0.5px solid ${G}`, borderRadius: 10, fontSize: 12, fontWeight: 500, cursor: "pointer", background: GL, color: G }}>🖨 Stampa presenze</button>
         </div>
+
+        {/* MODALE INCASSA CONTANTI */}
+        {modaleContanti && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 }}>
+            <div style={{ background: "white", borderRadius: 14, padding: 20, width: "100%", maxWidth: 380 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: TX, marginBottom: 4 }}>💶 Incassa contanti</div>
+              <div style={{ fontSize: 12, color: GR, marginBottom: 14 }}>{modaleContanti.soci?.cognome} {modaleContanti.soci?.nome}</div>
+
+              <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 4 }}>Tipo pagamento</label>
+              <select
+                value={contantiTipo}
+                onChange={(e) => setContantiTipo(e.target.value)}
+                style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13, marginBottom: 12 }}
+              >
+                <option value="annuale">Annuale</option>
+                <option value="quad1">1° quadrimestre</option>
+                <option value="quad2">2° quadrimestre</option>
+              </select>
+
+              <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 4 }}>Importo incassato (€)</label>
+              <input
+                type="number"
+                min="0"
+                value={contantiImporto}
+                onChange={(e) => setContantiImporto(e.target.value)}
+                placeholder="0"
+                style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}
+              />
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => { setModaleContanti(null); setContantiImporto(""); }}
+                  style={{ flex: 1, padding: "10px", borderRadius: 10, border: `0.5px solid ${BD}`, background: "white", color: GR, fontSize: 13, cursor: "pointer" }}>
+                  Annulla
+                </button>
+                <button onClick={incassaContanti} disabled={!contantiImporto || saving[`contanti_${modaleContanti.id}`]}
+                  style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: "#0D9488", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: !contantiImporto ? 0.5 : 1 }}>
+                  {saving[`contanti_${modaleContanti.id}`] ? "…" : "Conferma incasso"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODALE SEGNA RECUPERO */}
+        {modaleRecupero && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 }}
+            onClick={() => { setModaleRecupero(false); setRecuperoCf(""); setRecuperoRisultato(null); setRecuperoErrore(""); }}>
+            <div style={{ background: "white", borderRadius: 14, padding: 20, width: "100%", maxWidth: 380 }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: TX, marginBottom: 4 }}>🔁 Segna un recupero</div>
+              <div style={{ fontSize: 12, color: GR, marginBottom: 14 }}>
+                Per una persona iscritta altrove che frequenta oggi qui come recupero.
+              </div>
+
+              {!recuperoRisultato ? (
+                <>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input
+                      value={recuperoCf}
+                      onChange={(e) => setRecuperoCf(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && cercaSocioRecupero()}
+                      placeholder="Codice fiscale"
+                      style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13 }}
+                    />
+                    <button onClick={cercaSocioRecupero} disabled={recuperoCercando}
+                      style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#0D9488", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                      {recuperoCercando ? "…" : "Cerca"}
+                    </button>
+                  </div>
+                  {recuperoErrore && <div style={{ color: R, fontSize: 12, marginTop: 8 }}>{recuperoErrore}</div>}
+                </>
+              ) : (
+                <>
+                  <div style={{ background: "#F0FDFA", border: "0.5px solid #99F6E4", borderRadius: 10, padding: 12, marginBottom: 14, fontSize: 13, color: "#0D9488", fontWeight: 600 }}>
+                    {recuperoRisultato.cognome} {recuperoRisultato.nome}
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => { setRecuperoRisultato(null); setRecuperoCf(""); }}
+                      style={{ flex: 1, padding: "10px", borderRadius: 10, border: `0.5px solid ${BD}`, background: "white", color: GR, fontSize: 13, cursor: "pointer" }}>
+                      Cerca un'altra persona
+                    </button>
+                    <button onClick={() => confermaRecupero(corso.id)}
+                      style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: "#0D9488", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                      Conferma recupero
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* MODALE ANNULLAMENTO ISCRIZIONE */}
         {annullamento && (
@@ -907,6 +1241,39 @@ export default function App() {
     );
   }
 
+  // ── VISTA NOTE — tutte le note rapide non ancora completate, di qualunque
+  // corso, in un unico posto. Quando le spunti, scompaiono da qui (restano
+  // comunque salvate a database, solo marcate come completate). ──────
+  if (vistaNote) {
+    return (
+      <div style={{ fontFamily: "system-ui,sans-serif", background: "#F9FAFB", minHeight: "100vh", maxWidth: 440, margin: "0 auto", paddingBottom: 20 }}>
+        <div style={{ background: "white", borderBottom: `0.5px solid ${BD}`, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, zIndex: 100 }}>
+          <button onClick={() => setVistaNote(false)}
+            style={{ width: 32, height: 32, borderRadius: "50%", border: `0.5px solid ${BD}`, background: "none", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>←</button>
+          <div style={{ fontSize: 14, fontWeight: 500, color: TX }}>📝 Note da fare</div>
+        </div>
+        <div style={{ padding: "14px" }}>
+          {noteAperte.length === 0 && (
+            <div style={{ textAlign: "center", padding: 40, color: GR, fontSize: 13 }}>Nessuna nota in sospeso. ✅</div>
+          )}
+          {noteAperte.map(n => (
+            <div key={n.id} style={{ background: "white", border: `0.5px solid ${BD}`, borderRadius: 12, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <button onClick={() => completaNota(n.id)}
+                style={{ width: 22, height: 22, borderRadius: 6, border: `1.5px solid #FDE68A`, background: "#FFFBEB", cursor: "pointer", flexShrink: 0, marginTop: 1 }}
+                title="Segna come fatta" />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: TX }}>{n.testo}</div>
+                <div style={{ fontSize: 11, color: GR, marginTop: 3 }}>
+                  {n.soci?.cognome} {n.soci?.nome}{n.corsi?.disciplina ? ` · ${n.corsi.disciplina}` : ""}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   // ── HOME: lista corsi ─────────────────────────────────────────────
   if (loading) return (
     <div style={{ fontFamily: "system-ui,sans-serif", background: "#F9FAFB", minHeight: "100vh", maxWidth: 440, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -932,6 +1299,13 @@ export default function App() {
       <div style={{ padding: "20px 14px 10px", textAlign: "center" }}>
         <div style={{ fontSize: 18, fontWeight: 500, color: TX, marginBottom: 4 }}>📋 I miei corsi</div>
         <div style={{ fontSize: 13, color: GR }}>Stagione {stagione?.nome ?? "2025/26"} · tocca un corso per aprirlo</div>
+      </div>
+      <div style={{ padding: "0 14px 10px" }}>
+        <button onClick={() => setVistaNote(true)}
+          style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `0.5px solid ${noteAperte.length > 0 ? "#FDE68A" : BD}`, background: noteAperte.length > 0 ? "#FFFBEB" : "white", color: noteAperte.length > 0 ? "#92400E" : GR, fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span>📝 Note da fare</span>
+          <span>{noteAperte.length > 0 ? `${noteAperte.length} da vedere ›` : "nessuna ›"}</span>
+        </button>
       </div>
       <div style={{ padding: "8px 14px" }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Cerca corso o sede…"
