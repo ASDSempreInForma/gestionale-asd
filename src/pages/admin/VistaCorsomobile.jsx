@@ -404,6 +404,8 @@ export default function App() {
   const [modaleAggiungi, setModaleAggiungi] = useState(false);
   const [filterGiorno, setFilterGiorno] = useState("tutti"); // "tutti" oppure il nome di un giorno specifico (corsi bisettimanali)
   const [filterInizio, setFilterInizio] = useState("tutti"); // "tutti" | "settembre" | "ottobre" (corsi con partenza anticipata)
+  const [filterTipoPagamento, setFilterTipoPagamento] = useState("tutti"); // "tutti" | "annuale" | "quad1" | "quad2"
+  const [ordinamento, setOrdinamento] = useState("cognome"); // "cognome" | "data_iscrizione"
 
   // ── Caricamento dati ──────────────────────────────────────────────
   useEffect(() => { caricaDati(); }, []);
@@ -428,7 +430,7 @@ export default function App() {
       const { data: iscDB, error: errI } = await supabase
         .from("iscrizioni")
         .select(`
-          id, stato_pagamento, tipo_pagamento, stato_certificato, data_scadenza_certificato, corso_id, frequenza, giorno_scelto, inizio_personalizzato,
+          id, stato_pagamento, tipo_pagamento, stato_certificato, data_scadenza_certificato, corso_id, frequenza, giorno_scelto, inizio_personalizzato, data_iscrizione,
           soci ( cf, nome, cognome )
         `)
         .eq("stagione_id", stag.id)
@@ -585,6 +587,14 @@ export default function App() {
         i => (i.inizio_personalizzato || "settembre") === filterInizio
       );
     }
+    if (filterTipoPagamento !== "tutti") {
+      corsoIscrittiFiltrati = corsoIscrittiFiltrati.filter(i => i.tipo_pagamento === filterTipoPagamento);
+    }
+
+    // Tipi di pagamento realmente presenti tra gli iscritti di questo corso,
+    // per mostrare solo i filtri che hanno senso (non tutti i corsi hanno
+    // sia annuali che quadrimestrali)
+    const tipiPagamentoPresenti = [...new Set(corsoIscritti.map(i => i.tipo_pagamento).filter(Boolean))];
 
     const tot = corsoIscrittiFiltrati.length;
     const pagOk = corsoIscrittiFiltrati.filter(i => pagStatus(i) === "ok").length;
@@ -600,6 +610,15 @@ export default function App() {
     // scorrere tutta la lista a mano (richiesto da Solomon il 30/08/2026).
     if (filter === "manca_pagamento") lista = lista.filter(i => pagStatus(i) !== "ok");
     if (filter === "manca_certificato") lista = lista.filter(i => certStatus(i) !== "ok");
+
+    // Ordinamento: alfabetico per cognome (default) oppure per data di iscrizione,
+    // dalla più recente. Facciamo una copia con [...lista] perché .sort() muta l'array.
+    lista = [...lista].sort((a, b) => {
+      if (ordinamento === "data_iscrizione") {
+        return new Date(b.data_iscrizione || 0) - new Date(a.data_iscrizione || 0);
+      }
+      return (a.soci?.cognome || "").localeCompare(b.soci?.cognome || "", "it", { sensitivity: "base" });
+    });
 
     function rowBg(i) {
       if (pagStatus(i) === "attesa" || certStatus(i) === "scaduto") return RL;
@@ -626,7 +645,7 @@ export default function App() {
       <div style={{ fontFamily: "system-ui,sans-serif", background: "#F9FAFB", minHeight: "100vh", maxWidth: 440, margin: "0 auto" }}>
         {/* TOPBAR */}
         <div style={{ background: "white", borderBottom: `0.5px solid ${BD}`, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, zIndex: 100 }}>
-          <button onClick={() => { setSelected(null); setFilter("tutti"); setFilterGiorno("tutti"); setFilterInizio("tutti"); }}
+          <button onClick={() => { setSelected(null); setFilter("tutti"); setFilterGiorno("tutti"); setFilterInizio("tutti"); setFilterTipoPagamento("tutti"); }}
             style={{ width: 32, height: 32, borderRadius: "50%", border: `0.5px solid ${BD}`, background: "none", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>←</button>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 500, color: TX, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{corso.disciplina}</div>
@@ -712,6 +731,33 @@ export default function App() {
           </div>
         )}
 
+        {/* SELETTORE TIPO PAGAMENTO — mostra solo i tipi effettivamente presenti
+            tra gli iscritti di questo corso (es. niente "2° Quad" se nessuno lo ha) */}
+        {tipiPagamentoPresenti.length > 0 && (
+          <div style={{ display: "flex", gap: 6, padding: "0 14px 10px", overflowX: "auto" }}>
+            {[
+              ["tutti", "Tutti"],
+              ...tipiPagamentoPresenti.map(t => [t, t === "annuale" ? "Annuale" : t === "quad1" ? "1° Quad" : t === "quad2" ? "2° Quad" : t]),
+            ].map(([k, l]) => (
+              <button key={k} onClick={() => setFilterTipoPagamento(k)}
+                style={{ padding: "5px 12px", border: `0.5px solid ${filterTipoPagamento === k ? "#0D9488" : BD}`, borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", background: filterTipoPagamento === k ? "#F0FDFA" : "white", color: filterTipoPagamento === k ? "#0D9488" : GR, flexShrink: 0 }}>
+                💶 {l}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* ORDINAMENTO */}
+        <div style={{ display: "flex", gap: 6, padding: "0 14px 10px", alignItems: "center" }}>
+          <span style={{ fontSize: 10.5, color: GR, flexShrink: 0 }}>Ordina per:</span>
+          {[["cognome", "🔤 Cognome"], ["data_iscrizione", "📅 Iscrizione (recenti)"]].map(([k, l]) => (
+            <button key={k} onClick={() => setOrdinamento(k)}
+              style={{ padding: "5px 12px", border: `0.5px solid ${ordinamento === k ? TX : BD}`, borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", background: ordinamento === k ? "#F3F4F6" : "white", color: ordinamento === k ? TX : GR, flexShrink: 0 }}>
+              {l}
+            </button>
+          ))}
+        </div>
+
         {/* LISTA */}
         <div style={{ padding: "0 14px 80px" }}>
           {lista.map(i => {
@@ -792,7 +838,7 @@ export default function App() {
 
         {/* BOTTOM BAR */}
         <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 440, background: "white", borderTop: `0.5px solid ${BD}`, padding: "10px 14px", display: "flex", gap: 8 }}>
-          <button onClick={() => { setSelected(null); setFilter("tutti"); setFilterGiorno("tutti"); setFilterInizio("tutti"); }}
+          <button onClick={() => { setSelected(null); setFilter("tutti"); setFilterGiorno("tutti"); setFilterInizio("tutti"); setFilterTipoPagamento("tutti"); }}
             style={{ flex: 1, padding: "10px", border: `0.5px solid ${BD}`, borderRadius: 10, fontSize: 12, fontWeight: 500, cursor: "pointer", background: "white", color: GR }}>← Corsi</button>
           <button onClick={() => window.print()}
             style={{ flex: 2, padding: "10px", border: `0.5px solid ${G}`, borderRadius: 10, fontSize: 12, fontWeight: 500, cursor: "pointer", background: GL, color: G }}>🖨 Stampa presenze</button>
@@ -899,7 +945,7 @@ export default function App() {
             const nDanger = ci.filter(i => certStatus(i) === "scaduto" || pagStatus(i) === "attesa").length;
             const nWarn = ci.filter(i => certStatus(i) === "attesa").length;
             return (
-              <div key={c.id} onClick={() => { setSelected(c.id); setFilterGiorno("tutti"); setFilterInizio("tutti"); }}
+              <div key={c.id} onClick={() => { setSelected(c.id); setFilterGiorno("tutti"); setFilterInizio("tutti"); setFilterTipoPagamento("tutti"); }}
                 style={{ background: "white", border: `0.5px solid ${BD}`, borderRadius: 12, padding: "12px 14px", marginBottom: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 500, color: TX }}>{c.disciplina}</div>
