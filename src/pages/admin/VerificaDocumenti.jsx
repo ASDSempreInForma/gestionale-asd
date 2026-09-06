@@ -90,10 +90,48 @@ function ModaleRifiuto({ onClose, onConfirm }) {
   )
 }
 
+// Come ModaleRifiuto, ma per confermare comunque il documento aggiungendo una nota
+// per il socio — utile quando l'importo/dato dichiarato non è esattamente corretto
+// ma la segreteria decide di accettarlo comunque, specificando cosa è stato
+// corretto (es. tipo pagamento diverso da quanto dichiarato, come nel caso
+// Lonardini Sabrina del 05/09/2026: 160€ dichiarati come "annuale" erano in
+// realtà il 1° quadrimestre 1x/settimana — importo giusto, tipo sbagliato).
+function ModaleConfermaNota({ onClose, onConfirm }) {
+  const [nota, setNota] = useState('')
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }} onClick={onClose}>
+      <div style={{ background: 'white', borderRadius: 14, padding: 22, width: '100%', maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+        <h3 style={{ marginTop: 0 }}>Conferma con nota per il socio</h3>
+        <p style={{ fontSize: 13, color: SUB }}>
+          Il documento viene confermato comunque. La nota sarà visibile alla persona nella sua Area Tesserati
+          (utile per spiegare una correzione, es. "importo giusto ma registrato come 1° quadrimestre anziché annuale").
+        </p>
+        <textarea
+          value={nota}
+          onChange={e => setNota(e.target.value)}
+          rows={3}
+          placeholder="Es. Il tuo pagamento è stato registrato come 1° quadrimestre anziché annuale: l'importo corrisponde comunque a quanto dovuto"
+          style={{ width: '100%', padding: 10, borderRadius: 8, border: `1px solid ${BD}`, fontFamily: 'inherit', fontSize: 14, boxSizing: 'border-box' }}
+        />
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+          <button onClick={onClose} style={{ background: '#E2E8F0', border: 'none', padding: '9px 16px', borderRadius: 8, cursor: 'pointer' }}>Annulla</button>
+          <button
+            onClick={() => nota.trim() && onConfirm(nota.trim())}
+            style={{ background: '#166534', color: 'white', border: 'none', padding: '9px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}
+          >
+            Conferma con nota
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
   const [tessera, setTessera] = useState(row.soci?.numero_tessera || '')
   const [salvandoTessera, setSalvandoTessera] = useState(false)
   const [modaleRifiuto, setModaleRifiuto] = useState(null) // 'pagamento' | 'certificato' | null
+  const [modaleConfermaNota, setModaleConfermaNota] = useState(null) // 'pagamento' | 'certificato' | null
   // Data di scadenza modificabile: la persona può aver digitato una data
   // sbagliata caricando il certificato (es. scambiando giorno/mese, o un
   // anno nel passato) — permettiamo di correggerla sia PRIMA di confermare
@@ -145,6 +183,12 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
         </div>
       </div>
 
+      {row.nota_socio && (
+        <div style={{ background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: 7, padding: '7px 9px', fontSize: 12, color: '#065F46', marginBottom: 12 }}>
+          📝 <b>Nota visibile al socio:</b> {row.nota_socio}
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
         {row.ricevuta_url && (
           <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 14 }}>
@@ -174,6 +218,7 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
                     }}
                     style={{ background: '#DCFCE7', color: '#166534', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer', fontWeight: 600 }}
                   >✓ Conferma</button>
+                  <button onClick={() => setModaleConfermaNota('pagamento')} style={{ background: '#ECFDF5', color: '#065F46', border: `1px solid #A7F3D0`, padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>✓ Conferma con nota</button>
                   <button onClick={() => setModaleRifiuto('pagamento')} style={{ background: '#FEE2E2', color: '#991B1B', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>✕ Rifiuta</button>
                 </>
               )}
@@ -242,6 +287,7 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
                     }}
                     style={{ background: '#DCFCE7', color: '#166534', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer', fontWeight: 600 }}
                   >✓ Conferma</button>
+                  <button onClick={() => setModaleConfermaNota('certificato')} style={{ background: '#ECFDF5', color: '#065F46', border: `1px solid #A7F3D0`, padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>✓ Conferma con nota</button>
                   <button onClick={() => setModaleRifiuto('certificato')} style={{ background: '#FEE2E2', color: '#991B1B', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>✕ Rifiuta</button>
                 </>
               )}
@@ -265,6 +311,24 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
               motivo,
             })
             setModaleRifiuto(null)
+          }}
+        />
+      )}
+
+      {modaleConfermaNota && (
+        <ModaleConfermaNota
+          onClose={() => setModaleConfermaNota(null)}
+          onConfirm={(nota) => {
+            const payload = modaleConfermaNota === 'pagamento'
+              ? { stato_pagamento: 'confermato', nota_socio: nota }
+              : { stato_certificato: 'valido', data_scadenza_certificato: scadenzaModificata, nota_socio: nota }
+            aggiornaIscrizione(payload)
+            inviaEmailDocumento({
+              tipo: 'documento_confermato',
+              tipoDocumento: modaleConfermaNota === 'pagamento' ? 'ricevuta' : 'certificato',
+              socio,
+            })
+            setModaleConfermaNota(null)
           }}
         />
       )}
