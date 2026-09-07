@@ -31,6 +31,24 @@ async function inviaEmail(payload) {
   }
 }
 
+// Stesse due edge function già usate in AnagraficaSoci.jsx per mostrare lo
+// scambio email di un socio — sono generiche (prendono un indirizzo email,
+// non un socio_cf), quindi si riusano identiche qui per le richieste di prova.
+const FUNCTION_URL_MS = "https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/email-microsoft";
+const FUNCTION_URL_BREVO = "https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/email-brevo";
+async function chiamaFunzione(url, payload) {
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 const G="#2D6A4F",GL="#D8F3DC",GD="#1B4332";
 const R="#991B1B",RL="#FEE2E2";
 const A="#B45309",AL="#FEF3C7",AD="#92400E";
@@ -80,7 +98,14 @@ export default function GestioneProve() {
   const [dataProvaScelta, setDataProvaScelta] = useState({});
   const [modaleAnnulla, setModaleAnnulla] = useState(null); // { prova, soloEmail } o null
   const [modaleSposta, setModaleSposta] = useState(null); // la prova da spostare su un altro corso, o null
+  const [modaleModifica, setModaleModifica] = useState(null); // la prova di cui correggere i dati anagrafici, o null
   const [eccezioni, setEccezioni] = useState({}); // {cf: motivo}
+
+  // Scambio email per singola richiesta — stessa logica di AnagraficaSoci.jsx
+  // (Outlook via email-microsoft + log Brevo via email-brevo), tenuta qui per
+  // ID prova: { [provaId]: { aperto, loading, messaggi, corpoApertoId, corpo,
+  // loadingCorpo, rispostaTesto, inviandoRisposta, errore, erroreCorpo, erroreInvio } }
+  const [emailThread, setEmailThread] = useState({});
 
   // Tab "Stampa registro"
   const [ricercaStampa, setRicercaStampa] = useState("");
@@ -229,6 +254,54 @@ export default function GestioneProve() {
       if (!error) setEccezioni(prev => { const n = { ...prev }; delete n[cf]; return n; });
     }
   }
+  // ── Scambio email (Outlook + log Brevo) per una richiesta di prova ───────
+  async function caricaThread(p) {
+    setEmailThread(prev => ({ ...prev, [p.id]: { ...(prev[p.id] || {}), aperto: true, loading: true, erroreInvio: null } }));
+    if (!p.email) {
+      setEmailThread(prev => ({ ...prev, [p.id]: { ...prev[p.id], loading: false, messaggi: [], errore: "Questa persona non ha un'email in anagrafica." } }));
+      return;
+    }
+    const [rMs, rBrevo] = await Promise.all([
+      chiamaFunzione(FUNCTION_URL_MS, { action: "cerca_email", email: p.email }),
+      chiamaFunzione(FUNCTION_URL_BREVO, { action: "cerca_email_brevo", email: p.email }),
+    ]);
+    const msgMs = (rMs.ok ? rMs.messaggi : []).map(m => ({ ...m, fonte: "outlook" }));
+    const msgBrevo = (rBrevo.ok ? rBrevo.messaggi : []).map(m => ({ ...m, fonte: "brevo" }));
+    const tutti = [...msgMs, ...msgBrevo].sort((a, b) => (a.data < b.data ? 1 : -1));
+    setEmailThread(prev => ({ ...prev, [p.id]: { ...prev[p.id], loading: false, messaggi: tutti,
+      errore: (!rMs.ok && !rBrevo.ok) ? "Errore nel recupero delle email." : null } }));
+  }
+  function toggleEmailThread(p) {
+    const stato = emailThread[p.id];
+    if (stato?.aperto) setEmailThread(prev => ({ ...prev, [p.id]: { ...prev[p.id], aperto: false } }));
+    else caricaThread(p);
+  }
+  async function apriMessaggioEmail(p, msg) {
+    setEmailThread(prev => ({ ...prev, [p.id]: { ...prev[p.id], corpoApertoId: msg.id, loadingCorpo: true, corpo: null, erroreCorpo: null } }));
+    const r = msg.fonte === "brevo"
+      ? await chiamaFunzione(FUNCTION_URL_BREVO, { action: "leggi_email_brevo", uuid: msg.uuid })
+      : await chiamaFunzione(FUNCTION_URL_MS, { action: "leggi_email", id: msg.id });
+    setEmailThread(prev => ({ ...prev, [p.id]: { ...prev[p.id], loadingCorpo: false,
+      corpo: r.ok ? r.messaggio : null, erroreCorpo: r.ok ? null : (r.error || "Errore lettura email.") } }));
+  }
+  async function inviaRispostaThread(p) {
+    const stato = emailThread[p.id] || {};
+    const testo = (stato.rispostaTesto || "").trim();
+    if (!testo) return;
+    setEmailThread(prev => ({ ...prev, [p.id]: { ...prev[p.id], inviandoRisposta: true, erroreInvio: null } }));
+    const ultimoOutlook = (stato.messaggi || []).find(m => m.fonte === "outlook");
+    const payload = ultimoOutlook
+      ? { action: "rispondi_email", id: ultimoOutlook.id, testo }
+      : { action: "invia_nuova_email", destinatarioEmail: p.email, destinatarioNome: p.nome, oggetto: "A.S.D. Sempre In Forma", testo };
+    const r = await chiamaFunzione(FUNCTION_URL_MS, payload);
+    if (r.ok) {
+      setEmailThread(prev => ({ ...prev, [p.id]: { ...prev[p.id], inviandoRisposta: false, rispostaTesto: "" } }));
+      caricaThread(p);
+    } else {
+      setEmailThread(prev => ({ ...prev, [p.id]: { ...prev[p.id], inviandoRisposta: false, erroreInvio: r.error || "Errore invio." } }));
+    }
+  }
+
   // Estrae i nomi dei giorni dalla stringa "Martedì/Giovedì 19:15-20:10" -> ["Martedì","Giovedì"]
   function estraiGiorniCorso(orario) {
     if (!orario) return [];
@@ -690,6 +763,7 @@ export default function GestioneProve() {
                     ? (new Date(p.scadenza_preavviso) - new Date()) / 36e5
                     : null;
                   const preavvisoAttivo = hPreavviso !== null && hPreavviso > 0;
+                  const threadState = emailThread[p.id];
 
                   return (
                     <div key={p.id}
@@ -817,9 +891,75 @@ export default function GestioneProve() {
                             </a>
                           </>
                         )}
+                        <button onClick={() => setModaleModifica(p)}
+                          style={{ padding:"5px 10px", background:"#F3F4F6", border:`1px solid ${BD}`,
+                            borderRadius:7, fontSize:11, color:TX, fontWeight:600, cursor:"pointer" }}>
+                          ✏️ Modifica dati
+                        </button>
+                        {p.email && (
+                          <button onClick={() => toggleEmailThread(p)}
+                            style={{ padding:"5px 10px", background: threadState?.aperto ? BLL : "#F3F4F6",
+                              border:`1px solid ${BD}`, borderRadius:7, fontSize:11, color:BL, fontWeight:600, cursor:"pointer" }}>
+                            📧 {threadState?.aperto ? "Nascondi scambio email" : "Scambio email"}
+                          </button>
+                        )}
                       </div>
                       {p.note && (
                         <div style={{ fontSize:11, color:SUB, marginTop:8, fontStyle:"italic" }}>{p.note}</div>
+                      )}
+                      {threadState?.aperto && (
+                        <div style={{ marginTop:10, paddingTop:10, borderTop:"1px solid #F3F4F6" }}>
+                          <div style={{ fontSize:11.5, fontWeight:700, color:TX, marginBottom:6 }}>
+                            📧 Scambio email con {p.email}
+                          </div>
+                          {threadState.loading && <div style={{ fontSize:12, color:SUB }}>Caricamento…</div>}
+                          {threadState.errore && <div style={{ fontSize:12, color:R }}>{threadState.errore}</div>}
+                          {!threadState.loading && !threadState.errore && (threadState.messaggi || []).length === 0 && (
+                            <div style={{ fontSize:12, color:SUB }}>Nessuna email trovata con questo indirizzo.</div>
+                          )}
+                          {!threadState.loading && (threadState.messaggi || []).length > 0 && (
+                            <div style={{ display:"flex", flexDirection:"column", gap:4, maxHeight:220, overflowY:"auto", marginBottom:8 }}>
+                              {threadState.messaggi.map(m => (
+                                <div key={m.id} onClick={() => apriMessaggioEmail(p, m)}
+                                  style={{ padding:"6px 8px", borderRadius:7, border:`1px solid ${BD}`, cursor:"pointer",
+                                    background: threadState.corpoApertoId === m.id ? "#F3F4F6" : "white" }}>
+                                  <div style={{ fontSize:11.5, fontWeight:600, color:TX }}>
+                                    {m.fonte === "brevo" ? "📤" : (m.da === "info@asdsempreinforma.it" ? "📤" : "📥")} {m.oggetto || "(senza oggetto)"}
+                                  </div>
+                                  <div style={{ fontSize:10.5, color:SUB }}>
+                                    {m.data ? new Date(m.data).toLocaleString("it-IT") : ""} · {m.fonte === "brevo" ? "automatica" : "manuale"}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {threadState.corpoApertoId && (
+                            <div style={{ background:"#FAFAF8", border:`1px solid ${BD}`, borderRadius:8,
+                              padding:"8px 10px", marginBottom:8, fontSize:12, maxHeight:220, overflowY:"auto" }}>
+                              {threadState.loadingCorpo && "Caricamento…"}
+                              {threadState.erroreCorpo && <span style={{ color:R }}>{threadState.erroreCorpo}</span>}
+                              {threadState.corpo && (
+                                threadState.corpo.corpo
+                                  ? <div dangerouslySetInnerHTML={{ __html: threadState.corpo.corpo }} />
+                                  : <div>Stato invio: {threadState.corpo.stato || "—"}</div>
+                              )}
+                            </div>
+                          )}
+                          <div style={{ display:"flex", gap:6 }}>
+                            <textarea value={threadState.rispostaTesto || ""} rows={2}
+                              onChange={e => setEmailThread(prev => ({ ...prev, [p.id]: { ...prev[p.id], rispostaTesto: e.target.value } }))}
+                              placeholder="Scrivi una risposta…"
+                              style={{ flex:1, padding:"6px 8px", border:`1px solid ${BD}`, borderRadius:7, fontSize:12, resize:"vertical", boxSizing:"border-box" }} />
+                            <button onClick={() => inviaRispostaThread(p)}
+                              disabled={threadState.inviandoRisposta || !(threadState.rispostaTesto || "").trim()}
+                              style={{ padding:"6px 12px", border:"none", borderRadius:7, background:BL, color:"white",
+                                fontSize:12, fontWeight:600, cursor:"pointer", alignSelf:"flex-end",
+                                opacity: (threadState.inviandoRisposta || !(threadState.rispostaTesto||"").trim()) ? 0.6 : 1 }}>
+                              {threadState.inviandoRisposta ? "…" : "Invia"}
+                            </button>
+                          </div>
+                          {threadState.erroreInvio && <div style={{ fontSize:11, color:R, marginTop:4 }}>{threadState.erroreInvio}</div>}
+                        </div>
                       )}
                       {(() => {
                         const storicoAltro = prove.filter(x => x.cf === p.cf && x.id !== p.id);
@@ -1121,6 +1261,17 @@ export default function GestioneProve() {
           onConfermato={() => { setModaleSposta(null); caricaDati(); }}
         />
       )}
+      {modaleModifica && (
+        <ModaleModificaProva
+          prova={modaleModifica}
+          corso={corsi.find((c) => c.id === modaleModifica.corso_id)}
+          onClose={() => setModaleModifica(null)}
+          onSalvato={(campi) => {
+            setProve(prev => prev.map(x => x.id === modaleModifica.id ? { ...x, ...campi } : x));
+            setModaleModifica(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1297,6 +1448,133 @@ function ModaleAnnullaProva({ prova, corso, soloEmail = false, onClose, onConfer
           <button onClick={conferma} disabled={salvando || (soloEmail && !prova.email)}
             style={{ flex: 1, padding: "9px", border: "none", borderRadius: 8, background: R, color: "white", fontSize: 13, fontWeight: 600, cursor: salvando ? "default" : "pointer", opacity: (soloEmail && !prova.email) ? 0.5 : 1 }}>
             {salvando ? "Invio…" : soloEmail ? "Invia email" : "Conferma annullamento"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Corregge i dati anagrafici di una richiesta di prova compilata male (caso
+// tipico: email scritta sbagliata). Se l'email cambia, offre di rimandare
+// automaticamente — al nuovo indirizzo corretto — l'email che era già
+// coerente con lo stato attuale della richiesta (richiesta ricevuta, conferma
+// data prova, o avviso di annullamento), così la persona non perde nessuna
+// comunicazione a causa dell'errore di battitura (richiesto da Solomon il
+// 07/09/2026).
+function ModaleModificaProva({ prova, corso, onClose, onSalvato }) {
+  const [nome, setNome] = useState(prova.nome || "");
+  const [cognome, setCognome] = useState(prova.cognome || "");
+  const [cf, setCf] = useState(prova.cf || "");
+  const [telefono, setTelefono] = useState(prova.telefono || "");
+  const [email, setEmail] = useState(prova.email || "");
+  const [dataNascita, setDataNascita] = useState(prova.data_nascita || "");
+  const [inviaEmailCorretta, setInviaEmailCorretta] = useState(true);
+  const [salvando, setSalvando] = useState(false);
+  const [errore, setErrore] = useState("");
+
+  const emailCambiata = email.trim().toLowerCase() !== (prova.email || "").trim().toLowerCase() && email.trim() !== "";
+
+  const infoEmailDaRimandare = (() => {
+    switch (prova.stato) {
+      case "in_attesa":
+        return { tipo: "benvenuto_prova", label: "la conferma di ricezione della richiesta" };
+      case "confermata": case "effettuata": case "iscritta":
+        return { tipo: "conferma_prova", label: "la conferma con la data della prova" };
+      case "annullata":
+        return { tipo: "richiesta_prova_annullata", label: "l'avviso di annullamento" };
+      default:
+        return null;
+    }
+  })();
+
+  async function salva() {
+    if (!nome.trim() || !cognome.trim()) { setErrore("Nome e cognome sono obbligatori."); return; }
+    setSalvando(true);
+    setErrore("");
+    const campiAggiornati = {
+      nome: nome.trim(),
+      cognome: cognome.trim(),
+      cf: cf.trim().toUpperCase() || null,
+      telefono: telefono.trim() || null,
+      email: email.trim().toLowerCase() || null,
+      data_nascita: dataNascita || null,
+    };
+    const { error } = await supabase.from("prove").update(campiAggiornati).eq("id", prova.id);
+    if (error) { setErrore("Errore: " + error.message); setSalvando(false); return; }
+
+    if (emailCambiata && inviaEmailCorretta && infoEmailDaRimandare) {
+      await inviaEmail({
+        tipo: infoEmailDaRimandare.tipo,
+        destinatarioEmail: campiAggiornati.email,
+        destinatarioNome: campiAggiornati.nome,
+        corsoNome: corso?.nome,
+        corsoSede: corso?.sede,
+        corsoOrario: corso?.orario,
+        dataProva: prova.data_effettuata,
+        motivo: "Correzione indirizzo email da parte della segreteria",
+      });
+    }
+    setSalvando(false);
+    onSalvato(campiAggiornati);
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }} onClick={onClose}>
+      <div style={{ background: "white", borderRadius: 12, padding: 20, maxWidth: 420, width: "100%" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: TX, marginBottom: 4 }}>Modifica dati richiesta</div>
+        <div style={{ fontSize: 13, color: SUB, marginBottom: 14 }}>{prova.nome} {prova.cognome}</div>
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ fontSize: 11.5, fontWeight: 600, color: TX, display: "block", marginBottom: 4 }}>Nome</label>
+            <input type="text" value={nome} onChange={(e) => setNome(e.target.value)}
+              style={{ width: "100%", padding: "7px 9px", border: `1px solid ${BD}`, borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ fontSize: 11.5, fontWeight: 600, color: TX, display: "block", marginBottom: 4 }}>Cognome</label>
+            <input type="text" value={cognome} onChange={(e) => setCognome(e.target.value)}
+              style={{ width: "100%", padding: "7px 9px", border: `1px solid ${BD}`, borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+          </div>
+        </div>
+
+        <label style={{ fontSize: 11.5, fontWeight: 600, color: TX, display: "block", marginBottom: 4 }}>Codice fiscale</label>
+        <input type="text" value={cf} onChange={(e) => setCf(e.target.value.toUpperCase())}
+          style={{ width: "100%", padding: "7px 9px", border: `1px solid ${BD}`, borderRadius: 8, fontSize: 13, marginBottom: 10, boxSizing: "border-box", fontFamily: "monospace" }} />
+
+        <label style={{ fontSize: 11.5, fontWeight: 600, color: TX, display: "block", marginBottom: 4 }}>Email</label>
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+          style={{ width: "100%", padding: "7px 9px", border: `1px solid ${emailCambiata ? A : BD}`, borderRadius: 8, fontSize: 13, marginBottom: 10, boxSizing: "border-box" }} />
+
+        <label style={{ fontSize: 11.5, fontWeight: 600, color: TX, display: "block", marginBottom: 4 }}>Telefono</label>
+        <input type="text" value={telefono} onChange={(e) => setTelefono(e.target.value)}
+          style={{ width: "100%", padding: "7px 9px", border: `1px solid ${BD}`, borderRadius: 8, fontSize: 13, marginBottom: 10, boxSizing: "border-box" }} />
+
+        <label style={{ fontSize: 11.5, fontWeight: 600, color: TX, display: "block", marginBottom: 4 }}>Data di nascita</label>
+        <input type="date" value={dataNascita || ""} onChange={(e) => setDataNascita(e.target.value)}
+          style={{ width: "100%", padding: "7px 9px", border: `1px solid ${BD}`, borderRadius: 8, fontSize: 13, marginBottom: 14, boxSizing: "border-box" }} />
+
+        {emailCambiata && infoEmailDaRimandare && (
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: TX, marginBottom: 14, cursor: "pointer", background: AL, borderRadius: 8, padding: "8px 10px" }}>
+            <input type="checkbox" checked={inviaEmailCorretta} onChange={(e) => setInviaEmailCorretta(e.target.checked)} style={{ marginTop: 2 }} />
+            Rimanda {infoEmailDaRimandare.label} al nuovo indirizzo ({email.trim()})
+          </label>
+        )}
+        {emailCambiata && !infoEmailDaRimandare && (
+          <div style={{ fontSize: 11.5, color: SUB, marginBottom: 14 }}>
+            Nessuna email automatica prevista per lo stato attuale — l'indirizzo verrà comunque corretto.
+          </div>
+        )}
+
+        {errore && <p style={{ fontSize: 11.5, color: R, margin: "0 0 8px" }}>{errore}</p>}
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "9px", border: `1px solid ${BD}`, borderRadius: 8, background: "white", color: SUB, fontSize: 13, cursor: "pointer" }}>
+            Annulla
+          </button>
+          <button onClick={salva} disabled={salvando}
+            style={{ flex: 1, padding: "9px", border: "none", borderRadius: 8, background: G, color: "white", fontSize: 13, fontWeight: 600, cursor: salvando ? "default" : "pointer" }}>
+            {salvando ? "Salvo…" : "Salva modifiche"}
           </button>
         </div>
       </div>
