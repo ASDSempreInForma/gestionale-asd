@@ -16,8 +16,10 @@ import EsportaAssicurazioni from './EsportaAssicurazioni.jsx'
 import ElencoPersonalizzato from './ElencoPersonalizzato.jsx'
 import CalcolatorePrezzi from './CalcolatorePrezzi.jsx'
 import GenerazioneAttestati from './GenerazioneAttestati.jsx'
+import Note from './Note.jsx'
 
 const VOCI = [
+  { id: 'note',          icon: '📝', label: 'Note' },
   { id: 'verifica-documenti', icon: '📥', label: 'Verifica documenti' },
   { id: 'anagrafica-soci', icon: '👤', label: 'Anagrafica soci' },
   { id: 'import-tessere', icon: '🎫', label: 'Import tessere' },
@@ -37,7 +39,7 @@ const VOCI = [
 ]
 
 export default function AdminLayout({ user, onLogout }) {
-  const [pagina, setPagina] = useState('prove')
+  const [pagina, setPagina] = useState('note')
   const [menuAperto, setMenuAperto] = useState(false)
 
   async function logout() {
@@ -132,6 +134,7 @@ export default function AdminLayout({ user, onLogout }) {
       {/* Contenuto principale */}
       <div style={{ flex: 1, marginLeft: window.innerWidth >= 768 ? 220 : 0,
         marginTop: window.innerWidth < 768 ? 52 : 0, minHeight: '100vh' }}>
+        {pagina === 'note'        && <Note />}
         {pagina === 'verifica-documenti' && <VerificaDocumenti />}
         {pagina === 'anagrafica-soci' && <AnagraficaSoci />}
         {pagina === 'import-tessere' && <ImportTessere />}
