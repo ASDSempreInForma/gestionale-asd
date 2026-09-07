@@ -560,7 +560,7 @@ export default function ElencoPersonalizzato() {
                   style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid " + BD, fontSize: 13 }}>
                   <option value="">Tutti i corsi</option>
                   {corsi.map((c) => (
-                    <option key={c.id} value={c.id}>{c.codice_corso} - {c.disciplina} ({c.sedi && c.sedi.nome})</option>
+                    <option key={c.id} value={c.id}>{c.codice_corso} - {c.disciplina} ({c.sedi && c.sedi.nome}) · {c.giorni_orari}</option>
                   ))}
                 </select>
               </div>
