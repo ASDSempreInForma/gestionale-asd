@@ -414,6 +414,7 @@ export default function App() {
   const [notaTesto, setNotaTesto] = useState("");
   const [notaVistaPer, setNotaVistaPer] = useState(null); // id iscrizione per cui si sta leggendo il testo delle note esistenti
   const [notaAnagraficaVistaPer, setNotaAnagraficaVistaPer] = useState(null); // id iscrizione per cui si sta leggendo la nota interna da Anagrafica soci
+  const [azioniAperte, setAzioniAperte] = useState(null); // id iscrizione per cui è aperto il menu "⋯ Altro" con le azioni secondarie
   const [modaleContanti, setModaleContanti] = useState(null); // riga iscrizione per cui è aperto "Incassa contanti"
   const [contantiImporto, setContantiImporto] = useState("");
   const [contantiTipo, setContantiTipo] = useState("annuale");
@@ -834,8 +835,13 @@ export default function App() {
       return G;
     }
 
+    // Su schermi larghi (tablet) sfruttiamo lo spazio invece di restare
+    // compressi in una colonna stretta pensata per il telefono, e usiamo
+    // pulsanti più grandi per il tocco con le dita.
+    const isAmpio = window.innerWidth >= 700;
+
     return (
-      <div style={{ fontFamily: "system-ui,sans-serif", background: "#F9FAFB", minHeight: "100vh", maxWidth: 440, margin: "0 auto" }}>
+      <div style={{ fontFamily: "system-ui,sans-serif", background: "#F9FAFB", minHeight: "100vh", maxWidth: isAmpio ? 920 : 440, margin: "0 auto" }}>
         {/* TOPBAR */}
         <div style={{ background: "white", borderBottom: `0.5px solid ${BD}`, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, zIndex: 100 }}>
           <button onClick={() => { setSelected(null); setFilter("tutti"); setFilterGiorno("tutti"); setFilterInizio("tutti"); setFilterTipoPagamento("tutti"); }}
@@ -900,7 +906,7 @@ export default function App() {
             (() => { const nAssenti = corsoIscrittiFiltrati.filter(i => settimaneAssenza(i) >= 3).length; return nAssenti > 0 ? ["assenti", `😴 Assenti (${nAssenti})`] : null; })(),
           ].filter(Boolean).map(([k, l]) => (
             <button key={k} onClick={() => setFilter(k)}
-              style={{ padding: "5px 12px", border: `0.5px solid ${filter === k ? G : BD}`, borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", background: filter === k ? GL : "white", color: filter === k ? G : GR, flexShrink: 0 }}>
+              style={{ padding: "7px 14px", border: `0.5px solid ${filter === k ? G : BD}`, borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", background: filter === k ? GL : "white", color: filter === k ? G : GR, flexShrink: 0 }}>
               {l}
             </button>
           ))}
@@ -912,7 +918,7 @@ export default function App() {
           <div style={{ display: "flex", gap: 6, padding: "0 14px 10px", overflowX: "auto" }}>
             {[["tutti", "Entrambi i giorni"], ...giorniSingoliCorso.map(g => [g.giorno, g.giorno])].map(([k, l]) => (
               <button key={k} onClick={() => setFilterGiorno(k)}
-                style={{ padding: "5px 12px", border: `0.5px solid ${filterGiorno === k ? "#2563EB" : BD}`, borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", background: filterGiorno === k ? "#EFF6FF" : "white", color: filterGiorno === k ? "#2563EB" : GR, flexShrink: 0 }}>
+                style={{ padding: "7px 14px", border: `0.5px solid ${filterGiorno === k ? "#2563EB" : BD}`, borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", background: filterGiorno === k ? "#EFF6FF" : "white", color: filterGiorno === k ? "#2563EB" : GR, flexShrink: 0 }}>
                 📅 {l}
               </button>
             ))}
@@ -926,7 +932,7 @@ export default function App() {
           <div style={{ display: "flex", gap: 6, padding: "0 14px 10px", overflowX: "auto" }}>
             {[["tutti", "Tutti"], ["settembre", "Da settembre"], ["ottobre", "Da ottobre"]].map(([k, l]) => (
               <button key={k} onClick={() => setFilterInizio(k)}
-                style={{ padding: "5px 12px", border: `0.5px solid ${filterInizio === k ? "#7C3AED" : BD}`, borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", background: filterInizio === k ? "#F5F3FF" : "white", color: filterInizio === k ? "#7C3AED" : GR, flexShrink: 0 }}>
+                style={{ padding: "7px 14px", border: `0.5px solid ${filterInizio === k ? "#7C3AED" : BD}`, borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", background: filterInizio === k ? "#F5F3FF" : "white", color: filterInizio === k ? "#7C3AED" : GR, flexShrink: 0 }}>
                 🗓️ {l}
               </button>
             ))}
@@ -942,7 +948,7 @@ export default function App() {
               ...tipiPagamentoPresenti.map(t => [t, t === "annuale" ? "Annuale" : t === "quad1" ? "1° Quad" : t === "quad2" ? "2° Quad" : t]),
             ].map(([k, l]) => (
               <button key={k} onClick={() => setFilterTipoPagamento(k)}
-                style={{ padding: "5px 12px", border: `0.5px solid ${filterTipoPagamento === k ? "#0D9488" : BD}`, borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", background: filterTipoPagamento === k ? "#F0FDFA" : "white", color: filterTipoPagamento === k ? "#0D9488" : GR, flexShrink: 0 }}>
+                style={{ padding: "7px 14px", border: `0.5px solid ${filterTipoPagamento === k ? "#0D9488" : BD}`, borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", background: filterTipoPagamento === k ? "#F0FDFA" : "white", color: filterTipoPagamento === k ? "#0D9488" : GR, flexShrink: 0 }}>
                 💶 {l}
               </button>
             ))}
@@ -954,7 +960,7 @@ export default function App() {
           <span style={{ fontSize: 10.5, color: GR, flexShrink: 0 }}>Ordina per:</span>
           {[["cognome", "🔤 Cognome"], ["data_iscrizione", "📅 Iscrizione (recenti)"]].map(([k, l]) => (
             <button key={k} onClick={() => setOrdinamento(k)}
-              style={{ padding: "5px 12px", border: `0.5px solid ${ordinamento === k ? TX : BD}`, borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", background: ordinamento === k ? "#F3F4F6" : "white", color: ordinamento === k ? TX : GR, flexShrink: 0 }}>
+              style={{ padding: "7px 14px", border: `0.5px solid ${ordinamento === k ? TX : BD}`, borderRadius: 20, fontSize: 11, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", background: ordinamento === k ? "#F3F4F6" : "white", color: ordinamento === k ? TX : GR, flexShrink: 0 }}>
               {l}
             </button>
           ))}
@@ -974,14 +980,14 @@ export default function App() {
         )}
 
         {/* LISTA */}
-        <div style={{ padding: "0 14px 80px" }}>
+        <div style={{ padding: "0 14px 80px", ...(isAmpio ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "start" } : {}) }}>
           {lista.map(i => {
             const ps = pagStatus(i);
             const cs = certStatus(i);
             const pagKey = `${i.id}_pag`;
             const certKey = `${i.id}_cert`;
             return (
-              <div key={i.id} style={{ background: rowBg(i), border: `0.5px solid ${rowBorder(i)}`, borderRadius: 12, padding: "12px 13px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10 }}>
+              <div key={i.id} style={{ background: rowBg(i), border: `0.5px solid ${rowBorder(i)}`, borderRadius: 12, padding: "12px 13px", marginBottom: 10, display: "flex", alignItems: "flex-start", gap: 10 }}>
                 <div style={{ width: 38, height: 38, borderRadius: "50%", background: avBg(i), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 600, color: avColor(i), flexShrink: 0 }}>
                   {initials(i.soci?.nome, i.soci?.cognome)}
                 </div>
@@ -1071,41 +1077,52 @@ export default function App() {
                     </div>
                   )}
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0, minWidth: 118 }}>
                   <button
                     onClick={() => toggloPresenza(i.soci?.cf, corso.id)}
                     disabled={saving[`pres_${i.soci?.cf}`]}
-                    style={{ padding: "4px 8px", border: `0.5px solid ${presenteOggi(i.soci?.cf) ? G : BD}`, borderRadius: 8, fontSize: 10, fontWeight: 500, cursor: "pointer", background: presenteOggi(i.soci?.cf) ? GL : "white", color: presenteOggi(i.soci?.cf) ? G : GR, opacity: saving[`pres_${i.soci?.cf}`] ? 0.5 : 1 }}>
+                    style={{ padding: "10px 12px", border: `1px solid ${presenteOggi(i.soci?.cf) ? G : BD}`, borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: presenteOggi(i.soci?.cf) ? GL : "white", color: presenteOggi(i.soci?.cf) ? G : GR, opacity: saving[`pres_${i.soci?.cf}`] ? 0.5 : 1, minHeight: 40 }}>
                     {presenteOggi(i.soci?.cf) ? "✅ Qui oggi" : "◻️ Segna qui"}
                   </button>
-                  {ps !== "ok" && (
-                    <button onClick={() => { if (window.confirm(`Confermi il pagamento di ${i.soci?.nome} ${i.soci?.cognome}?`)) update(i.id, corso.id, "pag", "ok"); }} disabled={saving[pagKey]}
-                      style={{ padding: "4px 8px", border: `0.5px solid ${G}`, borderRadius: 8, fontSize: 10, fontWeight: 500, cursor: "pointer", background: GL, color: G, opacity: saving[pagKey] ? 0.5 : 1 }}>
-                      {saving[pagKey] ? "…" : "✓ Pagato"}
-                    </button>
-                  )}
-                  {ps !== "ok" && (
-                    <button onClick={() => { setModaleContanti(i); setContantiTipo(i.tipo_pagamento || "annuale"); setContantiImporto(""); }}
-                      style={{ padding: "4px 8px", border: `0.5px solid #0D9488`, borderRadius: 8, fontSize: 10, fontWeight: 500, cursor: "pointer", background: "#F0FDFA", color: "#0D9488" }}>
-                      💶 Contanti
-                    </button>
-                  )}
-                  {cs !== "ok" && (
-                    <button onClick={() => { if (window.confirm(`Confermi il certificato di ${i.soci?.nome} ${i.soci?.cognome}?`)) update(i.id, corso.id, "cert", "ok"); }} disabled={saving[certKey]}
-                      style={{ padding: "4px 8px", border: `0.5px solid ${W}`, borderRadius: 8, fontSize: 10, fontWeight: 500, cursor: "pointer", background: WL, color: W, opacity: saving[certKey] ? 0.5 : 1 }}>
-                      {saving[certKey] ? "…" : "✓ Cert."}
-                    </button>
-                  )}
-                  <button onClick={() => { setNotaInputPer(notaInputPer === i.id ? null : i.id); setNotaTesto(""); }}
-                    style={{ padding: "4px 8px", border: `0.5px solid #FDE68A`, borderRadius: 8, fontSize: 10, fontWeight: 500, cursor: "pointer", background: "#FFFBEB", color: "#92400E" }}>
-                    📝 Nota
-                  </button>
+
                   <button
-                    onClick={() => setAnnullamento({ iscrizioneId: i.id, corsoId: corso.id, nome: `${i.soci?.nome} ${i.soci?.cognome}` })}
-                    style={{ padding: "4px 8px", border: `0.5px solid ${BD}`, borderRadius: 8, fontSize: 10, fontWeight: 500, cursor: "pointer", background: "white", color: GR }}
-                  >
-                    ✕ Annulla
+                    onClick={() => setAzioniAperte(azioniAperte === i.id ? null : i.id)}
+                    style={{ padding: "10px 12px", border: `1px solid ${BD}`, borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: azioniAperte === i.id ? "#F3F4F6" : "white", color: TX, minHeight: 40 }}>
+                    {azioniAperte === i.id ? "▲ Chiudi" : "⋯ Altro"}
                   </button>
+
+                  {azioniAperte === i.id && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {ps !== "ok" && (
+                        <button onClick={() => { if (window.confirm(`Confermi il pagamento di ${i.soci?.nome} ${i.soci?.cognome}?`)) update(i.id, corso.id, "pag", "ok"); }} disabled={saving[pagKey]}
+                          style={{ padding: "10px 12px", border: `1px solid ${G}`, borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: GL, color: G, opacity: saving[pagKey] ? 0.5 : 1, minHeight: 40 }}>
+                          {saving[pagKey] ? "…" : "✓ Pagato"}
+                        </button>
+                      )}
+                      {ps !== "ok" && (
+                        <button onClick={() => { setModaleContanti(i); setContantiTipo(i.tipo_pagamento || "annuale"); setContantiImporto(""); }}
+                          style={{ padding: "10px 12px", border: `1px solid #0D9488`, borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: "#F0FDFA", color: "#0D9488", minHeight: 40 }}>
+                          💶 Contanti
+                        </button>
+                      )}
+                      {cs !== "ok" && (
+                        <button onClick={() => { if (window.confirm(`Confermi il certificato di ${i.soci?.nome} ${i.soci?.cognome}?`)) update(i.id, corso.id, "cert", "ok"); }} disabled={saving[certKey]}
+                          style={{ padding: "10px 12px", border: `1px solid ${W}`, borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: WL, color: W, opacity: saving[certKey] ? 0.5 : 1, minHeight: 40 }}>
+                          {saving[certKey] ? "…" : "✓ Cert."}
+                        </button>
+                      )}
+                      <button onClick={() => { setNotaInputPer(notaInputPer === i.id ? null : i.id); setNotaTesto(""); }}
+                        style={{ padding: "10px 12px", border: "1px solid #FDE68A", borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: "#FFFBEB", color: "#92400E", minHeight: 40 }}>
+                        📝 Nota
+                      </button>
+                      <button
+                        onClick={() => setAnnullamento({ iscrizioneId: i.id, corsoId: corso.id, nome: `${i.soci?.nome} ${i.soci?.cognome}` })}
+                        style={{ padding: "10px 12px", border: `1px solid ${BD}`, borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: "white", color: GR, minHeight: 40 }}
+                      >
+                        ✕ Annulla
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -1114,11 +1131,11 @@ export default function App() {
         </div>
 
         {/* BOTTOM BAR */}
-        <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 440, background: "white", borderTop: `0.5px solid ${BD}`, padding: "10px 14px", display: "flex", gap: 8 }}>
+        <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: isAmpio ? 920 : 440, background: "white", borderTop: `0.5px solid ${BD}`, padding: "10px 14px", display: "flex", gap: 8 }}>
           <button onClick={() => { setSelected(null); setFilter("tutti"); setFilterGiorno("tutti"); setFilterInizio("tutti"); setFilterTipoPagamento("tutti"); }}
-            style={{ flex: 1, padding: "10px", border: `0.5px solid ${BD}`, borderRadius: 10, fontSize: 12, fontWeight: 500, cursor: "pointer", background: "white", color: GR }}>← Corsi</button>
+            style={{ flex: 1, padding: "12px", border: `0.5px solid ${BD}`, borderRadius: 10, fontSize: 13, fontWeight: 500, cursor: "pointer", background: "white", color: GR }}>← Corsi</button>
           <button onClick={() => window.print()}
-            style={{ flex: 2, padding: "10px", border: `0.5px solid ${G}`, borderRadius: 10, fontSize: 12, fontWeight: 500, cursor: "pointer", background: GL, color: G }}>🖨 Stampa presenze</button>
+            style={{ flex: 2, padding: "12px", border: `0.5px solid ${G}`, borderRadius: 10, fontSize: 13, fontWeight: 500, cursor: "pointer", background: GL, color: G }}>🖨 Stampa presenze</button>
         </div>
 
         {/* MODALE STORICO PRESENZE — per rivedere chi c'era in un giorno passato */}
@@ -1352,8 +1369,10 @@ export default function App() {
     </div>
   );
 
+  const isAmpioHome = window.innerWidth >= 700;
+
   return (
-    <div style={{ fontFamily: "system-ui,sans-serif", background: "#F9FAFB", minHeight: "100vh", maxWidth: 440, margin: "0 auto", paddingBottom: 20 }}>
+    <div style={{ fontFamily: "system-ui,sans-serif", background: "#F9FAFB", minHeight: "100vh", maxWidth: isAmpioHome ? 700 : 440, margin: "0 auto", paddingBottom: 20 }}>
       <div style={{ padding: "20px 14px 10px", textAlign: "center" }}>
         <div style={{ fontSize: 18, fontWeight: 500, color: TX, marginBottom: 4 }}>📋 I miei corsi</div>
         <div style={{ fontSize: 13, color: GR }}>Stagione {stagione?.nome ?? "2025/26"} · tocca un corso per aprirlo</div>
