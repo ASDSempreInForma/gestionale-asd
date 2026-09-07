@@ -413,6 +413,7 @@ export default function App() {
   const [notaInputPer, setNotaInputPer] = useState(null); // id iscrizione per cui è aperto il campo "nuova nota"
   const [notaTesto, setNotaTesto] = useState("");
   const [notaVistaPer, setNotaVistaPer] = useState(null); // id iscrizione per cui si sta leggendo il testo delle note esistenti
+  const [notaAnagraficaVistaPer, setNotaAnagraficaVistaPer] = useState(null); // id iscrizione per cui si sta leggendo la nota interna da Anagrafica soci
   const [modaleContanti, setModaleContanti] = useState(null); // riga iscrizione per cui è aperto "Incassa contanti"
   const [contantiImporto, setContantiImporto] = useState("");
   const [contantiTipo, setContantiTipo] = useState("annuale");
@@ -499,7 +500,7 @@ export default function App() {
         .from("iscrizioni")
         .select(`
           id, stato_pagamento, tipo_pagamento, stato_certificato, data_scadenza_certificato, corso_id, frequenza, giorno_scelto, inizio_personalizzato, data_iscrizione,
-          soci ( cf, nome, cognome )
+          soci ( cf, nome, cognome, note )
         `)
         .eq("stagione_id", stag.id)
         .not("stato_pagamento", "eq", "annullata");
@@ -1033,7 +1034,18 @@ export default function App() {
                         📝 {noteAperte.filter(n => n.socio_cf === i.soci?.cf).length} nota/e
                       </span>
                     )}
+                    {i.soci?.note && (
+                      <span onClick={() => setNotaAnagraficaVistaPer(notaAnagraficaVistaPer === i.id ? null : i.id)}
+                        style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 500, background: "#F1F5F9", color: "#475569", cursor: "pointer", textDecoration: "underline" }}>
+                        🗒️ Nota anagrafica
+                      </span>
+                    )}
                   </div>
+                  {notaAnagraficaVistaPer === i.id && (
+                    <div style={{ marginTop: 8, background: "#F1F5F9", border: "0.5px solid #CBD5E1", borderRadius: 8, padding: "7px 9px", fontSize: 12, color: "#334155" }}>
+                      {i.soci?.note}
+                    </div>
+                  )}
                   {notaVistaPer === i.id && (
                     <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
                       {noteAperte.filter(n => n.socio_cf === i.soci?.cf).map(n => (
