@@ -304,42 +304,44 @@ function SezioneEmail({ socio }) {
   const [nuovoOggetto, setNuovoOggetto] = useState('')
   const [nuovoTesto, setNuovoTesto] = useState('')
 
-  const apri = async () => {
-    setAperto(a => !a)
-    if (!messaggi && !aperto) {
-      setCaricando(true)
-      setErrore('')
-      const [rOutlook, rBrevo] = await Promise.all([
-        chiamaEmailFn({ action: 'cerca_email', email: socio.email }),
-        fetch(`${SUPABASE_URL}/functions/v1/email-brevo`, {
+  const caricaEmail = async () => {
+    setCaricando(true)
+    setErrore('')
+    const [rOutlook, rBrevo] = await Promise.all([
+      chiamaEmailFn({ action: 'cerca_email', email: socio.email }),
+      fetch(`${SUPABASE_URL}/functions/v1/email-brevo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
+        body: JSON.stringify({ action: 'cerca_email_brevo', email: socio.email }),
+      }).then(r => r.json()).catch(() => ({ ok: false, messaggi: [] })),
+    ])
+    setCaricando(false)
+    if (rOutlook.ok || rBrevo.ok) {
+      const brevoMsgs = rBrevo.messaggi || []
+      // Per ogni email automatica, chiedo a Brevo l'esito di consegna (recapitata,
+      // rimbalzata, bloccata...) — così mostriamo subito nell'elenco un avviso se
+      // non è mai arrivata a destinazione, senza dover aprire ogni messaggio uno
+      // per uno per scoprirlo (aggiunto il 30/08/2026, caso reale: Poiatti Mara,
+      // email sbagliata scoperta solo dopo giorni).
+      const conStato = await Promise.all(brevoMsgs.map(async (m) => {
+        const r = await fetch(`${SUPABASE_URL}/functions/v1/email-brevo`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
-          body: JSON.stringify({ action: 'cerca_email_brevo', email: socio.email }),
-        }).then(r => r.json()).catch(() => ({ ok: false, messaggi: [] })),
-      ])
-      setCaricando(false)
-      if (rOutlook.ok || rBrevo.ok) {
-        const brevoMsgs = rBrevo.messaggi || []
-        // Per ogni email automatica, chiedo a Brevo l'esito di consegna (recapitata,
-        // rimbalzata, bloccata...) — così mostriamo subito nell'elenco un avviso se
-        // non è mai arrivata a destinazione, senza dover aprire ogni messaggio uno
-        // per uno per scoprirlo (aggiunto il 30/08/2026, caso reale: Poiatti Mara,
-        // email sbagliata scoperta solo dopo giorni).
-        const conStato = await Promise.all(brevoMsgs.map(async (m) => {
-          const r = await fetch(`${SUPABASE_URL}/functions/v1/email-brevo`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
-            body: JSON.stringify({ action: 'leggi_email_brevo', uuid: m.uuid }),
-          }).then(r => r.json()).catch(() => null)
-          return { ...m, stato: r?.ok ? r.messaggio.stato : null }
-        }))
-        const uniti = [...(rOutlook.messaggi || []), ...conStato]
-          .sort((a, b) => (a.data < b.data ? 1 : -1))
-        setMessaggi(uniti)
-      } else {
-        setErrore(rOutlook.error || 'Errore nel caricamento delle email.')
-      }
+          body: JSON.stringify({ action: 'leggi_email_brevo', uuid: m.uuid }),
+        }).then(r => r.json()).catch(() => null)
+        return { ...m, stato: r?.ok ? r.messaggio.stato : null }
+      }))
+      const uniti = [...(rOutlook.messaggi || []), ...conStato]
+        .sort((a, b) => (a.data < b.data ? 1 : -1))
+      setMessaggi(uniti)
+    } else {
+      setErrore(rOutlook.error || 'Errore nel caricamento delle email.')
     }
+  }
+
+  const apri = async () => {
+    setAperto(a => !a)
+    if (!messaggi && !aperto) await caricaEmail()
   }
 
   // Stati Brevo che indicano che l'email NON è mai arrivata a destinazione.
@@ -413,9 +415,15 @@ function SezioneEmail({ socio }) {
           📧 Email {aperto ? '▲' : '▼'}
         </button>
         {aperto && (
-          <button onClick={() => setNuovaEmail(v => !v)} style={{ fontSize: 11.5, background: GL, color: G, border: 'none', borderRadius: 6, padding: '4px 9px', cursor: 'pointer', fontWeight: 600 }}>
-            ✎ Nuova email
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={caricaEmail} disabled={caricando} title="Ricarica l'elenco email"
+              style={{ fontSize: 11.5, background: '#F1F5F9', color: '#475569', border: 'none', borderRadius: 6, padding: '4px 9px', cursor: 'pointer', fontWeight: 600, opacity: caricando ? 0.6 : 1 }}>
+              {caricando ? '…' : '🔄 Aggiorna'}
+            </button>
+            <button onClick={() => setNuovaEmail(v => !v)} style={{ fontSize: 11.5, background: GL, color: G, border: 'none', borderRadius: 6, padding: '4px 9px', cursor: 'pointer', fontWeight: 600 }}>
+              ✎ Nuova email
+            </button>
+          </div>
         )}
       </div>
 
@@ -1378,6 +1386,29 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
   const [salvandoAnagrafica, setSalvandoAnagrafica] = useState(false)
   const [modaleNuovaIscrizione, setModaleNuovaIscrizione] = useState(false)
   const [eliminando, setEliminando] = useState(false)
+  const [noteRapide, setNoteRapide] = useState(null) // note prese al volo da Vista Corso (tabella note_rapide)
+  const [completandoNota, setCompletandoNota] = useState({})
+
+  const caricaNoteRapide = () => {
+    supabase
+      .from('note_rapide')
+      .select('id, testo, creata_il, completata, corsi(disciplina, sedi(nome))')
+      .eq('socio_cf', socio.cf)
+      .eq('completata', false)
+      .order('creata_il', { ascending: false })
+      .then(({ data }) => setNoteRapide(data || []))
+  }
+
+  const completaNotaRapida = async (id) => {
+    setCompletandoNota(s => ({ ...s, [id]: true }))
+    setNoteRapide(prev => prev.filter(n => n.id !== id))
+    const { error } = await supabase.from('note_rapide').update({ completata: true, completata_il: new Date().toISOString() }).eq('id', id)
+    if (error) { alert('Errore: ' + error.message); caricaNoteRapide() }
+  }
+
+  useEffect(() => {
+    caricaNoteRapide()
+  }, [])
 
   const caricaIscrizioni = () => {
     supabase
@@ -1656,6 +1687,34 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
             {salvandoBlocco ? 'Salvo...' : 'Salva'}
           </button>
         </div>
+
+        {noteRapide && noteRapide.length > 0 && (
+          <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: '#92400E' }}>📝 Note da Vista Corso</div>
+            <div style={{ fontSize: 11.5, color: '#92400E', marginBottom: 8 }}>
+              Prese al volo in palestra col tablet. Segnale fatte per farle sparire da qui e dalla pagina "Note".
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {noteRapide.map(n => (
+                <div key={n.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'white', border: '1px solid #FDE68A', borderRadius: 8, padding: '8px 10px', opacity: completandoNota[n.id] ? 0.5 : 1 }}>
+                  <button
+                    onClick={() => completaNotaRapida(n.id)}
+                    title="Segna come fatta"
+                    style={{ width: 18, height: 18, borderRadius: 5, border: '1.5px solid #FBBF24', background: '#FFFBEB', cursor: 'pointer', flexShrink: 0, marginTop: 1 }}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: TX }}>{n.testo}</div>
+                    {n.corsi?.disciplina && (
+                      <div style={{ fontSize: 11, color: SUB, marginTop: 2 }}>
+                        {n.corsi.disciplina}{n.corsi?.sedi?.nome ? ` (${n.corsi.sedi.nome})` : ''}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 12, marginBottom: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>📝 Note interne</div>
