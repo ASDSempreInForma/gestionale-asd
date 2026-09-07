@@ -19,9 +19,12 @@ import { supabase } from '../../supabase.js';
 const AI_URL = 'https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/genera-testo-ai';
 
 export default function Note() {
+  const [vista, setVista] = useState('da_fare'); // 'da_fare' | 'completate'
   const [note, setNote] = useState(null); // null = ancora in caricamento
+  const [noteCompletate, setNoteCompletate] = useState(null); // null = non ancora caricate (caricamento pigro)
   const [errore, setErrore] = useState(null);
   const [completando, setCompletando] = useState({});
+  const [riaprendo, setRiaprendo] = useState({});
 
   // ── Nuova nota ────────────────────────────────────────────────────
   const [nuovaNotaTesto, setNuovaNotaTesto] = useState('');
@@ -41,6 +44,39 @@ export default function Note() {
   }, []);
 
   useEffect(() => { carica(); }, [carica]);
+
+  const caricaCompletate = useCallback(async () => {
+    setErrore(null);
+    const { data, error } = await supabase
+      .from('note_rapide')
+      .select('id, testo, creata_il, completata_il, socio_cf, soci(nome, cognome), corsi(disciplina, sedi(nome))')
+      .eq('completata', true)
+      .order('completata_il', { ascending: false })
+      .limit(200);
+    if (error) setErrore(error.message);
+    else setNoteCompletate(data || []);
+  }, []);
+
+  // Caricamento pigro: le note completate si caricano solo la prima volta
+  // che si apre quella scheda, non ad ogni apertura della pagina.
+  useEffect(() => {
+    if (vista === 'completate' && noteCompletate === null) caricaCompletate();
+  }, [vista, noteCompletate, caricaCompletate]);
+
+  async function riapri(id) {
+    setRiaprendo((s) => ({ ...s, [id]: true }));
+    const { error } = await supabase
+      .from('note_rapide')
+      .update({ completata: false, completata_il: null })
+      .eq('id', id);
+    if (error) {
+      alert('Errore: ' + error.message);
+      setRiaprendo((s) => ({ ...s, [id]: false }));
+      return;
+    }
+    setNoteCompletate((prev) => (prev ? prev.filter((n) => n.id !== id) : prev));
+    carica(); // così ricompare subito anche nella scheda "Da fare"
+  }
 
   function tempoFa(iso) {
     const giorni = Math.floor((new Date() - new Date(iso)) / 86400000);
@@ -137,13 +173,26 @@ export default function Note() {
     <div style={{ maxWidth: 720, margin: '0 auto', padding: 20, fontFamily: 'system-ui,sans-serif' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <h2 style={{ margin: 0 }}>📝 Note</h2>
-        <button onClick={carica} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#6B7280' }} title="Aggiorna">↻</button>
+        <button onClick={() => (vista === 'completate' ? caricaCompletate() : carica())} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#6B7280' }} title="Aggiorna">↻</button>
       </div>
       <p style={{ color: '#666', marginTop: 4 }}>
         Le note prese al volo da Vista Corso, in un unico posto. Spuntale quando le hai fatte: spariscono da qui.
       </p>
 
-      {/* NUOVA NOTA */}
+      {/* SCHEDE */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+        <button onClick={() => setVista('da_fare')}
+          style={{ padding: '7px 14px', borderRadius: 20, border: `1px solid ${vista === 'da_fare' ? '#166534' : '#E5E7EB'}`, background: vista === 'da_fare' ? '#F0FDF4' : 'white', color: vista === 'da_fare' ? '#166534' : '#6B7280', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+          Da fare {note !== null && note.length > 0 ? `(${note.length})` : ''}
+        </button>
+        <button onClick={() => setVista('completate')}
+          style={{ padding: '7px 14px', borderRadius: 20, border: `1px solid ${vista === 'completate' ? '#166534' : '#E5E7EB'}`, background: vista === 'completate' ? '#F0FDF4' : 'white', color: vista === 'completate' ? '#166534' : '#6B7280', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+          ✓ Completate
+        </button>
+      </div>
+
+      {/* NUOVA NOTA — solo nella scheda "Da fare" */}
+      {vista === 'da_fare' && (
       <div style={{ background: 'white', border: '1px solid #E5E7EB', borderRadius: 12, padding: 16, marginBottom: 20 }}>
         <textarea
           value={nuovaNotaTesto}
@@ -221,6 +270,7 @@ export default function Note() {
           </div>
         )}
       </div>
+      )}
 
       {errore && (
         <div style={{ background: '#FEE2E2', color: '#991B1B', padding: '10px 14px', borderRadius: 8, marginBottom: 16 }}>
@@ -228,18 +278,18 @@ export default function Note() {
         </div>
       )}
 
-      {note === null && !errore && (
+      {vista === 'da_fare' && note === null && !errore && (
         <div style={{ textAlign: 'center', padding: 40, color: '#9CA3AF' }}>⏳ Caricamento…</div>
       )}
 
-      {note !== null && note.length === 0 && (
+      {vista === 'da_fare' && note !== null && note.length === 0 && (
         <div style={{ textAlign: 'center', padding: 48, color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12 }}>
           <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
           Nessuna nota in sospeso.
         </div>
       )}
 
-      {note && note.length > 0 && (
+      {vista === 'da_fare' && note && note.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {note.map((n) => (
             <div key={n.id} style={{
@@ -261,6 +311,48 @@ export default function Note() {
                   {' · '}{tempoFa(n.creata_il)}
                 </div>
               </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* SCHEDA COMPLETATE — per riesaminare lo storico e riaprire per sbaglio segnate */}
+      {vista === 'completate' && noteCompletate === null && !errore && (
+        <div style={{ textAlign: 'center', padding: 40, color: '#9CA3AF' }}>⏳ Caricamento…</div>
+      )}
+
+      {vista === 'completate' && noteCompletate !== null && noteCompletate.length === 0 && (
+        <div style={{ textAlign: 'center', padding: 48, color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12 }}>
+          Nessuna nota completata finora.
+        </div>
+      )}
+
+      {vista === 'completate' && noteCompletate && noteCompletate.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {noteCompletate.map((n) => (
+            <div key={n.id} style={{
+              display: 'flex', alignItems: 'flex-start', gap: 12,
+              background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 12, padding: '14px 16px',
+              opacity: riaprendo[n.id] ? 0.5 : 1,
+            }}>
+              <div style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }}>✅</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14.5, color: '#111827', textDecoration: 'line-through', textDecorationColor: '#D1D5DB' }}>{n.testo}</div>
+                <div style={{ fontSize: 12, color: '#6B7280', marginTop: 4 }}>
+                  {n.soci ? `${n.soci.cognome} ${n.soci.nome}` : '— nessuna persona collegata —'}
+                  {n.corsi?.disciplina && ` · ${n.corsi.disciplina}`}
+                  {n.corsi?.sedi?.nome && ` (${n.corsi.sedi.nome})`}
+                  {' · completata '}{tempoFa(n.completata_il)}
+                </div>
+              </div>
+              <button
+                onClick={() => riapri(n.id)}
+                disabled={riaprendo[n.id]}
+                title="Riapri se segnata per sbaglio"
+                style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: 'white', color: '#166534', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}
+              >
+                ↺ Riapri
+              </button>
             </div>
           ))}
         </div>
