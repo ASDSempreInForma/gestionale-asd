@@ -650,7 +650,7 @@ export default function GestioneProve() {
               <select value={filtroCorsoPk} onChange={e => setFiltroCorsoPk(e.target.value)}
                 style={{ padding:"8px 10px", border:`1px solid ${BD}`, borderRadius:8, fontSize:12, background:"white" }}>
                 <option value="">Tutti i corsi</option>
-                {corsiDisponibili.map(c => <option key={c.id} value={c.id}>{c.nome} — {c.sede}</option>)}
+                {corsiDisponibili.map(c => <option key={c.id} value={c.id}>{c.nome} — {c.sede} · {c.orario}</option>)}
               </select>
               <select value={filtroStato} onChange={e => setFiltroStato(e.target.value)}
                 style={{ padding:"8px 10px", border:`1px solid ${BD}`, borderRadius:8, fontSize:12, background:"white" }}>
@@ -993,7 +993,7 @@ export default function GestioneProve() {
                 style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13 }}>
                 <option value="">Tutti i corsi</option>
                 {corsi.map((c) => (
-                  <option key={c.id} value={c.id}>{c.codice} — {c.nome} ({c.sede})</option>
+                  <option key={c.id} value={c.id}>{c.nome} — {c.sede} · {c.orario}</option>
                 ))}
               </select>
             </div>
