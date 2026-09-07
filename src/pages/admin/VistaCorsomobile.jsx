@@ -409,14 +409,16 @@ export default function App() {
 
   // ── Nuovi stati per le funzionalità da palestra (tablet) ────────────
   const [presenzeCorso, setPresenzeCorso] = useState([]); // presenze del corso attualmente aperto (tutte le date)
-  const [noteAperte, setNoteAperte] = useState([]); // note rapide non ancora completate, globali
-  const [vistaNote, setVistaNote] = useState(false); // true = si sta guardando la vista dedicata "📝 Note"
+  const [noteAperte, setNoteAperte] = useState([]); // note rapide non ancora completate, globali (vedi anche la pagina admin dedicata "Note")
   const [notaInputPer, setNotaInputPer] = useState(null); // id iscrizione per cui è aperto il campo "nuova nota"
   const [notaTesto, setNotaTesto] = useState("");
+  const [notaVistaPer, setNotaVistaPer] = useState(null); // id iscrizione per cui si sta leggendo il testo delle note esistenti
   const [modaleContanti, setModaleContanti] = useState(null); // riga iscrizione per cui è aperto "Incassa contanti"
   const [contantiImporto, setContantiImporto] = useState("");
   const [contantiTipo, setContantiTipo] = useState("annuale");
   const [modaleRecupero, setModaleRecupero] = useState(false);
+  const [modaleStorico, setModaleStorico] = useState(false);
+  const [dataStorico, setDataStorico] = useState("");
   const [recuperoQuery, setRecuperoQuery] = useState("");
   const [recuperoRisultati, setRecuperoRisultati] = useState([]);
   const [recuperoSelezionato, setRecuperoSelezionato] = useState(null);
@@ -650,7 +652,7 @@ export default function App() {
     }
   }
 
-  async function completaNota(id) {
+  async function completaNotaQui(id) {
     setNoteAperte(prev => prev.filter(n => n.id !== id)); // scompare subito, poi confermiamo su Supabase
     const { error } = await supabase.from("note_rapide").update({ completata: true, completata_il: new Date().toISOString() }).eq("id", id);
     if (error) { alert("Errore: " + error.message); ricaricaNote(); }
@@ -857,6 +859,10 @@ export default function App() {
             </div>
           </div>
           <button onClick={caricaDati} style={{ fontSize: 18, background: "none", border: "none", cursor: "pointer" }}>↻</button>
+          <button onClick={() => { setDataStorico(oggiISO()); setModaleStorico(true); }}
+            style={{ fontSize: 11, fontWeight: 600, background: "#F3F4F6", color: TX, border: "none", borderRadius: 8, padding: "6px 10px", cursor: "pointer", whiteSpace: "nowrap" }}>
+            📅 Storico
+          </button>
           <button onClick={() => setModaleRecupero(true)}
             style={{ fontSize: 11, fontWeight: 600, background: "#F0FDFA", color: "#0D9488", border: "none", borderRadius: 8, padding: "6px 10px", cursor: "pointer", whiteSpace: "nowrap" }}>
             🔁 Recupero
@@ -1022,11 +1028,24 @@ export default function App() {
                       </span>
                     )}
                     {noteAperte.filter(n => n.socio_cf === i.soci?.cf).length > 0 && (
-                      <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 500, background: "#FFFBEB", color: "#92400E" }}>
+                      <span onClick={() => setNotaVistaPer(notaVistaPer === i.id ? null : i.id)}
+                        style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 500, background: "#FFFBEB", color: "#92400E", cursor: "pointer", textDecoration: "underline" }}>
                         📝 {noteAperte.filter(n => n.socio_cf === i.soci?.cf).length} nota/e
                       </span>
                     )}
                   </div>
+                  {notaVistaPer === i.id && (
+                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                      {noteAperte.filter(n => n.socio_cf === i.soci?.cf).map(n => (
+                        <div key={n.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "#FFFBEB", border: "0.5px solid #FDE68A", borderRadius: 8, padding: "7px 9px" }}>
+                          <button onClick={() => completaNotaQui(n.id)}
+                            title="Segna come fatta"
+                            style={{ width: 16, height: 16, borderRadius: 5, border: "1.5px solid #FBBF24", background: "white", cursor: "pointer", flexShrink: 0, marginTop: 1 }} />
+                          <div style={{ fontSize: 12, color: "#78350F", flex: 1 }}>{n.testo}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {notaInputPer === i.id && (
                     <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
                       <input
@@ -1089,6 +1108,53 @@ export default function App() {
           <button onClick={() => window.print()}
             style={{ flex: 2, padding: "10px", border: `0.5px solid ${G}`, borderRadius: 10, fontSize: 12, fontWeight: 500, cursor: "pointer", background: GL, color: G }}>🖨 Stampa presenze</button>
         </div>
+
+        {/* MODALE STORICO PRESENZE — per rivedere chi c'era in un giorno passato */}
+        {modaleStorico && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 }}
+            onClick={() => setModaleStorico(false)}>
+            <div style={{ background: "white", borderRadius: 14, padding: 20, width: "100%", maxWidth: 400, maxHeight: "80vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: TX, marginBottom: 4 }}>📅 Storico presenze</div>
+              <div style={{ fontSize: 12, color: GR, marginBottom: 12 }}>{corso.nome} · {corso.sede}</div>
+
+              <input
+                type="date"
+                value={dataStorico}
+                onChange={(e) => setDataStorico(e.target.value)}
+                max={oggiISO()}
+                style={{ padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13, marginBottom: 14 }}
+              />
+
+              <div style={{ overflowY: "auto", flex: 1 }}>
+                {(() => {
+                  const presentiData = presenzeCorso.filter(p => p.data_presenza === dataStorico)
+                    .sort((a, b) => (a.soci?.cognome || "").localeCompare(b.soci?.cognome || "", "it", { sensitivity: "base" }));
+                  if (presentiData.length === 0) {
+                    return <div style={{ textAlign: "center", padding: 24, color: GR, fontSize: 13 }}>Nessuna presenza registrata per questa data.</div>;
+                  }
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ fontSize: 11.5, color: GR, marginBottom: 2 }}>{presentiData.length} present{presentiData.length === 1 ? "e" : "i"}</div>
+                      {presentiData.map(p => (
+                        <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#F9FAFB", border: `0.5px solid ${BD}`, borderRadius: 8, padding: "8px 10px" }}>
+                          <span style={{ fontSize: 13, color: TX }}>{p.soci?.cognome} {p.soci?.nome}</span>
+                          {p.tipo === "recupero" && (
+                            <span style={{ fontSize: 10, fontWeight: 600, color: "#0D9488", background: "#F0FDFA", padding: "2px 7px", borderRadius: 20 }}>🔁 recupero</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <button onClick={() => setModaleStorico(false)}
+                style={{ marginTop: 14, padding: "10px", borderRadius: 10, border: `0.5px solid ${BD}`, background: "white", color: GR, fontSize: 13, cursor: "pointer" }}>
+                Chiudi
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* MODALE INCASSA CONTANTI */}
         {modaleContanti && (
@@ -1254,39 +1320,6 @@ export default function App() {
     );
   }
 
-  // ── VISTA NOTE — tutte le note rapide non ancora completate, di qualunque
-  // corso, in un unico posto. Quando le spunti, scompaiono da qui (restano
-  // comunque salvate a database, solo marcate come completate). ──────
-  if (vistaNote) {
-    return (
-      <div style={{ fontFamily: "system-ui,sans-serif", background: "#F9FAFB", minHeight: "100vh", maxWidth: 440, margin: "0 auto", paddingBottom: 20 }}>
-        <div style={{ background: "white", borderBottom: `0.5px solid ${BD}`, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, zIndex: 100 }}>
-          <button onClick={() => setVistaNote(false)}
-            style={{ width: 32, height: 32, borderRadius: "50%", border: `0.5px solid ${BD}`, background: "none", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>←</button>
-          <div style={{ fontSize: 14, fontWeight: 500, color: TX }}>📝 Note da fare</div>
-        </div>
-        <div style={{ padding: "14px" }}>
-          {noteAperte.length === 0 && (
-            <div style={{ textAlign: "center", padding: 40, color: GR, fontSize: 13 }}>Nessuna nota in sospeso. ✅</div>
-          )}
-          {noteAperte.map(n => (
-            <div key={n.id} style={{ background: "white", border: `0.5px solid ${BD}`, borderRadius: 12, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "flex-start", gap: 10 }}>
-              <button onClick={() => completaNota(n.id)}
-                style={{ width: 22, height: 22, borderRadius: 6, border: `1.5px solid #FDE68A`, background: "#FFFBEB", cursor: "pointer", flexShrink: 0, marginTop: 1 }}
-                title="Segna come fatta" />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, color: TX }}>{n.testo}</div>
-                <div style={{ fontSize: 11, color: GR, marginTop: 3 }}>
-                  {n.soci?.cognome} {n.soci?.nome}{n.corsi?.disciplina ? ` · ${n.corsi.disciplina}` : ""}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
   // ── HOME: lista corsi ─────────────────────────────────────────────
   if (loading) return (
     <div style={{ fontFamily: "system-ui,sans-serif", background: "#F9FAFB", minHeight: "100vh", maxWidth: 440, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1312,13 +1345,6 @@ export default function App() {
       <div style={{ padding: "20px 14px 10px", textAlign: "center" }}>
         <div style={{ fontSize: 18, fontWeight: 500, color: TX, marginBottom: 4 }}>📋 I miei corsi</div>
         <div style={{ fontSize: 13, color: GR }}>Stagione {stagione?.nome ?? "2025/26"} · tocca un corso per aprirlo</div>
-      </div>
-      <div style={{ padding: "0 14px 10px" }}>
-        <button onClick={() => setVistaNote(true)}
-          style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `0.5px solid ${noteAperte.length > 0 ? "#FDE68A" : BD}`, background: noteAperte.length > 0 ? "#FFFBEB" : "white", color: noteAperte.length > 0 ? "#92400E" : GR, fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span>📝 Note da fare</span>
-          <span>{noteAperte.length > 0 ? `${noteAperte.length} da vedere ›` : "nessuna ›"}</span>
-        </button>
       </div>
       <div style={{ padding: "8px 14px" }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Cerca corso o sede…"
