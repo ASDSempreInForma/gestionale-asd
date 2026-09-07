@@ -72,6 +72,12 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
     if (id === "data_stampa") return 50;
     return 65;
   };
+  // Colonne con contenuto denso (date, soprattutto) che alla dimensione
+  // standard 8.5pt rischiavano di essere tagliate con "…" nella colonna
+  // stretta — font più piccolo per farle stare per intero, sia nell'intestazione
+  // che nei dati (richiesto da Solomon il 07/09/2026: "Scad. cert." illeggibile).
+  const dimFontCol = (id) => (["cert_scadenza", "data_nascita", "cert_appuntamento", "data_stampa"].includes(id) ? 7 : 8.5);
+
   const largTot = colonne.reduce((s, c) => s + largCol(c.id), 0);
   const scala = (W - 2 * MARGINE) / largTot; // sempre riempie tutta la larghezza pagina, sia allargando che restringendo
 
@@ -101,8 +107,9 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
     page.drawRectangle({ x: xTab, y: yTop - altezzaRiga, width: largTot * scala, height: altezzaRiga, color: scuro });
     colonne.forEach((c) => {
       const w = largCol(c.id) * scala;
-      const testo = troncaTesto(fontBold, c.label, 8.5, w - 8);
-      page.drawText(testo, { x: x + 4, y: yTop - altezzaRiga + 7, size: 8.5, font: fontBold, color: rgb(1, 1, 1) });
+      const dimFont = dimFontCol(c.id);
+      const testo = troncaTesto(fontBold, c.label, dimFont, w - 8);
+      page.drawText(testo, { x: x + 4, y: yTop - altezzaRiga + 7, size: dimFont, font: fontBold, color: rgb(1, 1, 1) });
       x += w;
     });
     return yTop - altezzaRiga;
@@ -116,9 +123,10 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
     let x = xTab;
     colonne.forEach((c, i) => {
       const w = largCol(c.id) * scala;
+      const dimFont = dimFontCol(c.id);
       const valore = String(riga[i] ?? "");
-      const testo = troncaTesto(fontRegular, valore, 8.5, w - 8);
-      page.drawText(testo, { x: x + 4, y: yTop - altezzaRiga + 7, size: 8.5, font: fontRegular, color: nero });
+      const testo = troncaTesto(fontRegular, valore, dimFont, w - 8);
+      page.drawText(testo, { x: x + 4, y: yTop - altezzaRiga + 7, size: dimFont, font: fontRegular, color: nero });
       x += w;
     });
     page.drawLine({ start: { x: xTab, y: yTop - altezzaRiga }, end: { x: xTab + largTot * scala, y: yTop - altezzaRiga }, thickness: 0.4, color: rgb(0.8, 0.8, 0.8) });
