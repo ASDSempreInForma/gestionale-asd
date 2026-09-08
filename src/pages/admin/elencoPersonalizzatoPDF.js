@@ -149,6 +149,17 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
   for (let i = 0; i < tutteLeRighe.length; i += righePerPagina) gruppi.push(tutteLeRighe.slice(i, i + righePerPagina));
   if (gruppi.length === 0) gruppi.push([]);
 
+  // Data e ora di stampa, in piccolo in basso a destra su ogni pagina
+  // (richiesto da Solomon il 07/09/2026).
+  const oraStampa = new Date();
+  const testoStampa =
+    "Stampato il " +
+    String(oraStampa.getDate()).padStart(2, "0") + "/" +
+    String(oraStampa.getMonth() + 1).padStart(2, "0") + "/" +
+    oraStampa.getFullYear() + " alle " +
+    String(oraStampa.getHours()).padStart(2, "0") + ":" +
+    String(oraStampa.getMinutes()).padStart(2, "0");
+
   gruppi.forEach((gruppo, idxPagina) => {
     const page = pdfDoc.addPage([W, H]);
     let y = disegnaIntestazionePagina(page, idxPagina + 1, gruppi.length);
@@ -156,6 +167,8 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
     gruppo.forEach((riga, i) => {
       y = disegnaRiga(page, y, riga, i);
     });
+    const wStampa = fontRegular.widthOfTextAtSize(testoStampa, 7);
+    page.drawText(testoStampa, { x: W - MARGINE - wStampa, y: 14, size: 7, font: fontRegular, color: rgb(0.6, 0.6, 0.6) });
   });
 
   const bytes = await pdfDoc.save();

@@ -84,7 +84,7 @@ const GRUPPI_COLONNE = [
       { id: "data_stampa", label: "Data", calc: () => "" },
       { id: "firma", label: "Firma", calc: () => "" },
       { id: "presenza", label: "Presenza", calc: () => "" },
-      { id: "note_manuali", label: "Note", calc: () => "" },
+      { id: "note_manuali", label: "Note", calc: (r, ctx) => (ctx?.precompilaNote && r.note ? r.note : "") },
     ],
   },
 ];
@@ -221,6 +221,11 @@ export default function ElencoPersonalizzato() {
   const [colonneScelte, setColonneScelte] = useState(
     new Set(["cognome", "nome", "tipo_iscrizione", "pagamento", "assicurazione", "telefono"])
   );
+  // Se attivo, la colonna "Note" viene precompilata con la nota interna già
+  // presente sull'iscrizione, invece di restare vuota per la scrittura a mano
+  // — solo se la colonna "Note" è tra quelle scelte (richiesto da Solomon il
+  // 07/09/2026).
+  const [precompilaNote, setPrecompilaNote] = useState(false);
 
   const OPZIONI_TITOLO = [
     "SOCI E TESSERATI",
@@ -482,7 +487,7 @@ export default function ElencoPersonalizzato() {
     const intestazione = [...(elencoNumerato ? ["N."] : []), ...colonneOrdinate.map((c) => c.label)];
     const righe = iscrizioniSelezionate.map((r, i) => [
       ...(elencoNumerato ? [i + 1] : []),
-      ...colonneOrdinate.map((c) => c.calc(r)),
+      ...colonneOrdinate.map((c) => c.calc(r, { precompilaNote })),
     ]);
     const righeExtra = Array.from({ length: Math.max(0, righeVuoteExtra) }).map(() => [
       ...(elencoNumerato ? [""] : []),
@@ -500,7 +505,7 @@ export default function ElencoPersonalizzato() {
     const colonneConNumero = elencoNumerato ? [{ id: "numero", label: "N." }, ...colonneOrdinate] : colonneOrdinate;
     const righe = iscrizioniSelezionate.map((r, i) => [
       ...(elencoNumerato ? [i + 1] : []),
-      ...colonneOrdinate.map((c) => c.calc(r)),
+      ...colonneOrdinate.map((c) => c.calc(r, { precompilaNote })),
     ]);
     const titolo = titoloPDF === "ALTRO" ? (titoloPersonalizzato || "SOCI E TESSERATI") : titoloPDF;
     generaElencoPDF({
@@ -548,6 +553,12 @@ export default function ElencoPersonalizzato() {
                       {c.label}
                     </label>
                   ))}
+                  {g.titolo === "Da compilare a mano" && colonneScelte.has("note_manuali") && (
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: GR, padding: "4px 0 4px 24px", cursor: "pointer" }}>
+                      <input type="checkbox" checked={precompilaNote} onChange={(e) => setPrecompilaNote(e.target.checked)} />
+                      Precompila con le note già presenti (dove ci sono)
+                    </label>
+                  )}
                 </div>
               ))}
             </div>
