@@ -18,6 +18,12 @@ export default function EsportaAssicurazioni() {
   const [caricando, setCaricando] = useState(true);
   const [caricandoIscritti, setCaricandoIscritti] = useState(false);
   const [errore, setErrore] = useState(null);
+  // Selezione per persona (oltre alla scelta del corso intero) — di default
+  // tutti gli iscritti del corso sono selezionati, così chi non ha bisogno di
+  // scegliere continua a lavorare come prima; si può deselezionare o cercare
+  // per limitare l'esportazione a poche persone (richiesto da Solomon l'8/09/2026).
+  const [selezionati, setSelezionati] = useState(new Set());
+  const [ricerca, setRicerca] = useState("");
 
   useEffect(() => {
     caricaCorsi();
@@ -50,6 +56,8 @@ export default function EsportaAssicurazioni() {
   async function selezionaCorso(id) {
     setCorsoId(id);
     setIscritti([]);
+    setSelezionati(new Set());
+    setRicerca("");
     if (!id) return;
     setCaricandoIscritti(true);
     try {
@@ -66,6 +74,7 @@ export default function EsportaAssicurazioni() {
         .order("id");
       if (error) throw error;
       setIscritti(data || []);
+      setSelezionati(new Set((data || []).map((r) => r.id))); // tutti selezionati di default
     } catch (err) {
       console.error(err);
       setErrore("Impossibile caricare i dati di questo corso.");
@@ -73,6 +82,41 @@ export default function EsportaAssicurazioni() {
       setCaricandoIscritti(false);
     }
   }
+
+  function toggleSelezionato(id) {
+    setSelezionati((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const iscrittiFiltrati = iscritti.filter((r) => {
+    if (!ricerca.trim()) return true;
+    const t = ricerca.trim().toLowerCase();
+    const s = r.soci || {};
+    return (
+      (s.nome || "").toLowerCase().includes(t) ||
+      (s.cognome || "").toLowerCase().includes(t) ||
+      (s.cf || "").toLowerCase().includes(t) ||
+      (s.email || "").toLowerCase().includes(t) ||
+      (s.telefono || "").includes(t)
+    );
+  });
+
+  function selezionaFiltrati() {
+    setSelezionati((prev) => {
+      const next = new Set(prev);
+      iscrittiFiltrati.forEach((r) => next.add(r.id));
+      return next;
+    });
+  }
+  function svuotaSelezione() {
+    setSelezionati(new Set());
+  }
+
+  const iscrittiSelezionati = iscritti.filter((r) => selezionati.has(r.id));
 
   const corso = corsi.find((c) => c.id === corsoId);
 
@@ -115,31 +159,70 @@ export default function EsportaAssicurazioni() {
                   <p style={{ color: GR, fontSize: 13 }}>Carico gli iscritti…</p>
                 ) : (
                   <>
-                    <p style={{ fontSize: 13, color: GR, marginBottom: 16 }}>
-                      <b style={{ color: TX }}>{iscritti.length}</b> iscritti su questo corso.
+                    <p style={{ fontSize: 13, color: GR, marginBottom: 12 }}>
+                      <b style={{ color: TX }}>{iscritti.length}</b> iscritti su questo corso ·{" "}
+                      <b style={{ color: G }}>{iscrittiSelezionati.length}</b> selezionati per l'esportazione.
                     </p>
+
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: GR, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>
+                      Scegli le persone
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                      <input
+                        type="text"
+                        value={ricerca}
+                        onChange={(e) => setRicerca(e.target.value)}
+                        placeholder="Cerca per nome, cognome, CF, email o telefono…"
+                        style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13 }}
+                      />
+                      <button onClick={selezionaFiltrati}
+                        style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: "white", color: TX, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                        Seleziona filtrati
+                      </button>
+                      <button onClick={svuotaSelezione}
+                        style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: "white", color: GR, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                        Svuota
+                      </button>
+                    </div>
+                    <div style={{ maxHeight: 260, overflowY: "auto", border: `1px solid ${BD}`, borderRadius: 8, marginBottom: 18 }}>
+                      {iscrittiFiltrati.length === 0 && (
+                        <div style={{ padding: 12, fontSize: 12.5, color: GR }}>Nessun iscritto trovato.</div>
+                      )}
+                      {iscrittiFiltrati.map((r) => {
+                        const s = r.soci || {};
+                        return (
+                          <label key={r.id}
+                            style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: `1px solid ${BD}`, cursor: "pointer", fontSize: 13 }}>
+                            <input type="checkbox" checked={selezionati.has(r.id)} onChange={() => toggleSelezionato(r.id)} />
+                            <span style={{ color: TX }}>{s.cognome} {s.nome}</span>
+                            <span style={{ color: GR, fontSize: 11.5, marginLeft: "auto" }}>{s.cf}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+
                     <div style={{ fontSize: 11.5, fontWeight: 700, color: GR, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>
                       Elenco dati (per il portale)
                     </div>
                     <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
                       <button
-                        onClick={() => generaFileASI(corso, iscritti, stagione)}
-                        disabled={iscritti.length === 0}
+                        onClick={() => generaFileASI(corso, iscrittiSelezionati, stagione)}
+                        disabled={iscrittiSelezionati.length === 0}
                         style={{
                           flex: 1, padding: "12px 10px", borderRadius: 10, border: "none",
-                          background: iscritti.length ? GL : "#F3F4F6", color: iscritti.length ? G : "#9CA3AF",
-                          fontSize: 13, fontWeight: 600, cursor: iscritti.length ? "pointer" : "not-allowed",
+                          background: iscrittiSelezionati.length ? GL : "#F3F4F6", color: iscrittiSelezionati.length ? G : "#9CA3AF",
+                          fontSize: 13, fontWeight: 600, cursor: iscrittiSelezionati.length ? "pointer" : "not-allowed",
                         }}
                       >
                         📊 Elenco dati ASI
                       </button>
                       <button
-                        onClick={() => generaFileLibertas(corso, iscritti, stagione)}
-                        disabled={iscritti.length === 0}
+                        onClick={() => generaFileLibertas(corso, iscrittiSelezionati, stagione)}
+                        disabled={iscrittiSelezionati.length === 0}
                         style={{
                           flex: 1, padding: "12px 10px", borderRadius: 10, border: "none",
-                          background: iscritti.length ? GL : "#F3F4F6", color: iscritti.length ? G : "#9CA3AF",
-                          fontSize: 13, fontWeight: 600, cursor: iscritti.length ? "pointer" : "not-allowed",
+                          background: iscrittiSelezionati.length ? GL : "#F3F4F6", color: iscrittiSelezionati.length ? G : "#9CA3AF",
+                          fontSize: 13, fontWeight: 600, cursor: iscrittiSelezionati.length ? "pointer" : "not-allowed",
                         }}
                       >
                         📊 Elenco dati Libertas
@@ -151,23 +234,23 @@ export default function EsportaAssicurazioni() {
                     </div>
                     <div style={{ display: "flex", gap: 10 }}>
                       <button
-                        onClick={() => generaRegistroFirmeASI(corso, iscritti, stagione)}
-                        disabled={iscritti.length === 0}
+                        onClick={() => generaRegistroFirmeASI(corso, iscrittiSelezionati, stagione)}
+                        disabled={iscrittiSelezionati.length === 0}
                         style={{
                           flex: 1, padding: "12px 10px", borderRadius: 10, border: "none",
-                          background: iscritti.length ? GL : "#F3F4F6", color: iscritti.length ? G : "#9CA3AF",
-                          fontSize: 13, fontWeight: 600, cursor: iscritti.length ? "pointer" : "not-allowed",
+                          background: iscrittiSelezionati.length ? GL : "#F3F4F6", color: iscrittiSelezionati.length ? G : "#9CA3AF",
+                          fontSize: 13, fontWeight: 600, cursor: iscrittiSelezionati.length ? "pointer" : "not-allowed",
                         }}
                       >
                         🖨️ Registro firme ASI
                       </button>
                       <button
-                        onClick={() => generaRegistroFirmeLibertas(corso, iscritti, stagione)}
-                        disabled={iscritti.length === 0}
+                        onClick={() => generaRegistroFirmeLibertas(corso, iscrittiSelezionati, stagione)}
+                        disabled={iscrittiSelezionati.length === 0}
                         style={{
                           flex: 1, padding: "12px 10px", borderRadius: 10, border: "none",
-                          background: iscritti.length ? GL : "#F3F4F6", color: iscritti.length ? G : "#9CA3AF",
-                          fontSize: 13, fontWeight: 600, cursor: iscritti.length ? "pointer" : "not-allowed",
+                          background: iscrittiSelezionati.length ? GL : "#F3F4F6", color: iscrittiSelezionati.length ? G : "#9CA3AF",
+                          fontSize: 13, fontWeight: 600, cursor: iscrittiSelezionati.length ? "pointer" : "not-allowed",
                         }}
                       >
                         🖨️ Registro firme Libertas
