@@ -47,7 +47,7 @@ export function generaFileASI(corso, iscritti, stagione) {
       "asdsempreinforma@gmail.com", s.numero_tessera || "", fmtData(i.data_scadenza_certificato), "LOM-BS0905"];
   });
   const wsElenco = XLSX.utils.aoa_to_sheet([intestazioneASI, ...righeASI]);
-  scaricaCSV(wsElenco, `ASI_${corso.codice_corso}.csv`);
+  scaricaCSV(wsElenco, `ASI_${corso?.codice_corso || "Misto"}.csv`);
 }
 
 export function generaFileLibertas(corso, iscritti, stagione) {
@@ -72,5 +72,5 @@ export function generaFileLibertas(corso, iscritti, stagione) {
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, wsElenco, "Elenco LIBERTAS");
-  scaricaWorkbook(wb, `Libertas_${corso.codice_corso}.xlsx`);
+  scaricaWorkbook(wb, `Libertas_${corso?.codice_corso || "Misto"}.xlsx`);
 }

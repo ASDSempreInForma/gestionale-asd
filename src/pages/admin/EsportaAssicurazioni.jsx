@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { generaFileASI, generaFileLibertas } from "./esportaAssicurazioni.js";
-import { generaRegistroFirmeASI, generaRegistroFirmeLibertas } from "./registroFirme.js";
+import { generaRegistroFirmeASI, generaRegistroFirmeLibertas, generaRegistroFirmeMistoASI, generaRegistroFirmeMistoLibertas } from "./registroFirme.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -61,20 +61,45 @@ export default function EsportaAssicurazioni() {
     if (!id) return;
     setCaricandoIscritti(true);
     try {
-      const { data, error } = await supabase
-        .from("iscrizioni")
-        .select(`
-          id, tipo_pagamento, data_scadenza_certificato, note,
-          soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita,
-                 comune_residenza, provincia_residenza, cap, indirizzo, sesso,
-                 telefono, email, numero_tessera, ente_tessera )
-        `)
-        .eq("corso_id", id)
-        .neq("stato_pagamento", "annullata")
-        .order("id");
-      if (error) throw error;
-      setIscritti(data || []);
-      setSelezionati(new Set((data || []).map((r) => r.id))); // tutti selezionati di default
+      if (id === "TUTTI") {
+        // Modalità "corsi diversi": serve il corso di OGNI singola persona,
+        // non solo l'id, per poterlo mostrare nella lista e stamparlo nel
+        // registro firme misto (richiesto da Solomon l'8/09/2026). Usiamo gli
+        // id dei corsi già caricati (filtrati sulla stagione attiva) invece di
+        // un join sulla relazione, così siamo sicuri di restare nella stagione
+        // giusta.
+        const idCorsiStagione = corsi.map((c) => c.id);
+        const { data, error } = await supabase
+          .from("iscrizioni")
+          .select(`
+            id, corso_id, tipo_pagamento, data_scadenza_certificato, note,
+            soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita,
+                   comune_residenza, provincia_residenza, cap, indirizzo, sesso,
+                   telefono, email, numero_tessera, ente_tessera )
+          `)
+          .in("corso_id", idCorsiStagione)
+          .neq("stato_pagamento", "annullata")
+          .order("id");
+        if (error) throw error;
+        const arricchiti = (data || []).map((r) => ({ ...r, corso: corsi.find((c) => c.id === r.corso_id) }));
+        setIscritti(arricchiti);
+        setSelezionati(new Set(arricchiti.map((r) => r.id)));
+      } else {
+        const { data, error } = await supabase
+          .from("iscrizioni")
+          .select(`
+            id, tipo_pagamento, data_scadenza_certificato, note,
+            soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita,
+                   comune_residenza, provincia_residenza, cap, indirizzo, sesso,
+                   telefono, email, numero_tessera, ente_tessera )
+          `)
+          .eq("corso_id", id)
+          .neq("stato_pagamento", "annullata")
+          .order("id");
+        if (error) throw error;
+        setIscritti(data || []);
+        setSelezionati(new Set((data || []).map((r) => r.id))); // tutti selezionati di default
+      }
     } catch (err) {
       console.error(err);
       setErrore("Impossibile caricare i dati di questo corso.");
@@ -96,12 +121,15 @@ export default function EsportaAssicurazioni() {
     if (!ricerca.trim()) return true;
     const t = ricerca.trim().toLowerCase();
     const s = r.soci || {};
+    const c = r.corso || {};
     return (
       (s.nome || "").toLowerCase().includes(t) ||
       (s.cognome || "").toLowerCase().includes(t) ||
       (s.cf || "").toLowerCase().includes(t) ||
       (s.email || "").toLowerCase().includes(t) ||
-      (s.telefono || "").includes(t)
+      (s.telefono || "").includes(t) ||
+      (c.codice_corso || "").toLowerCase().includes(t) ||
+      (c.disciplina || "").toLowerCase().includes(t)
     );
   });
 
@@ -117,7 +145,7 @@ export default function EsportaAssicurazioni() {
   }
 
   const iscrittiSelezionati = iscritti.filter((r) => selezionati.has(r.id));
-
+  const modalitaMista = corsoId === "TUTTI";
   const corso = corsi.find((c) => c.id === corsoId);
 
   return (
@@ -146,6 +174,7 @@ export default function EsportaAssicurazioni() {
               style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${BD}`, fontSize: 14, marginBottom: 16 }}
             >
               <option value="">Seleziona un corso…</option>
+              <option value="TUTTI">🔀 Tutti i corsi (scegli persone da corsi diversi)</option>
               {corsi.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.codice_corso} — {c.disciplina} — {c.sedi?.nome} ({c.giorni_orari})
@@ -160,7 +189,7 @@ export default function EsportaAssicurazioni() {
                 ) : (
                   <>
                     <p style={{ fontSize: 13, color: GR, marginBottom: 12 }}>
-                      <b style={{ color: TX }}>{iscritti.length}</b> iscritti su questo corso ·{" "}
+                      <b style={{ color: TX }}>{iscritti.length}</b> {modalitaMista ? "iscritti in tutti i corsi" : "iscritti su questo corso"} ·{" "}
                       <b style={{ color: G }}>{iscrittiSelezionati.length}</b> selezionati per l'esportazione.
                     </p>
 
@@ -172,7 +201,7 @@ export default function EsportaAssicurazioni() {
                         type="text"
                         value={ricerca}
                         onChange={(e) => setRicerca(e.target.value)}
-                        placeholder="Cerca per nome, cognome, CF, email o telefono…"
+                        placeholder={modalitaMista ? "Cerca per nome, cognome, CF, corso…" : "Cerca per nome, cognome, CF, email o telefono…"}
                         style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13 }}
                       />
                       <button onClick={selezionaFiltrati}
@@ -190,11 +219,17 @@ export default function EsportaAssicurazioni() {
                       )}
                       {iscrittiFiltrati.map((r) => {
                         const s = r.soci || {};
+                        const c = r.corso;
                         return (
                           <label key={r.id}
                             style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: `1px solid ${BD}`, cursor: "pointer", fontSize: 13 }}>
                             <input type="checkbox" checked={selezionati.has(r.id)} onChange={() => toggleSelezionato(r.id)} />
                             <span style={{ color: TX }}>{s.cognome} {s.nome}</span>
+                            {modalitaMista && c && (
+                              <span style={{ color: GR, fontSize: 11 }}>
+                                {c.codice_corso} — {c.disciplina} ({c.sedi?.nome})
+                              </span>
+                            )}
                             <span style={{ color: GR, fontSize: 11.5, marginLeft: "auto" }}>{s.cf}</span>
                           </label>
                         );
@@ -206,7 +241,7 @@ export default function EsportaAssicurazioni() {
                     </div>
                     <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
                       <button
-                        onClick={() => generaFileASI(corso, iscrittiSelezionati, stagione)}
+                        onClick={() => generaFileASI(modalitaMista ? null : corso, iscrittiSelezionati, stagione)}
                         disabled={iscrittiSelezionati.length === 0}
                         style={{
                           flex: 1, padding: "12px 10px", borderRadius: 10, border: "none",
@@ -217,7 +252,7 @@ export default function EsportaAssicurazioni() {
                         📊 Elenco dati ASI
                       </button>
                       <button
-                        onClick={() => generaFileLibertas(corso, iscrittiSelezionati, stagione)}
+                        onClick={() => generaFileLibertas(modalitaMista ? null : corso, iscrittiSelezionati, stagione)}
                         disabled={iscrittiSelezionati.length === 0}
                         style={{
                           flex: 1, padding: "12px 10px", borderRadius: 10, border: "none",
@@ -234,7 +269,9 @@ export default function EsportaAssicurazioni() {
                     </div>
                     <div style={{ display: "flex", gap: 10 }}>
                       <button
-                        onClick={() => generaRegistroFirmeASI(corso, iscrittiSelezionati, stagione)}
+                        onClick={() => (modalitaMista
+                          ? generaRegistroFirmeMistoASI(iscrittiSelezionati, stagione)
+                          : generaRegistroFirmeASI(corso, iscrittiSelezionati, stagione))}
                         disabled={iscrittiSelezionati.length === 0}
                         style={{
                           flex: 1, padding: "12px 10px", borderRadius: 10, border: "none",
@@ -245,7 +282,9 @@ export default function EsportaAssicurazioni() {
                         🖨️ Registro firme ASI
                       </button>
                       <button
-                        onClick={() => generaRegistroFirmeLibertas(corso, iscrittiSelezionati, stagione)}
+                        onClick={() => (modalitaMista
+                          ? generaRegistroFirmeMistoLibertas(iscrittiSelezionati, stagione)
+                          : generaRegistroFirmeLibertas(corso, iscrittiSelezionati, stagione))}
                         disabled={iscrittiSelezionati.length === 0}
                         style={{
                           flex: 1, padding: "12px 10px", borderRadius: 10, border: "none",

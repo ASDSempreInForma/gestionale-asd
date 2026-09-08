@@ -27,8 +27,12 @@ function fmtData(d) {
 }
 
 const PERSONE_PER_PAGINA = 5;
+// Quando il foglio mescola persone di corsi diversi, ogni blocco persona è più
+// alto (riga in più con il corso), quindi ne stanno un po' meno per pagina.
+const PERSONE_PER_PAGINA_MISTO = 4;
+const ALTEZZA_RIGA_CORSO = 14; // striscia in più sopra al blocco, solo nel foglio misto
 
-async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile }) {
+async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile, misto = false }) {
   const pdfDoc = await PDFDocument.create();
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -51,7 +55,7 @@ async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile
 
     const titoloY = H - MARGINE - 40;
     page.drawRectangle({ x: boxX, y: titoloY - 4, width: boxW, height: 22, borderColor: nero, borderWidth: 1 });
-    const titolo = `Tesseramento Anno sportivo ${stagioneNome}`;
+    const titolo = misto ? `Tesseramento Anno sportivo ${stagioneNome} — Corsi diversi` : `Tesseramento Anno sportivo ${stagioneNome}`;
     const wTitolo = fontBold.widthOfTextAtSize(titolo, 12);
     page.drawText(titolo, { x: boxX + (boxW - wTitolo) / 2, y: titoloY + 2, size: 12, font: fontBold, color: nero });
 
@@ -67,37 +71,53 @@ async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile
   function disegnaPersona(page, yTop, iscrizione) {
     const s = iscrizione.soci || {};
     const rigaH = 18;
+    const stripH = misto ? ALTEZZA_RIGA_CORSO : 0;
+    const blockH = rigaH * 3 + stripH;
     const xTot = MARGINE, wTot = W - 2 * MARGINE;
 
-    page.drawRectangle({ x: xTot, y: yTop - rigaH * 3, width: wTot, height: rigaH * 3, borderColor: nero, borderWidth: 1 });
-    page.drawLine({ start: { x: xTot, y: yTop - rigaH }, end: { x: xTot + wTot, y: yTop - rigaH }, thickness: 0.5, color: nero });
-    page.drawLine({ start: { x: xTot, y: yTop - rigaH * 2 }, end: { x: xTot + wTot, y: yTop - rigaH * 2 }, thickness: 0.5, color: nero });
+    page.drawRectangle({ x: xTot, y: yTop - blockH, width: wTot, height: blockH, borderColor: nero, borderWidth: 1 });
+
+    // Striscia con il corso di QUESTA persona, solo nel foglio misto — serve a
+    // chi firma per sapere a quale corso si riferisce la riga, dato che nello
+    // stesso foglio ci sono persone di corsi diversi (richiesto da Solomon
+    // l'8/09/2026).
+    if (misto) {
+      const c = iscrizione.corso || {};
+      const sedeNome = c.sedi?.nome || "";
+      const etichettaCorso = `Corso: ${c.disciplina || "—"} — ${sedeNome}${sedeNome ? " " : ""}(${c.giorni_orari || "—"})`;
+      page.drawText(etichettaCorso, { x: xTot + 8, y: yTop - stripH + 3, size: 9, font: fontBold, color: nero });
+      page.drawLine({ start: { x: xTot, y: yTop - stripH }, end: { x: xTot + wTot, y: yTop - stripH }, thickness: 0.5, color: nero });
+    }
+
+    const yBase = yTop - stripH;
+    page.drawLine({ start: { x: xTot, y: yBase - rigaH }, end: { x: xTot + wTot, y: yBase - rigaH }, thickness: 0.5, color: nero });
+    page.drawLine({ start: { x: xTot, y: yBase - rigaH * 2 }, end: { x: xTot + wTot, y: yBase - rigaH * 2 }, thickness: 0.5, color: nero });
 
     const riga = (testo, x, y, bold, size = 10) => page.drawText(testo, { x, y, size, font: bold ? fontBold : fontRegular, color: nero });
 
     // Riga 1: Cognome / Nome / Data
-    riga("Cognome:", xTot + 8, yTop - 13, false);
-    riga(s.cognome || "", xTot + 65, yTop - 13, true);
-    riga("Nome:", xTot + 220, yTop - 13, false);
-    riga(s.nome || "", xTot + 260, yTop - 13, true);
-    riga("Data _____ / _____ / _____", xTot + 380, yTop - 13, false);
+    riga("Cognome:", xTot + 8, yBase - 13, false);
+    riga(s.cognome || "", xTot + 65, yBase - 13, true);
+    riga("Nome:", xTot + 220, yBase - 13, false);
+    riga(s.nome || "", xTot + 260, yBase - 13, true);
+    riga("Data _____ / _____ / _____", xTot + 380, yBase - 13, false);
 
     // Riga 2: Data nascita / Comune / Firma
-    riga("Data nascita:", xTot + 8, yTop - rigaH - 13, false);
-    riga(fmtData(s.data_nascita), xTot + 80, yTop - rigaH - 13, true);
-    riga("a:", xTot + 220, yTop - rigaH - 13, false);
-    riga(s.comune_nascita || "", xTot + 235, yTop - rigaH - 13, true);
-    riga("Firma ____________________", xTot + 380, yTop - rigaH - 13, false, 9);
+    riga("Data nascita:", xTot + 8, yBase - rigaH - 13, false);
+    riga(fmtData(s.data_nascita), xTot + 80, yBase - rigaH - 13, true);
+    riga("a:", xTot + 220, yBase - rigaH - 13, false);
+    riga(s.comune_nascita || "", xTot + 235, yBase - rigaH - 13, true);
+    riga("Firma ____________________", xTot + 380, yBase - rigaH - 13, false, 9);
 
     // Riga 3: Tipo tessera / Codice tessera / Data emissione (sempre la data odierna, ossia la data di stampa)
-    riga("Tipo Tessera:", xTot + 8, yTop - rigaH * 2 - 13, false);
-    riga(ente === "ASI" ? "A" : "APR", xTot + 80, yTop - rigaH * 2 - 13, true);
-    riga("Codice tessera:", xTot + 150, yTop - rigaH * 2 - 13, false);
-    riga(s.numero_tessera ? String(s.numero_tessera) : "", xTot + 250, yTop - rigaH * 2 - 13, true);
-    riga("Data emissione:", xTot + 380, yTop - rigaH * 2 - 13, false);
-    riga(fmtData(new Date()), xTot + 460, yTop - rigaH * 2 - 13, true);
+    riga("Tipo Tessera:", xTot + 8, yBase - rigaH * 2 - 13, false);
+    riga(ente === "ASI" ? "A" : "APR", xTot + 80, yBase - rigaH * 2 - 13, true);
+    riga("Codice tessera:", xTot + 150, yBase - rigaH * 2 - 13, false);
+    riga(s.numero_tessera ? String(s.numero_tessera) : "", xTot + 250, yBase - rigaH * 2 - 13, true);
+    riga("Data emissione:", xTot + 380, yBase - rigaH * 2 - 13, false);
+    riga(fmtData(new Date()), xTot + 460, yBase - rigaH * 2 - 13, true);
 
-    return yTop - rigaH * 3 - 6;
+    return yTop - blockH - 6;
   }
 
   function disegnaPiedePagina(page, yTop) {
@@ -112,9 +132,10 @@ async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile
     page.drawText("Firme ______________ ______________", { x: xTot + 220, y: yTop - 20 - 17, size: 10, font: fontRegular, color: nero });
   }
 
+  const persPerPagina = misto ? PERSONE_PER_PAGINA_MISTO : PERSONE_PER_PAGINA;
   const gruppi = [];
-  for (let i = 0; i < iscritti.length; i += PERSONE_PER_PAGINA) {
-    gruppi.push(iscritti.slice(i, i + PERSONE_PER_PAGINA));
+  for (let i = 0; i < iscritti.length; i += persPerPagina) {
+    gruppi.push(iscritti.slice(i, i + persPerPagina));
   }
   if (gruppi.length === 0) gruppi.push([]);
 
@@ -156,5 +177,34 @@ export async function generaRegistroFirmeLibertas(corso, iscritti, stagione) {
     stagioneNome: stagione?.nome || "",
     ente: "Libertas",
     nomeFile: `Registro_Firme_Libertas_${corso.codice_corso}.pdf`,
+  });
+}
+
+// Registro firme "misto": persone di corsi DIVERSI riunite in un unico foglio
+// da stampare (es. quando restano solo 1-2 persone da assicurare in tanti
+// corsi diversi e non ha senso stampare un foglio a testa). Ogni elemento di
+// `iscrittiConCorso` deve avere, oltre ai campi normali, un `corso` proprio
+// ({ disciplina, giorni_orari, sedi:{nome} }) — mostrato in una striscia sopra
+// ai dati della persona così chi firma sa a quale corso si riferisce
+// (richiesto da Solomon l'8/09/2026).
+export async function generaRegistroFirmeMistoASI(iscrittiConCorso, stagione) {
+  await generaPDF({
+    iscritti: iscrittiConCorso,
+    codiceSocieta: "BS0905",
+    stagioneNome: stagione?.nome || "",
+    ente: "ASI",
+    nomeFile: "Registro_Firme_ASI_Misto.pdf",
+    misto: true,
+  });
+}
+
+export async function generaRegistroFirmeMistoLibertas(iscrittiConCorso, stagione) {
+  await generaPDF({
+    iscritti: iscrittiConCorso,
+    codiceSocieta: "BS481",
+    stagioneNome: stagione?.nome || "",
+    ente: "Libertas",
+    nomeFile: "Registro_Firme_Libertas_Misto.pdf",
+    misto: true,
   });
 }
