@@ -262,8 +262,8 @@ export default function GestioneProve() {
       return;
     }
     const [rMs, rBrevo] = await Promise.all([
-      chiamaFunzione(FUNCTION_URL_MS, { action: "cerca_email", email: p.email }),
-      chiamaFunzione(FUNCTION_URL_BREVO, { action: "cerca_email_brevo", email: p.email }),
+      chiamaFunzione(FUNCTION_URL_MS, { action: "cerca_email", email: p.email.trim().toLowerCase() }),
+      chiamaFunzione(FUNCTION_URL_BREVO, { action: "cerca_email_brevo", email: p.email.trim().toLowerCase() }),
     ]);
     const msgMs = (rMs.ok ? rMs.messaggi : []).map(m => ({ ...m, fonte: "outlook" }));
     const msgBrevo = (rBrevo.ok ? rBrevo.messaggi : []).map(m => ({ ...m, fonte: "brevo" }));
