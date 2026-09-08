@@ -84,7 +84,12 @@ const GRUPPI_COLONNE = [
       { id: "data_stampa", label: "Data", calc: () => "" },
       { id: "firma", label: "Firma", calc: () => "" },
       { id: "presenza", label: "Presenza", calc: () => "" },
-      { id: "note_manuali", label: "Note", calc: (r, ctx) => (ctx?.precompilaNote && r.soci?.note ? r.soci.note : "") },
+      { id: "note_manuali", label: "Note", calc: (r, ctx) => {
+        const parti = [];
+        if (ctx?.precompilaNoteInterne && r.soci?.note) parti.push(r.soci.note);
+        if (ctx?.precompilaNoteRapide && ctx?.noteRapidePerCf?.[r.soci?.cf]) parti.push(ctx.noteRapidePerCf[r.soci.cf]);
+        return parti.join(" | ");
+      } },
     ],
   },
 ];
@@ -211,6 +216,11 @@ export default function ElencoPersonalizzato() {
   const [stagione, setStagione] = useState(null);
   const [corsi, setCorsi] = useState([]);
   const [iscrizioni, setIscrizioni] = useState([]);
+  // Promemoria dal pannello "📝 Note" (tabella note_rapide), solo quelli non
+  // ancora completati, raggruppati per CF socio — fonte alternativa/aggiuntiva
+  // alla nota interna di Anagrafica Soci per la colonna "Note" (richiesto da
+  // Solomon il 08/09/2026).
+  const [noteRapidePerCf, setNoteRapidePerCf] = useState({});
   const [caricando, setCaricando] = useState(true);
   const [errore, setErrore] = useState(null);
 
@@ -221,11 +231,13 @@ export default function ElencoPersonalizzato() {
   const [colonneScelte, setColonneScelte] = useState(
     new Set(["cognome", "nome", "tipo_iscrizione", "pagamento", "assicurazione", "telefono"])
   );
-  // Se attivo, la colonna "Note" viene precompilata con la nota interna già
-  // presente sull'iscrizione, invece di restare vuota per la scrittura a mano
-  // — solo se la colonna "Note" è tra quelle scelte (richiesto da Solomon il
-  // 07/09/2026).
-  const [precompilaNote, setPrecompilaNote] = useState(false);
+  // Se attivi, la colonna "Note" viene precompilata con le note interne del
+  // socio e/o i promemoria non completati da "📝 Note", invece di restare
+  // vuota per la scrittura a mano — solo se la colonna "Note" è tra quelle
+  // scelte. Entrambe le fonti sono selezionabili insieme (richiesto da
+  // Solomon l'8/09/2026).
+  const [precompilaNoteInterne, setPrecompilaNoteInterne] = useState(false);
+  const [precompilaNoteRapide, setPrecompilaNoteRapide] = useState(false);
 
   const OPZIONI_TITOLO = [
     "SOCI E TESSERATI",
@@ -268,6 +280,18 @@ export default function ElencoPersonalizzato() {
         .neq("stato_pagamento", "annullata")
         .order("id");
       if (errI) throw errI;
+
+      const { data: noteRapideDB, error: errNR } = await supabase
+        .from("note_rapide")
+        .select("socio_cf, testo")
+        .eq("completata", false);
+      if (errNR) throw errNR;
+      const mappaNoteRapide = {};
+      (noteRapideDB || []).forEach((n) => {
+        if (!n.socio_cf) return;
+        mappaNoteRapide[n.socio_cf] = mappaNoteRapide[n.socio_cf] ? mappaNoteRapide[n.socio_cf] + " | " + n.testo : n.testo;
+      });
+      setNoteRapidePerCf(mappaNoteRapide);
 
       // Righe di altri corsi per la stessa persona (per CF), con i dettagli
       // di frequenza necessari a costruire l'abbreviazione della combinazione.
@@ -487,7 +511,7 @@ export default function ElencoPersonalizzato() {
     const intestazione = [...(elencoNumerato ? ["N."] : []), ...colonneOrdinate.map((c) => c.label)];
     const righe = iscrizioniSelezionate.map((r, i) => [
       ...(elencoNumerato ? [i + 1] : []),
-      ...colonneOrdinate.map((c) => c.calc(r, { precompilaNote })),
+      ...colonneOrdinate.map((c) => c.calc(r, { precompilaNoteInterne, precompilaNoteRapide, noteRapidePerCf })),
     ]);
     const righeExtra = Array.from({ length: Math.max(0, righeVuoteExtra) }).map(() => [
       ...(elencoNumerato ? [""] : []),
@@ -505,7 +529,7 @@ export default function ElencoPersonalizzato() {
     const colonneConNumero = elencoNumerato ? [{ id: "numero", label: "N." }, ...colonneOrdinate] : colonneOrdinate;
     const righe = iscrizioniSelezionate.map((r, i) => [
       ...(elencoNumerato ? [i + 1] : []),
-      ...colonneOrdinate.map((c) => c.calc(r, { precompilaNote })),
+      ...colonneOrdinate.map((c) => c.calc(r, { precompilaNoteInterne, precompilaNoteRapide, noteRapidePerCf })),
     ]);
     const titolo = titoloPDF === "ALTRO" ? (titoloPersonalizzato || "SOCI E TESSERATI") : titoloPDF;
     generaElencoPDF({
@@ -554,10 +578,16 @@ export default function ElencoPersonalizzato() {
                     </label>
                   ))}
                   {g.titolo === "Da compilare a mano" && colonneScelte.has("note_manuali") && (
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: GR, padding: "4px 0 4px 24px", cursor: "pointer" }}>
-                      <input type="checkbox" checked={precompilaNote} onChange={(e) => setPrecompilaNote(e.target.checked)} />
-                      Precompila con le note interne del socio (dove ci sono)
-                    </label>
+                    <>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: GR, padding: "4px 0 4px 24px", cursor: "pointer" }}>
+                        <input type="checkbox" checked={precompilaNoteInterne} onChange={(e) => setPrecompilaNoteInterne(e.target.checked)} />
+                        Precompila con le note interne del socio (dove ci sono)
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: GR, padding: "4px 0 4px 24px", cursor: "pointer" }}>
+                        <input type="checkbox" checked={precompilaNoteRapide} onChange={(e) => setPrecompilaNoteRapide(e.target.checked)} />
+                        Precompila con i promemoria da "📝 Note" non completati
+                      </label>
+                    </>
                   )}
                 </div>
               ))}
