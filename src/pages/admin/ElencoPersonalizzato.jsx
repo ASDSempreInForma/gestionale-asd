@@ -84,7 +84,7 @@ const GRUPPI_COLONNE = [
       { id: "data_stampa", label: "Data", calc: () => "" },
       { id: "firma", label: "Firma", calc: () => "" },
       { id: "presenza", label: "Presenza", calc: () => "" },
-      { id: "note_manuali", label: "Note", calc: (r, ctx) => (ctx?.precompilaNote && r.note ? r.note : "") },
+      { id: "note_manuali", label: "Note", calc: (r, ctx) => (ctx?.precompilaNote && r.soci?.note ? r.soci.note : "") },
     ],
   },
 ];
@@ -263,7 +263,7 @@ export default function ElencoPersonalizzato() {
 
       const { data: iscDB, error: errI } = await supabase
         .from("iscrizioni")
-        .select("id, corso_id, frequenza, giorno_scelto, tipo_pagamento, stato_pagamento, stato_certificato, data_scadenza_certificato, data_iscrizione, inizio_personalizzato, note, soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera, ente_tessera, scadenza_tessera )")
+        .select("id, corso_id, frequenza, giorno_scelto, tipo_pagamento, stato_pagamento, stato_certificato, data_scadenza_certificato, data_iscrizione, inizio_personalizzato, note, soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera, ente_tessera, scadenza_tessera, note )")
         .eq("stagione_id", stag.id)
         .neq("stato_pagamento", "annullata")
         .order("id");
@@ -556,7 +556,7 @@ export default function ElencoPersonalizzato() {
                   {g.titolo === "Da compilare a mano" && colonneScelte.has("note_manuali") && (
                     <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: GR, padding: "4px 0 4px 24px", cursor: "pointer" }}>
                       <input type="checkbox" checked={precompilaNote} onChange={(e) => setPrecompilaNote(e.target.checked)} />
-                      Precompila con le note già presenti (dove ci sono)
+                      Precompila con le note interne del socio (dove ci sono)
                     </label>
                   )}
                 </div>
