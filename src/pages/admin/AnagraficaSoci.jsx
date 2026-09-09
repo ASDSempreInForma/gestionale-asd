@@ -179,7 +179,7 @@ function ModaleNuovaIscrizione({ socio, corsiEsclusi, onClose, onSalvato }) {
       socio_cf: socio.cf,
       corso_id: corsoId,
       stagione_id: stagione?.id,
-      frequenza: bisettimanale ? frequenza : '1x',
+      frequenza: bisettimanale ? frequenza : '2x', // corretto il 09/09/2026: per i corsi che non offrono la scelta 1x/2x (bisettimanale=false) — sia quelli a giorno singolo sia quelli come Ginnastica Dolce che impongono entrambi i giorni — va sempre '2x', mai '1x'. '1x' qui creava iscrizioni con giorno_scelto vuoto, escluse per errore dal conteggio presenze per giornata in Gestione Corsi (caso reale: 12 iscrizioni Ginnastica Dolce Bovezzo aggiunte a mano dai moduli cartacei). CambiaCorso più sotto già usava correttamente '2x'.
       giorno_scelto: bisettimanale && frequenza === '1x' ? giornoScelto : null,
       tipo_pagamento: tipoPagamento,
       stato_pagamento: statoPagamento,
