@@ -2031,7 +2031,7 @@ export default function AnagraficaSoci() {
       {risultati.map(s => (
         <div
           key={s.cf}
-          onClick={() => setSelezionato(s)}
+          onClick={() => ricaricaSelezionato(s.cf)}
           style={{ background: 'white', border: `1px solid ${BD}`, borderRadius: 10, padding: '10px 14px', marginBottom: 8, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
         >
           <div>
