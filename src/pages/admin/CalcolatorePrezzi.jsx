@@ -101,7 +101,7 @@ function calcolaPrezzoTotale(corsiSelezionati) {
   const validi = corsiSelezionati.filter((c) => c.corso);
   if (validi.length === 0) return { totale: null, incompleto: false, dettaglio: [] };
 
-  const isolato = validi.length === 1;
+  const isolato = validi.length === 1; // solo in questo caso vale l'eventuale promo Villaggio Badia
 
   const gd = validi.filter((c) => c.corso.corso === "Ginnastica Dolce");
   const altri = validi.filter((c) => c.corso.corso !== "Ginnastica Dolce");
@@ -109,28 +109,213 @@ function calcolaPrezzoTotale(corsiSelezionati) {
   let incompleto = false;
   const dettaglio = [];
 
+  // Caso 1: solo Ginnastica Dolce (una o più) — tariffa flat, nessuno sconto
   if (altri.length === 0) {
     let totale = 0;
     gd.forEach((c) => {
       const r = importoCorso(c.corso, c.frequenza, c.pagamento, isolato, c.inizioPersonalizzato === "ottobre");
       if (!r || r.totaleConIscrizione === null) { incompleto = true; return; }
       totale += r.totaleConIscrizione;
-      dettaglio.push({ corso: c.corso.corso, sede: c.corso.sede, importo: r.totaleConIscrizione });
+      dettaglio.push({ corso: c.corso.nomeVisualizzato || c.corso.corso, sede: c.corso.sede, importo: r.totaleConIscrizione });
     });
     return { totale: incompleto ? null : totale, incompleto, dettaglio, soloGinnasticaDolce: true };
   }
 
-  const risultatiAltri = altri.map((c) => ({
-    c,
-    r: importoCorso(c.corso, c.frequenza, c.pagamento, isolato, c.inizioPersonalizzato === "ottobre"),
-  }));
+  // CASO SPECIALE: 2 o 3 turni di Zumba indipendenti combinati tra loro
+  // (qualsiasi sede offra quei turni). Tariffa fissa concordata con Solomon:
+  // il 2-turni (220€ annuale / 150€ quad1) è la regola generale già in uso per
+  // qualunque combinazione di 2 turni Zumba, in QUALSIASI sede; il 3-turni
+  // (300€ annuale / 190€ quad1) è la novità introdotta il 28/08/2026,
+  // raggiungibile di fatto solo a Bovezzo perché è l'unica sede con 3 turni
+  // tra cui scegliere — non serve quindi controllare esplicitamente la sede,
+  // il conteggio dei turni selezionati basta da solo (chiarito da Solomon il
+  // 29/08/2026, dopo un mio primo tentativo — sbagliato — di limitarlo a
+  // Bovezzo anche per il caso a 2 turni).
+  // Tariffa fissa, non la formula generale a sconto per mese — importi già
+  // comprensivi dei 40€ di iscrizione, come tutte le quote del sistema. Il
+  // singolo turno da solo NON rientra qui: usa il prezzo normale del corso
+  // tramite la formula generale sotto.
+  // Per chi si iscrive a stagione già iniziata, si applica la STESSA riduzione
+  // proporzionale delle iscrizioni singole, tramite lo stesso helper
+  // mesiTrascorsiDal.
+  // NOTA: se la Zumba viene combinata anche con una disciplina diversa (es.
+  // Zumba x2 + Pilates), questo caso speciale non scatta e si usa la formula
+  // generale standard su ogni turno di Zumba — scenario non ancora concordato.
+  const ZUMBA_MULTI_PURO = {
+    annuale: { 2: 180, 3: 260 }, // 220-40, 300-40
+    q1: { 2: 110, 3: 150 },      // 150-40, 190-40
+  };
+  const zumbaMulti = altri.filter((c) => c.corso.corso === "Zumba");
+  const altriNonZumba = altri.filter((c) => c.corso.corso !== "Zumba");
+  let zumbaSpecialeAttivo = false;
+  let zumbaMesiRiferimento = null;
+  if (zumbaMulti.length >= 2 && altriNonZumba.length === 0) {
+    // Il livello a 2 turni (220€/150€) è la regola generale già in uso per
+    // qualunque combinazione di 2 turni Zumba, SENZA vincoli di sede — vale
+    // anche se sono in due palestre diverse (confermato da Solomon).
+    // Il livello a 3 turni (300€/190€) invece è la promozione specifica dei 3
+    // turni di Bovezzo: richiede che siano davvero quei 3 turni della STESSA
+    // sede — un mix (es. 2 turni Bovezzo + 1 turno altrove) NON la prende,
+    // ricade sulla formula generale standard (confermato da Solomon il
+    // 29/08/2026). Il vincolo di sede vale SOLO per il conteggio a 3, non a 2.
+    const sediUniche = [...new Set(zumbaMulti.map((c) => c.corso.sede))];
+    const contaValidaPerTariffaFissa = zumbaMulti.length === 2 || (zumbaMulti.length === 3 && sediUniche.length === 1);
+    const pagamentiUnici = [...new Set(zumbaMulti.map((c) => c.pagamento))];
+    if (contaValidaPerTariffaFissa && pagamentiUnici.length === 1 && pagamentiUnici[0] !== "q2") {
+      const tabella = ZUMBA_MULTI_PURO[pagamentiUnici[0]];
+      const puroFisso = tabella ? tabella[zumbaMulti.length] : undefined;
+      if (puroFisso !== undefined) {
+        zumbaSpecialeAttivo = true;
+        zumbaMesiRiferimento = pagamentiUnici[0] === "annuale" ? 8 : 4;
+      }
+    }
+  }
+
+  // CASO SPECIALE 2: Pilates e Step scelti come 2 lezioni separate "1 volta a
+  // settimana" (qualsiasi giorno/palestra, anche corso diverso purché stessa
+  // disciplina) — pagano come il normale pacchetto "2 volte a settimana" di
+  // quella disciplina, non la formula generale a combinazione tra due
+  // elementi separati. Dalla 3a lezione in poi (stessa disciplina o diversa)
+  // torna la formula normale con lo sconto di 5€/mese sopra a questo "blocco
+  // da 2" (richiesto da Solomon il 30/08/2026, dopo aver scoperto che 2
+  // Pilates non appaiati costavano 400€ invece dei 280€ attesi).
+  // La coppia scatta solo se condividono lo stesso tipo di pagamento e lo
+  // stesso mese di inizio effettivo (tenendo conto di un eventuale "dal 1°
+  // ottobre" personalizzato) — altrimenti non è una coppia "pulita" e si
+  // preferisce la formula generale piuttosto che indovinare un prezzo.
+  const DISCIPLINE_ABBINABILI = ["Pilates", "Step-GAG BodyTonic"];
+  // Tariffa standard "2 volte a settimana" di ogni disciplina abbinabile,
+  // usata come riferimento quando nessuno dei due corsi scelti ha di suo una
+  // struttura "a coppia" da cui prendere il prezzo (es. una sede dove tutti i
+  // turni sono indipendenti). Stessi valori usati in ogni sede ad oggi
+  // (30/08/2026) — se in futuro una sede avesse un prezzo diverso, va gestito
+  // a parte, non con questa tabella generale.
+  const TARIFFA_2X_STANDARD = {
+    "Pilates": { annuale: 280, q1: 180 },
+    "Step-GAG BodyTonic": { annuale: 220, q1: 150 },
+  };
+  function meseInizioEffettivo(c) {
+    if (c.corso.mese_inizio !== "settembre") return "ottobre";
+    return c.inizioPersonalizzato === "ottobre" ? "ottobre" : "settembre";
+  }
+
+  const altriRimanenti = zumbaSpecialeAttivo ? [] : [...altri];
+  const coppieAbbinate = [];
+  if (!zumbaSpecialeAttivo) {
+    DISCIPLINE_ABBINABILI.forEach((nomeDisciplina) => {
+      const candidati = altriRimanenti.filter((c) => {
+        if (c.corso.corso !== nomeDisciplina) return false;
+        // Un corso "a coppia" (es. Lun/Ven) conta come 1 lezione solo se la
+        // persona ha scelto esplicitamente 1 solo giorno dei 2 disponibili.
+        // Un corso indipendente a giorno singolo (senza coppia, es. il
+        // Mercoledì da solo) rappresenta SEMPRE 1 lezione, a prescindere dal
+        // valore (ininfluente) del campo frequenza per quel tipo di corso.
+        // Bug scoperto e corretto durante il primo giro di test il
+        // 30/08/2026: escludeva per errore proprio il caso segnalato da
+        // Solomon (Mercoledì indipendente + Venerdì scelto da una coppia).
+        if (c.corso.ha_variante_frequenza) return c.frequenza === "1x";
+        return true;
+      });
+      while (candidati.length >= 2) {
+        const a = candidati.shift();
+        const b = candidati.shift();
+        const stessoPagamento = a.pagamento === b.pagamento && a.pagamento !== "q2";
+        const stessoMese = meseInizioEffettivo(a) === meseInizioEffettivo(b);
+        // Serve un corso "di riferimento" che abbia davvero la tariffa
+        // standard "2 volte a settimana" nei campi quota_annuale/quota_quad1.
+        // Un corso indipendente a giorno singolo (es. il Mercoledì da solo,
+        // ha_variante_frequenza=false) ha lì invece la SUA tariffa "1 volta",
+        // quindi non va bene come riferimento — altrimenti si applica per
+        // errore la tariffa da 1 lezione invece di quella da 2 (bug trovato
+        // nel primo giro di test il 30/08/2026, prima di consegnare il file).
+        // Se nessuno dei due corsi ha una tariffa "2 volte" nei propri campi
+        // (es. una sede dove OGNI turno di Pilates/Step è indipendente, senza
+        // nessuna riga "a coppia" da usare come riferimento — caso reale:
+        // Urago Mella/Tridentina, 30/08/2026), uso la tariffa standard della
+        // disciplina come corso sintetico di riferimento, con lo stesso
+        // mese_inizio effettivo e la stessa quota_adesione del corso scelto.
+        let riferimento = a.corso.ha_variante_frequenza ? a.corso : (b.corso.ha_variante_frequenza ? b.corso : null);
+        if (!riferimento) {
+          const tariffaStandard = TARIFFA_2X_STANDARD[a.corso.corso];
+          if (tariffaStandard) {
+            riferimento = {
+              ...a.corso,
+              ha_variante_frequenza: true,
+              quota_annuale: tariffaStandard.annuale,
+              quota_quad1: tariffaStandard.q1,
+            };
+          }
+        }
+        if (stessoPagamento && stessoMese && riferimento) {
+          const forzaOttobre = meseInizioEffettivo(a) === "ottobre";
+          const r2x = importoCorso(riferimento, "2x", a.pagamento, false, forzaOttobre);
+          if (r2x && r2x.puro !== null) {
+            coppieAbbinate.push({ a, b, r: r2x });
+            const idxA = altriRimanenti.indexOf(a);
+            if (idxA > -1) altriRimanenti.splice(idxA, 1);
+            const idxB = altriRimanenti.indexOf(b);
+            if (idxB > -1) altriRimanenti.splice(idxB, 1);
+          }
+        }
+        // Se non abbinabili (pagamento/mese diversi, o nessuno dei due ha una
+        // tariffa "2 volte" di riferimento), a e b restano in altriRimanenti
+        // e vengono prezzati singolarmente come sempre.
+      }
+    });
+  }
+
+  // Caso 2: almeno un corso non-GD → formula generale + eventuale GD a parte.
+  // ATTENZIONE: i corsi combinati possono avere un numero di "mesi" diverso tra
+  // loro (es. uno parte a settembre in anticipo e l'altro no, oppure la persona
+  // ha scelto esplicitamente "dal 1° ottobre" per uno solo dei due). In quel
+  // caso lo sconto combinazione (-5€/mese dal 2° corso) si applica SOLO ai mesi
+  // in cui più corsi sono davvero attivi insieme (i mesi finali, comuni a tutti,
+  // dato che tutti i periodi terminano insieme a maggio/gennaio); il mese/i "in
+  // più" del corso che parte prima viene fatturato da solo, alla sua tariffa
+  // piena, perché in quel periodo la persona sta frequentando un solo corso.
+  // Bug scoperto e corretto il 27/08/2026: prima si usava un unico "mesi"
+  // condiviso (quello dell'ultimo corso elaborato), sottostimando il totale
+  // ogni volta che i corsi in combinazione avevano periodi di lunghezza diversa.
+  const risultatiAltri = zumbaSpecialeAttivo ? [] : [
+    ...altriRimanenti.map((c) => ({
+      c,
+      r: importoCorso(c.corso, c.frequenza, c.pagamento, isolato, c.inizioPersonalizzato === "ottobre"),
+    })),
+    ...coppieAbbinate.map(({ a, b, r }) => ({
+      c: { ...a, coppiaCon: b }, // per il dettaglio: rappresento la coppia con il primo dei due, segnalando l'abbinamento
+      r,
+    })),
+  ];
   risultatiAltri.forEach(({ r }) => {
     if (!r || r.puro === null) incompleto = true;
   });
 
   let totaleAltri = null;
   let scontoTotaleAltri = 0;
-  if (!incompleto) {
+  if (zumbaSpecialeAttivo) {
+    const tabella = ZUMBA_MULTI_PURO[zumbaMulti[0].pagamento];
+    let puroZumba = tabella[zumbaMulti.length];
+    // Riduzione proporzionale per chi si iscrive a stagione già iniziata,
+    // identica a quella delle iscrizioni singole (richiesto il 29/08/2026).
+    // I 3 turni Zumba partono tutti a ottobre, quindi il riferimento è sempre
+    // il 1° ottobre — uso comunque il mese_inizio vero del corso per sicurezza.
+    const corsoRif = zumbaMulti[0].corso;
+    const meseInizioNum = corsoRif.mese_inizio === "settembre" ? 9 : 10;
+    const annoBase = corsoRif.annoInizioStagione || new Date().getFullYear();
+    const mesiTrascorsiZumba = mesiTrascorsiDal(annoBase, meseInizioNum, zumbaMesiRiferimento, zumbaMulti[0].pagamento);
+    if (mesiTrascorsiZumba > 0) {
+      const meseUnitario = puroZumba / zumbaMesiRiferimento;
+      puroZumba -= meseUnitario * mesiTrascorsiZumba;
+    }
+    totaleAltri = puroZumba;
+    zumbaMulti.forEach((c) => {
+      dettaglio.push({ corso: c.corso.nomeVisualizzato || c.corso.corso, sede: c.corso.sede, importo: null, nota: `Tariffa combinata ${zumbaMulti.length} turni` });
+    });
+  } else if (!incompleto) {
+    // Valori "mesi" distinti in ordine crescente: il più piccolo è il periodo in
+    // cui TUTTI i corsi scelti sono attivi insieme (perché tutti finiscono nello
+    // stesso mese, maggio o gennaio); i valori più grandi rappresentano corsi
+    // partiti prima, attivi da soli nei mesi iniziali "extra".
     const soglie = [...new Set(risultatiAltri.map(({ r }) => r.mesi))].sort((a, b) => a - b);
     totaleAltri = 0;
     let sogliaPrecedente = 0;
@@ -144,21 +329,34 @@ function calcolaPrezzoTotale(corsiSelezionati) {
       sogliaPrecedente = soglia;
     });
     risultatiAltri.forEach(({ c, r }) => {
-      dettaglio.push({ corso: c.corso.corso, sede: c.corso.sede, mensile: r.puro / r.mesi });
+      if (c.coppiaCon) {
+        // Coppia Pilates/Step abbinata: mostro entrambi i corsi originali,
+        // con la stessa quota mensile derivata dal pacchetto "2 volte" —
+        // così il riepilogo resta trasparente su cosa ha scelto la persona.
+        dettaglio.push({ corso: c.corso.nomeVisualizzato || c.corso.corso, sede: c.corso.sede, mensile: (r.puro / r.mesi) / 2, nota: "Abbinato a 2° lezione, tariffa 2 volte/settimana" });
+        const b = c.coppiaCon;
+        dettaglio.push({ corso: b.corso.nomeVisualizzato || b.corso.corso, sede: b.corso.sede, mensile: (r.puro / r.mesi) / 2, nota: "Abbinato a 1° lezione, tariffa 2 volte/settimana" });
+      } else {
+        dettaglio.push({ corso: c.corso.nomeVisualizzato || c.corso.corso, sede: c.corso.sede, mensile: r.puro / r.mesi });
+      }
     });
   }
 
-  const sconto = scontoTotaleAltri;
+  const sconto = scontoTotaleAltri; // totale € risparmiato per la combinazione (non più €/mese fisso)
 
   let totaleGD = 0;
   gd.forEach((c) => {
     const r = importoCorso(c.corso, c.frequenza, c.pagamento, isolato, c.inizioPersonalizzato === "ottobre");
     if (!r || r.puro === null) { incompleto = true; return; }
-    totaleGD += r.puro;
-    dettaglio.push({ corso: c.corso.corso, sede: c.corso.sede, importo: r.puro });
+    totaleGD += r.puro; // GD a prezzo pieno, nessuno sconto
+    dettaglio.push({ corso: c.corso.nomeVisualizzato || c.corso.corso, sede: c.corso.sede, importo: r.puro });
   });
 
+  // iscrizione unica: 40€, tranne se TUTTI i corsi selezionati sono in 2a rata (rinnovo)
+  // Iscrizione sempre dovuta (40€): nel modulo pubblico "q2" rappresenta sempre
+  // un NUOVO tesserato da gennaio, non un rinnovo di chi era già iscritto.
   const iscrizione = ISCRIZIONE_STANDARD;
+
   const totale = incompleto ? null : totaleAltri + totaleGD + iscrizione;
   return { totale, incompleto, dettaglio, sconto, iscrizione, soloGinnasticaDolce: false };
 }
