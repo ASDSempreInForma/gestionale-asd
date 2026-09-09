@@ -91,6 +91,11 @@ export default function GestioneProve() {
   const [filtroCorsoPk, setFiltroCorsoPk] = useState("");
   const [ricercaTesto, setRicercaTesto] = useState("");
   const [soloOggi, setSoloOggi] = useState(false);
+  // Ordinamento della lista "In corso/Storico" (richiesto da Solomon il
+  // 09/09/2026): di default resta l'ordine di arrivo dal DB (più recenti
+  // per data di richiesta prima), ma si può ordinare anche per data della
+  // prova fissata — utile per vedere in fila le prossime lezioni di prova.
+  const [ordinamentoProve, setOrdinamentoProve] = useState("richiesta_desc"); // richiesta_desc | prova_asc | prova_desc
   const [vistaProve, setVistaProve] = useState("attive"); // attive | storico
 
   // Salvataggio in corso
@@ -501,6 +506,19 @@ export default function GestioneProve() {
   });
   const opzioniStato = STATI_PROVA.filter(s => (vistaProve === "attive" ? STATI_ATTIVI : STATI_STORICO).includes(s.value));
 
+  // Applica l'ordinamento scelto sopra i risultati già filtrati. Le richieste
+  // senza ancora una data di prova fissata (data_effettuata nulla) vanno
+  // sempre in fondo quando si ordina per data prova, indipendentemente dal
+  // verso scelto — non avrebbe senso intercalarle in mezzo alle altre.
+  const proveOrdinate = [...proveFiltrate].sort((a, b) => {
+    if (ordinamentoProve === "richiesta_desc") return 0; // ordine già corretto dalla query Supabase
+    if (!a.data_effettuata && !b.data_effettuata) return 0;
+    if (!a.data_effettuata) return 1;
+    if (!b.data_effettuata) return -1;
+    const diff = new Date(a.data_effettuata) - new Date(b.data_effettuata);
+    return ordinamentoProve === "prova_asc" ? diff : -diff;
+  });
+
   // Allarmi: corsi con prove sufficienti (≥7) in attesa
   const allarmi = corsi.filter(c => {
     const n = prove.filter(p => p.corso_id === c.id && p.stato === "in_attesa").length;
@@ -743,16 +761,22 @@ export default function GestioneProve() {
                   fontSize:12.5, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>
                 📅 Solo oggi
               </button>
+              <select value={ordinamentoProve} onChange={e => setOrdinamentoProve(e.target.value)}
+                style={{ padding:"8px 10px", border:`1px solid ${BD}`, borderRadius:8, fontSize:12, background:"white", whiteSpace:"nowrap" }}>
+                <option value="richiesta_desc">Più recenti (richiesta)</option>
+                <option value="prova_asc">Data prova ↑ (più vicina prima)</option>
+                <option value="prova_desc">Data prova ↓ (più lontana prima)</option>
+              </select>
             </div>
 
             {/* Lista prove */}
-            {proveFiltrate.length === 0 ? (
+            {proveOrdinate.length === 0 ? (
               <div style={{ textAlign:"center", padding:"32px 0", color:SUB, fontSize:13 }}>
                 {vistaProve === "attive" ? "Nessuna richiesta aperta con questi filtri." : "Nessuna richiesta archiviata con questi filtri."}
               </div>
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                {proveFiltrate.map(p => {
+                {proveOrdinate.map(p => {
                   const corso = corsi.find(c => c.id === p.corso_id);
                   const isSaving = saving[p.id];
                   const hScad = p.scadenza_3gg
