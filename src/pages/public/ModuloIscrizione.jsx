@@ -1238,6 +1238,26 @@ export default function ModuloIscrizione() {
         return;
       }
 
+      // 2bis. Se questa persona aveva una richiesta di lezione di prova ancora
+      // aperta (o anche già scaduta) per una delle discipline appena scelte, la
+      // segna automaticamente come "iscritta" — prima andava fatto a mano dalla
+      // segreteria in Gestione Prove, e capitava di dimenticarselo (richiesto da
+      // Solomon il 09/09/2026). Passa da una Edge Function con permessi di
+      // amministratore perché la tabella "prove" non è leggibile né modificabile
+      // direttamente dal modulo pubblico (solo l'inserimento lo è, via RLS).
+      // Non blocca l'iscrizione se fallisce: è un aggiornamento di comodo, non
+      // un dato critico per l'iscrizione stessa.
+      try {
+        const disciplineIscritte = [...new Set(corsiConCodice.map((c) => c.corso.corso))];
+        await fetch("https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/segna-prova-iscritta", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cf: anagrafica.cf, discipline: disciplineIscritte }),
+        });
+      } catch {
+        // non blocca l'iscrizione: la segreteria può sempre correggere a mano da Gestione Prove
+      }
+
       // 3. Invia l'email di conferma con quota, causale e coordinate di pagamento.
       // Se questa chiamata fallisce non blocchiamo l'iscrizione (già salvata a DB):
       // logghiamo soltanto, la segreteria può sempre reinviare manualmente dal gestionale.

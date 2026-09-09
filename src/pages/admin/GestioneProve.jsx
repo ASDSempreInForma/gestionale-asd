@@ -881,6 +881,16 @@ export default function GestioneProve() {
                               loading={isSaving} onClick={() => aggiornaStato(p.id, "scaduta")} />
                           </>
                         )}
+                        {/* Aggiunto il 09/09/2026: anche da "Scaduta" deve restare possibile
+                            segnare "Iscritta" — capita che la segreteria si accorga solo dopo
+                            che la persona ha comunque compilato il modulo di adesione, quando
+                            la richiesta di prova è già scaduta automaticamente. Senza questo
+                            pulsante non c'era modo di correggere lo storico. */}
+                        {p.stato === "scaduta" && (
+                          <BtnAzione label="✓ Segna iscritta (in ritardo)" color={GD} bg={GL}
+                            loading={isSaving}
+                            onClick={() => { if (window.confirm(`Confermi che ${p.nome} ${p.cognome} si è poi effettivamente iscritta/o, anche se la richiesta di prova risultava scaduta?`)) aggiornaStato(p.id, "iscritta"); }} />
+                        )}
                         {["in_attesa","confermata"].includes(p.stato) && !preavvisoAttivo && (
                           <BtnAzione label="⚠️ Posti in esaurimento" color={A} bg={AL}
                             loading={isSaving} onClick={() => avvisaPostiEsaurimento(p)} />
