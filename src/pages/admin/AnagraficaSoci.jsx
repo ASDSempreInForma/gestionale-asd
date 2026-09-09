@@ -1437,6 +1437,20 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
     caricaIscrizioni()
   }, [])
 
+  // Annulla una singola iscrizione (rimuove il socio da quel corso) senza
+  // eliminarla dallo storico — la segna come "annullata", stesso stato già
+  // usato in tutto il resto del sistema (capienza, limiti prove, calcolo
+  // combinazioni prezzo la ignorano automaticamente). Aggiunto il 09/09/2026
+  // su richiesta di Solomon: prima non esisteva un modo per togliere un socio
+  // da un singolo corso senza eliminare l'intero socio (bloccato comunque se
+  // ha altre iscrizioni collegate, per non perdere lo storico).
+  const annullaIscrizione = async (iscrizioneId, descrizioneCorso) => {
+    if (!window.confirm(`Annullare l'iscrizione a "${descrizioneCorso}"?\n\nNon viene eliminata dallo storico — resta consultabile — ma libera subito il posto nel corso e non conta più nei limiti o nel calcolo prezzi.`)) return
+    const { error } = await supabase.from('iscrizioni').update({ stato_pagamento: 'annullata' }).eq('id', iscrizioneId)
+    if (error) alert('Errore: ' + error.message)
+    else caricaIscrizioni()
+  }
+
   const salvaBlocco = async () => {
     setSalvandoBlocco(true)
     const { error } = await supabase.from('soci').update({
@@ -1811,6 +1825,15 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
               <CambiaCorso iscrizione={i} socioCf={socio.cf} onAggiornato={caricaIscrizioni} />
               <ModificaPagamento iscrizione={i} onAggiornato={caricaIscrizioni} />
               <AggiungiExtraSettembre iscrizione={i} onAggiornato={caricaIscrizioni} />
+              {i.stato_pagamento === 'annullata' ? (
+                <span style={{ fontSize: 12, color: SUB, padding: '6px 10px' }}>✓ Annullata</span>
+              ) : (
+                <button
+                  onClick={() => annullaIscrizione(i.id, `${i.corsi?.disciplina} — ${i.corsi?.sedi?.nome || ''}`)}
+                  style={{ fontSize: 12, background: RL, color: R, border: 'none', borderRadius: 8, padding: '6px 10px', fontWeight: 600, cursor: 'pointer' }}>
+                  🚫 Annulla iscrizione
+                </button>
+              )}
             </div>
           </div>
         ))}
