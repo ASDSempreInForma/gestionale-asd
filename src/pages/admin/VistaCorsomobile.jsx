@@ -13,6 +13,7 @@ const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVic3VxZHhmbHlneGh1cHRubnVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNTU1OTcsImV4cCI6MjA5NzYzMTU5N30.KXgue3EKXZdZZ5vvkmHcEzO5OvFEAQWyuvMtLm2RtV0";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const BUCKET = "documenti-soci";
 
 const G="#1B5E3B",GL="#E8F5E9",W="#F59E0B",WL="#FFFBEB",R="#DC2626",RL="#FEF2F2",TX="#111827",GR="#6B7280",BD="#E5E7EB";
 
@@ -418,6 +419,14 @@ export default function App() {
   const [modaleContanti, setModaleContanti] = useState(null); // riga iscrizione per cui è aperto "Incassa contanti"
   const [contantiImporto, setContantiImporto] = useState("");
   const [contantiTipo, setContantiTipo] = useState("annuale");
+  // Modale "Carica certificato" — aggiunto il 09/09/2026 su richiesta di
+  // Solomon: prima da qui si poteva solo SEGNARE il certificato come
+  // consegnato (bottone "✓ Cert."), senza allegare davvero la foto/PDF.
+  // Stessa logica già usata in Anagrafica soci (CaricaDocumentoManuale).
+  const [modaleCertificato, setModaleCertificato] = useState(null); // riga iscrizione per cui è aperto
+  const [certificatoFile, setCertificatoFile] = useState(null);
+  const [certificatoScadenza, setCertificatoScadenza] = useState("");
+  const [erroreCertificato, setErroreCertificato] = useState("");
   const [modaleRecupero, setModaleRecupero] = useState(false);
   const [modaleStorico, setModaleStorico] = useState(false);
   const [dataStorico, setDataStorico] = useState("");
@@ -501,7 +510,7 @@ export default function App() {
         .from("iscrizioni")
         .select(`
           id, stato_pagamento, tipo_pagamento, stato_certificato, data_scadenza_certificato, corso_id, frequenza, giorno_scelto, inizio_personalizzato, data_iscrizione,
-          soci ( cf, nome, cognome, note )
+          soci ( cf, nome, cognome, note, email )
         `)
         .eq("stagione_id", stag.id)
         .not("stato_pagamento", "eq", "annullata");
@@ -630,6 +639,62 @@ export default function App() {
       setContantiImporto("");
     } else {
       alert("Errore: " + error.message);
+    }
+    setSaving(s => ({ ...s, [key]: false }));
+  }
+
+  // ── Carica il certificato medico (foto o PDF) direttamente da qui,
+  // invece di limitarsi a segnarlo come consegnato ────────────────────
+  async function caricaCertificatoFile() {
+    if (!modaleCertificato) return;
+    if (!certificatoFile) { setErroreCertificato("Seleziona prima una foto o un PDF."); return; }
+    if (!certificatoScadenza) { setErroreCertificato("Inserisci la data di scadenza del certificato."); return; }
+    const key = `certfile_${modaleCertificato.id}`;
+    setSaving(s => ({ ...s, [key]: true }));
+    setErroreCertificato("");
+    try {
+      const cf = modaleCertificato.soci?.cf || "sconosciuto";
+      const estensione = certificatoFile.name.split(".").pop() || "jpg";
+      const percorso = `${cf}/certificato_manuale_${Date.now()}.${estensione}`;
+      const { error: errUpload } = await supabase.storage.from(BUCKET).upload(percorso, certificatoFile, { contentType: certificatoFile.type });
+      if (errUpload) throw errUpload;
+
+      const { data: userData } = await supabase.auth.getUser();
+      const { error: errUpdate } = await supabase.from("iscrizioni").update({
+        certificato_url: percorso,
+        stato_certificato: "valido",
+        data_scadenza_certificato: certificatoScadenza,
+        verificato_da: userData?.user?.email,
+        verificato_il: new Date().toISOString(),
+      }).eq("id", modaleCertificato.id);
+      if (errUpdate) throw errUpdate;
+
+      if (modaleCertificato.soci?.email) {
+        fetch(`${SUPABASE_URL}/functions/v1/invia-email-iscrizione`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tipo: "documento_confermato",
+            destinatarioEmail: modaleCertificato.soci.email,
+            destinatarioNome: modaleCertificato.soci.nome,
+            tipoDocumento: "certificato",
+          }),
+        }).catch(() => {});
+      }
+
+      setIscritti(prev => ({
+        ...prev,
+        [modaleCertificato.corso_id]: prev[modaleCertificato.corso_id].map(i =>
+          i.id === modaleCertificato.id
+            ? { ...i, stato_certificato: "valido", data_scadenza_certificato: certificatoScadenza }
+            : i
+        ),
+      }));
+      setModaleCertificato(null);
+      setCertificatoFile(null);
+      setCertificatoScadenza("");
+    } catch (err) {
+      setErroreCertificato("Errore: " + err.message);
     }
     setSaving(s => ({ ...s, [key]: false }));
   }
@@ -1111,6 +1176,12 @@ export default function App() {
                           {saving[certKey] ? "…" : "✓ Cert."}
                         </button>
                       )}
+                      {cs !== "ok" && (
+                        <button onClick={() => { setModaleCertificato(i); setCertificatoFile(null); setCertificatoScadenza(""); setErroreCertificato(""); }}
+                          style={{ padding: "10px 12px", border: `1px dashed ${W}`, borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: "white", color: W, minHeight: 40 }}>
+                          📎 Carica certificato
+                        </button>
+                      )}
                       <button onClick={() => { setNotaInputPer(notaInputPer === i.id ? null : i.id); setNotaTesto(""); }}
                         style={{ padding: "10px 12px", border: "1px solid #FDE68A", borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: "#FFFBEB", color: "#92400E", minHeight: 40 }}>
                         📝 Nota
@@ -1221,6 +1292,47 @@ export default function App() {
                 <button onClick={incassaContanti} disabled={!contantiImporto || saving[`contanti_${modaleContanti.id}`]}
                   style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: "#0D9488", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: !contantiImporto ? 0.5 : 1 }}>
                   {saving[`contanti_${modaleContanti.id}`] ? "…" : "Conferma incasso"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODALE CARICA CERTIFICATO */}
+        {modaleCertificato && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 }}>
+            <div style={{ background: "white", borderRadius: 14, padding: 20, width: "100%", maxWidth: 380 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: TX, marginBottom: 4 }}>📎 Carica certificato</div>
+              <div style={{ fontSize: 12, color: GR, marginBottom: 14 }}>{modaleCertificato.soci?.cognome} {modaleCertificato.soci?.nome}</div>
+
+              <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 4 }}>Foto o PDF del certificato</label>
+              <input type="file" accept="image/*,.pdf" onChange={(e) => setCertificatoFile(e.target.files[0])}
+                style={{ fontSize: 13, marginBottom: 12, display: "block" }} />
+
+              <label style={{ fontSize: 11, color: GR, display: "block", marginBottom: 4 }}>Data di scadenza del certificato</label>
+              <input
+                type="date"
+                value={certificatoScadenza}
+                onChange={(e) => setCertificatoScadenza(e.target.value)}
+                style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `0.5px solid ${BD}`, fontSize: 13, marginBottom: 12, boxSizing: "border-box" }}
+              />
+
+              <div style={{ fontSize: 11, color: "#92400E", marginBottom: 12 }}>
+                {modaleCertificato.soci?.email
+                  ? `Al salvataggio parte subito l'email di conferma a ${modaleCertificato.soci.email}.`
+                  : "Attenzione: questo socio non ha un'email in anagrafica, quindi il certificato verrà confermato ma nessuna email potrà partire."}
+              </div>
+
+              {erroreCertificato && <div style={{ fontSize: 12, color: R, marginBottom: 12 }}>{erroreCertificato}</div>}
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => { setModaleCertificato(null); setCertificatoFile(null); setCertificatoScadenza(""); setErroreCertificato(""); }}
+                  style={{ flex: 1, padding: "10px", borderRadius: 10, border: `0.5px solid ${BD}`, background: "white", color: GR, fontSize: 13, cursor: "pointer" }}>
+                  Annulla
+                </button>
+                <button onClick={caricaCertificatoFile} disabled={saving[`certfile_${modaleCertificato.id}`]}
+                  style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: W, color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: saving[`certfile_${modaleCertificato.id}`] ? 0.5 : 1 }}>
+                  {saving[`certfile_${modaleCertificato.id}`] ? "…" : "Conferma e invia email"}
                 </button>
               </div>
             </div>
