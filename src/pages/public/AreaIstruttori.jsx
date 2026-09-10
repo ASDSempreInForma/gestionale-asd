@@ -92,6 +92,25 @@ function BadgePagamento({ stato }) {
 
 const GIORNI_IT = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
 
+// Uniforma la scrittura di nomi/cognomi che in anagrafica sono stati inseriti
+// in modo incoerente (tutto maiuscolo, tutto minuscolo, misto) — restituisce
+// sempre "Iniziale maiuscola, resto minuscolo" per ogni parola, gestendo
+// anche spazi, apostrofi e trattini (es. "de monte" -> "De Monte",
+// "d'oglio" -> "D'Oglio"). Aggiunto il 10/09/2026 su richiesta di Solomon.
+function capitalizza(str) {
+  if (!str) return "";
+  return str
+    .toLowerCase()
+    .split(/([\s'-])/)
+    .map((parte) => (parte && /[a-zàèéìòù]/i.test(parte[0]) ? parte[0].toUpperCase() + parte.slice(1) : parte))
+    .join("");
+}
+
+// Ordina un elenco di iscritti per cognome e poi nome, ignorando maiuscole/minuscole.
+function ordinaPerCognomeNome(a, b) {
+  return `${a.cognome} ${a.nome}`.localeCompare(`${b.cognome} ${b.nome}`, "it", { sensitivity: "base" });
+}
+
 // "Martedì/Venerdì 18:05-19:00" -> [2, 5]   ·   "Lunedì 17:10-18:00" -> [1]
 function giorniSettimanaDelCorso(giorniOrari) {
   if (!giorniOrari) return [];
@@ -177,7 +196,7 @@ function ModaleDocumentoSocio({ iscritto, tipo, corso, callFnWithAuth, onClose, 
       <div style={{ background: "white", borderRadius: 14, padding: 22, width: "100%", maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
         <h3 style={{ marginTop: 0 }}>{tipo === "ricevuta" ? "📎 Carica ricevuta di pagamento" : "📎 Carica certificato medico"}</h3>
         <p style={{ fontSize: 12.5, color: "#64748b", marginTop: -6, marginBottom: 14 }}>
-          Per {iscritto.cognome} {iscritto.nome} — {corso.disciplina}
+          Per {capitalizza(iscritto.cognome)} {capitalizza(iscritto.nome)} — {corso.disciplina}
         </p>
 
         {tipo === "ricevuta" && (
@@ -326,11 +345,11 @@ function ScannerQR({ onScansione, onClose }) {
       {conferma && (
         <div style={{ marginTop: 14, padding: "14px 16px", borderRadius: 12, background: "white", maxWidth: 340, textAlign: "center" }}>
           <p style={{ margin: 0, fontSize: 14, color: "#111" }}>
-            <b>{conferma.cognome} {conferma.nome}</b> non è iscritto/a a questo corso
+            <b>{capitalizza(conferma.cognome)} {capitalizza(conferma.nome)}</b> non è iscritto/a a questo corso
             {conferma.corsi?.[0] && <> — risulta iscritto/a a <b>{conferma.corsi[0].disciplina}</b> ({conferma.corsi[0].sede})</>}.
           </p>
           <p style={{ margin: "8px 0 12px", fontSize: 14, color: "#111" }}>
-            Vuoi segnare la lezione di recupero di <b>{conferma.cognome} {conferma.nome}</b> oggi, in questo corso?
+            Vuoi segnare la lezione di recupero di <b>{capitalizza(conferma.cognome)} {capitalizza(conferma.nome)}</b> oggi, in questo corso?
           </p>
           <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
             <button onClick={() => rispondiConferma(false)} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #E2E8F0", background: "white", color: "#475569", fontSize: 13, cursor: "pointer" }}>No</button>
@@ -356,6 +375,12 @@ function ScannerQR({ onScansione, onClose }) {
 }
 
 function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
+  const oggiNum = new Date().getDay();
+  const nomeGiornoOggi = GIORNI_IT[oggiNum];
+  const giorniLezione = giorniSettimanaDelCorso(corso.giorni_orari);
+  const giorniLezioneNomi = giorniLezione.map((n) => GIORNI_IT[n]);
+  const oggiELezione = giorniLezione.length === 0 || giorniLezione.includes(oggiNum); // se non riconosce i giorni, non blocca per sicurezza
+
   const [aperto, setAperto] = useState(false);
   const [presenti, setPresenti] = useState(new Set());
   const [salvando, setSalvando] = useState(false);
@@ -367,6 +392,14 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
   const [esitoNota, setEsitoNota] = useState("");
   const [modaleDoc, setModaleDoc] = useState(null); // { iscritto, tipo }
   const [scannerAperto, setScannerAperto] = useState(false);
+  // Giorno di cui si sta consultando l'elenco — per i corsi bisettimanali si
+  // può scegliere quale dei due giorni guardare, invece di vedere sempre e
+  // solo "chi viene oggi". Di default è oggi (se il corso si tiene oggi),
+  // altrimenti il primo giorno di lezione del corso. Aggiunto il 10/09/2026
+  // su richiesta di Solomon.
+  const [giornoSelezionato, setGiornoSelezionato] = useState(
+    oggiELezione ? nomeGiornoOggi : (giorniLezioneNomi[0] || nomeGiornoOggi)
+  );
 
   const toggle = (cf) => {
     setPresenti((prev) => {
@@ -410,15 +443,19 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
 
   const giaSegnata = corso.lezioneOggi?.stato;
   const eCollaboratore = istruttore.tipo === "collaboratore";
-  const oggiNum = new Date().getDay();
-  const nomeGiornoOggi = GIORNI_IT[oggiNum];
-  const giorniLezione = giorniSettimanaDelCorso(corso.giorni_orari);
-  const oggiELezione = giorniLezione.length === 0 || giorniLezione.includes(oggiNum); // se non riconosce i giorni, non blocca per sicurezza
-  // Chi ci si aspetta oggi: chi frequenta 2 volte a settimana viene sempre (nei giorni di lezione),
-  // chi frequenta 1 volta sola solo se ha scelto proprio il giorno di oggi
+  // Chi ci si aspetta oggi (per lo scanner, sempre legato al giorno reale di
+  // oggi, indipendentemente da quale giorno si sta guardando nell'elenco):
+  // chi frequenta 2 volte a settimana viene sempre (nei giorni di lezione),
+  // chi frequenta 1 volta sola solo se ha scelto proprio il giorno di oggi.
   const iscrittiOggi = oggiELezione
     ? corso.iscritti.filter((i) => i.frequenza !== "1x" || i.giorno_scelto === nomeGiornoOggi)
     : [];
+  // Elenco per il giorno scelto nel filtro (di default oggi) — stessa logica,
+  // ma parametrizzata sul giorno selezionato, e ordinato alfabeticamente.
+  const iscrittiGiornoSelezionato = corso.iscritti
+    .filter((i) => i.frequenza !== "1x" || i.giorno_scelto === giornoSelezionato)
+    .sort(ordinaPerCognomeNome);
+  const eOggiSelezionato = giornoSelezionato === nomeGiornoOggi && oggiELezione;
 
   // Chiamata dallo scanner ad ogni QR letto: cerca la persona tra gli attesi oggi,
   // se la trova la spunta come presente (stesso elenco delle checkbox manuali)
@@ -426,11 +463,11 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
     const trovato = iscrittiOggi.find((i) => i.cf.toUpperCase() === cf.toUpperCase());
     if (trovato) {
       setPresenti((prev) => new Set(prev).add(trovato.cf));
-      return { ok: true, testo: `✓ ${trovato.cognome} ${trovato.nome} segnato presente` };
+      return { ok: true, testo: `✓ ${capitalizza(trovato.cognome)} ${capitalizza(trovato.nome)} segnato presente` };
     }
     const iscrittoAltrove = corso.iscritti.find((i) => i.cf.toUpperCase() === cf.toUpperCase());
     if (iscrittoAltrove) {
-      return { ok: false, testo: `⚠️ ${iscrittoAltrove.cognome} ${iscrittoAltrove.nome} non è tra gli attesi oggi (altro giorno/frequenza) — segna a mano se presente` };
+      return { ok: false, testo: `⚠️ ${capitalizza(iscrittoAltrove.cognome)} ${capitalizza(iscrittoAltrove.nome)} non è tra gli attesi oggi (altro giorno/frequenza) — segna a mano se presente` };
     }
 
     // Non è iscritto a QUESTO corso: cerchiamo se è iscritto altrove, per offrire un recupero
@@ -444,7 +481,7 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
         corsi: r.corsi,
         onConferma: () => {
           setPresenti((prev) => new Set(prev).add(r.cf));
-          return { ok: true, testo: `✓ Recupero segnato per ${r.cognome} ${r.nome}` };
+          return { ok: true, testo: `✓ Recupero segnato per ${capitalizza(r.cognome)} ${capitalizza(r.nome)}` };
         },
       };
     }
@@ -472,7 +509,7 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
             Lezione non svolta oggi
           </button>
         )}
-        {oggiELezione && (
+        {eOggiSelezionato && (
           <button onClick={() => { setAperto(true); setScannerAperto(true); }}
             style={{ ...styles.btnSecondary, background: "#111827", color: "white", border: "none" }}>
             📷 Scansiona QR
@@ -480,54 +517,50 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
         )}
       </div>
 
-      {aperto && !oggiELezione && (
+      {aperto && (
         <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: 13, color: "#64748b", background: "#F8FAFC", borderRadius: 10, padding: "12px 14px", marginBottom: 10 }}>
-            Oggi è <b>{nomeGiornoOggi}</b>: questo corso si tiene solo <b>{corso.giorni_orari.replace(/\s\d.*$/, "")}</b>, quindi oggi non c'è lezione — niente check-in, ma puoi comunque consultare l'elenco (es. per un numero di telefono).
-          </div>
-          {corso.iscritti.length === 0 && <p style={{ color: "#64748b", fontSize: 13 }}>Nessun iscritto trovato.</p>}
-          {corso.iscritti.map((i) => (
-            <div key={i.cf} style={styles.rigaIscritto}>
-              <span style={{ flex: 1 }}>
-                <div>{i.cognome} {i.nome}</div>
-                <div style={{ fontSize: 11.5, color: "#94a3b8" }}>
-                  {i.data_nascita && `nato/a il ${fmtData(i.data_nascita)}`}
-                  {i.data_nascita && i.telefono && " · "}
-                  {i.telefono}
-                </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 5 }}>
-                  <BadgeCertificato stato={i.stato_certificato} />
-                  <BadgePagamento stato={i.stato_pagamento} />
-                </div>
-                <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                  <button
-                    onClick={() => setModaleDoc({ iscritto: i, tipo: "ricevuta" })}
-                    style={{ fontSize: 11, padding: "4px 8px", borderRadius: 7, border: "1px solid #BFDBFE", background: "#EFF6FF", color: "#1D4ED8", cursor: "pointer" }}>
-                    📎 Ricevuta
-                  </button>
-                  <button
-                    onClick={() => setModaleDoc({ iscritto: i, tipo: "certificato" })}
-                    style={{ fontSize: 11, padding: "4px 8px", borderRadius: 7, border: "1px solid #FDE68A", background: "#FFFBEB", color: "#B45309", cursor: "pointer" }}>
-                    📎 Certificato
-                  </button>
-                </div>
-              </span>
+          {giorniLezioneNomi.length > 1 && (
+            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+              {giorniLezioneNomi.map((g) => (
+                <button key={g} onClick={() => setGiornoSelezionato(g)}
+                  style={{
+                    fontSize: 12.5, padding: "6px 12px", borderRadius: 8, cursor: "pointer",
+                    border: g === giornoSelezionato ? "1px solid #111827" : "1px solid #e2e8f0",
+                    background: g === giornoSelezionato ? "#111827" : "white",
+                    color: g === giornoSelezionato ? "white" : "#475569",
+                    fontWeight: g === giornoSelezionato ? 700 : 500,
+                  }}>
+                  {g}{g === nomeGiornoOggi ? " (oggi)" : ""}
+                </button>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
+          )}
 
-      {aperto && oggiELezione && (
-        <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 8 }}>
-            {iscrittiOggi.length} di {corso.iscritti.length} attesi oggi
-          </div>
-          {iscrittiOggi.length === 0 && <p style={{ color: "#64748b", fontSize: 13 }}>Nessuno atteso oggi per questo corso.</p>}
-          {iscrittiOggi.map((i) => (
-            <label key={i.cf} style={{ ...styles.rigaIscritto, alignItems: "flex-start" }}>
-              <input type="checkbox" checked={presenti.has(i.cf)} onChange={() => toggle(i.cf)} style={{ marginTop: 3 }} />
+          {!eOggiSelezionato && (
+            <div style={{ fontSize: 13, color: "#64748b", background: "#F8FAFC", borderRadius: 10, padding: "12px 14px", marginBottom: 10 }}>
+              {giorniLezioneNomi.length > 1
+                ? <>Stai consultando l'elenco di <b>{giornoSelezionato}</b> — solo lettura, niente check-in per un giorno diverso da oggi.</>
+                : <>Oggi è <b>{nomeGiornoOggi}</b>: questo corso si tiene solo <b>{corso.giorni_orari.replace(/\s\d.*$/, "")}</b>, quindi oggi non c'è lezione — niente check-in, ma puoi comunque consultare l'elenco (es. per un numero di telefono).</>
+              }
+            </div>
+          )}
+
+          {eOggiSelezionato && (
+            <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 8 }}>
+              {iscrittiGiornoSelezionato.length} di {corso.iscritti.length} attesi oggi
+            </div>
+          )}
+
+          {iscrittiGiornoSelezionato.length === 0 && (
+            <p style={{ color: "#64748b", fontSize: 13 }}>
+              {eOggiSelezionato ? "Nessuno atteso oggi per questo corso." : `Nessuno atteso di ${giornoSelezionato} per questo corso.`}
+            </p>
+          )}
+
+          {iscrittiGiornoSelezionato.map((i) => {
+            const contenuto = (
               <span style={{ flex: 1 }}>
-                <div>{i.cognome} {i.nome}</div>
+                <div>{capitalizza(i.cognome)} {capitalizza(i.nome)}</div>
                 <div style={{ fontSize: 11.5, color: "#94a3b8" }}>
                   {i.data_nascita && `nato/a il ${fmtData(i.data_nascita)}`}
                   {i.data_nascita && i.telefono && " · "}
@@ -550,14 +583,25 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
                   </button>
                 </div>
               </span>
-            </label>
-          ))}
-          {iscrittiOggi.length > 0 && (
+            );
+            return eOggiSelezionato ? (
+              <label key={i.cf} style={{ ...styles.rigaIscritto, alignItems: "flex-start" }}>
+                <input type="checkbox" checked={presenti.has(i.cf)} onChange={() => toggle(i.cf)} style={{ marginTop: 3 }} />
+                {contenuto}
+              </label>
+            ) : (
+              <div key={i.cf} style={styles.rigaIscritto}>
+                {contenuto}
+              </div>
+            );
+          })}
+
+          {eOggiSelezionato && iscrittiGiornoSelezionato.length > 0 && (
             <button onClick={salvaPresenze} disabled={salvando} style={{ ...styles.btnPrimary, marginTop: 12 }}>
               {salvando ? "Salvo..." : `✓ Salva presenze (${presenti.size} presenti)`}
             </button>
           )}
-          {messaggio && <p style={{ fontSize: 12.5, color: "#475569", marginTop: 8 }}>{messaggio}</p>}
+          {eOggiSelezionato && messaggio && <p style={{ fontSize: 12.5, color: "#475569", marginTop: 8 }}>{messaggio}</p>}
         </div>
       )}
 
