@@ -18,8 +18,8 @@ function fmtData(d) {
   return `${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}/${dt.getFullYear()}`;
 }
 
-function scaricaWorkbook(wb, nomeFile) {
-  XLSX.writeFile(wb, nomeFile);
+function scaricaWorkbook(wb, nomeFile, opzioni = {}) {
+  XLSX.writeFile(wb, nomeFile, opzioni);
 }
 
 function scaricaCSV(ws, nomeFile) {
@@ -62,7 +62,12 @@ export function generaFileLibertas(corso, iscritti, stagione) {
     "Disciplina 1 (prevalente)", "Disciplina 2", "Assicurazione", "Categoria", "email tesserato"];
   const righeLib = iscritti.map((i) => {
     const s = i.soci || {};
-    return ["BS", "481", anno, null, null, s.cognome, s.nome, fmtData(s.data_nascita), s.provincia_nascita, s.comune_nascita,
+    // Nome, cognome e comune di nascita in MAIUSCOLO — richiesto da Solomon
+    // il 09/09/2026 per uniformare il file richiesto dal portale Libertas.
+    const cognome = (s.cognome || "").toUpperCase();
+    const nome = (s.nome || "").toUpperCase();
+    const comuneNascita = (s.comune_nascita || "").toUpperCase();
+    return ["BS", "481", anno, null, null, cognome, nome, fmtData(s.data_nascita), s.provincia_nascita, comuneNascita,
       s.sesso, s.provincia_residenza, s.comune_residenza, s.cap, s.indirizzo, "N", "APR", "N", null, null, null, null,
       "asdsempreinforma@gmail.com", null, s.telefono, s.cf,
       "attivita` sportiva ginnastica finalizzata alla salute ed al fitness", null,
@@ -72,5 +77,7 @@ export function generaFileLibertas(corso, iscritti, stagione) {
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, wsElenco, "Elenco LIBERTAS");
-  scaricaWorkbook(wb, `Libertas_${corso?.codice_corso || "Misto"}.xlsx`);
+  // Salvato in formato .xls (Excel 97-2003 / BIFF8), non .xlsx — richiesto da
+  // Solomon il 09/09/2026 perché è il formato accettato dal portale Libertas.
+  scaricaWorkbook(wb, `Libertas_${corso?.codice_corso || "Misto"}.xls`, { bookType: "biff8" });
 }
