@@ -481,6 +481,20 @@ export default function ElencoPersonalizzato() {
     setSelezionati(new Set());
   }
 
+  // Aggiunto il 09/09/2026 su richiesta di Solomon: un click per togliere
+  // dalla selezione tutte le persone il cui pagamento non risulta confermato
+  // — utile quando si vuole stampare/esportare solo chi ha già pagato, senza
+  // doverle deselezionare una per una a mano.
+  function escludiNonPagati() {
+    setSelezionati((prev) => {
+      const next = new Set(prev);
+      iscrizioni.forEach((r) => {
+        if (next.has(r.id) && r.stato_pagamento !== "confermato") next.delete(r.id);
+      });
+      return next;
+    });
+  }
+
   function toggleColonna(id) {
     setColonneScelte((prev) => {
       const next = new Set(prev);
@@ -615,9 +629,13 @@ export default function ElencoPersonalizzato() {
                 <div style={{ fontSize: 12, color: GR }}>
                   <b style={{ color: TX }}>{selezionati.size}</b> selezionate in totale
                 </div>
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button onClick={selezionaTuttiFiltrati} style={{ fontSize: 11.5, background: GL, color: G, border: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontWeight: 600 }}>
                     Seleziona filtrati
+                  </button>
+                  <button onClick={escludiNonPagati} title="Toglie dalla selezione chi non ha ancora un pagamento confermato"
+                    style={{ fontSize: 11.5, background: "#FEF3C7", color: "#92400E", border: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontWeight: 600 }}>
+                    Escludi non pagati
                   </button>
                   <button onClick={deselezionaTutti} style={{ fontSize: 11.5, background: "#F3F4F6", color: GR, border: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontWeight: 600 }}>
                     Svuota
