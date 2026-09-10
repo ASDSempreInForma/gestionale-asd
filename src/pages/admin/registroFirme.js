@@ -26,10 +26,8 @@ function fmtData(d) {
   return `${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}/${dt.getFullYear()}`;
 }
 
-const PERSONE_PER_PAGINA = 5;
-// Quando il foglio mescola persone di corsi diversi, ogni blocco persona è più
-// alto (riga in più con il corso), quindi ne stanno un po' meno per pagina.
-const PERSONE_PER_PAGINA_MISTO = 4;
+// Il numero di persone per pagina non è più fisso: viene calcolato
+// dinamicamente più sotto in base allo spazio realmente disponibile.
 const ALTEZZA_RIGA_CORSO = 14; // striscia in più sopra al blocco, solo nel foglio misto
 
 async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile, misto = false }) {
@@ -132,21 +130,60 @@ async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile
     page.drawText("Firme ______________ ______________", { x: xTot + 220, y: yTop - 20 - 17, size: 10, font: fontRegular, color: nero });
   }
 
-  const persPerPagina = misto ? PERSONE_PER_PAGINA_MISTO : PERSONE_PER_PAGINA;
+  // Impaginazione — corretto il 09/09/2026 su richiesta di Solomon: prima il
+  // numero di persone per pagina era fisso (5, o 4 nel foglio misto) a
+  // prescindere da quanto spazio restava davvero sul foglio A4, lasciando
+  // pagine mezze bianche. Ora si calcola dinamicamente quante persone entrano
+  // realmente, in base allo spazio disponibile sotto l'intestazione.
+  // Inoltre il piè di pagina "Riservato all'Associazione" prima si ripeteva
+  // su OGNI pagina — ora compare una sola volta, alla fine di tutto l'elenco
+  // (nell'ultima pagina, sotto l'ultimo blocco persona; se non c'è più
+  // spazio sufficiente per entrambi, va su una pagina aggiuntiva dedicata).
+  const BLOCK_GAP = 6; // spazio lasciato da disegnaPersona tra un blocco e il successivo
+  const FOOTER_GAP = 10; // spazio prima del piè di pagina, come nell'originale (y - 10)
+  const FOOTER_H = 20 + 26; // altezza delle due righe del piè di pagina
+  const blockH = 18 * 3 + (misto ? ALTEZZA_RIGA_CORSO : 0);
+
+  // L'intestazione è identica su ogni pagina: la disegno una volta su una
+  // pagina "di prova" solo per misurare da che altezza iniziano i blocchi
+  // persona, poi la tolgo — non va nel PDF finale.
+  const paginaProva = pdfDoc.addPage([W, H]);
+  const yInizioContenuto = disegnaIntestazione(paginaProva);
+  pdfDoc.removePage(pdfDoc.getPageCount() - 1);
+
+  const usableHeight = yInizioContenuto - MARGINE;
+  const persPerPagina = Math.max(1, Math.floor(usableHeight / (blockH + BLOCK_GAP)));
+
   const gruppi = [];
   for (let i = 0; i < iscritti.length; i += persPerPagina) {
     gruppi.push(iscritti.slice(i, i + persPerPagina));
   }
   if (gruppi.length === 0) gruppi.push([]);
 
-  for (const gruppo of gruppi) {
+  // Il piè di pagina va sull'ultimo gruppo se ci sta; se il gruppo è già al
+  // completo (nessuno spazio residuo), sposto l'ultima persona in un nuovo
+  // gruppo successivo e ricontrollo — così il piè di pagina condivide il
+  // foglio con almeno una persona, invece di finire da solo su una pagina
+  // quasi completamente bianca.
+  while (true) {
+    const ultimo = gruppi[gruppi.length - 1];
+    if (ultimo.length === 0) break; // già una pagina vuota dedicata: niente da spostare
+    const spazioUsato = ultimo.length * (blockH + BLOCK_GAP);
+    const spazioResiduo = usableHeight - spazioUsato;
+    if (spazioResiduo >= FOOTER_GAP + FOOTER_H) break;
+    const persona = ultimo.pop();
+    gruppi.push([persona]);
+  }
+
+  gruppi.forEach((gruppo, indice) => {
     const page = pdfDoc.addPage([W, H]);
     let y = disegnaIntestazione(page);
     for (const iscrizione of gruppo) {
       y = disegnaPersona(page, y, iscrizione);
     }
-    disegnaPiedePagina(page, y - 10);
-  }
+    const eUltimaPagina = indice === gruppi.length - 1;
+    if (eUltimaPagina) disegnaPiedePagina(page, y - FOOTER_GAP);
+  });
 
   const bytes = await pdfDoc.save();
   const blob = new Blob([bytes], { type: "application/pdf" });
