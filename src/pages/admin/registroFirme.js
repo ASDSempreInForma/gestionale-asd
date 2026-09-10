@@ -95,9 +95,9 @@ async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile
 
     // Riga 1: Cognome / Nome / Data
     riga("Cognome:", xTot + 8, yBase - 13, false);
-    riga(s.cognome || "", xTot + 65, yBase - 13, true);
+    riga((s.cognome || "").toUpperCase(), xTot + 65, yBase - 13, true);
     riga("Nome:", xTot + 220, yBase - 13, false);
-    riga(s.nome || "", xTot + 260, yBase - 13, true);
+    riga((s.nome || "").toUpperCase(), xTot + 260, yBase - 13, true);
     riga("Data _____ / _____ / _____", xTot + 380, yBase - 13, false);
 
     // Riga 2: Data nascita / Comune / Firma
