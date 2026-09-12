@@ -110,11 +110,13 @@ COME CI SI ISCRIVE
 CERTIFICATO MEDICO
 - È obbligatorio un certificato di idoneità allo sport non agonistico, da consegnare
   entro 1 mese dall'iscrizione (DM 28/2/1983).
-- Siamo convenzionati con DUE centri medici a Concesio:
-  • Centro Medico Val Trompia – Via Europa 152 – visita con ECG a 33€
-  • Poliambulatorio Piscine TIBIDABO – Via Aldo Moro 18 – visita con ECG a 30€
-- Per usufruire di uno dei due centri convenzionati, il socio deve comunicarlo alla
-  segreteria, che segnala il nominativo alla struttura.
+- Siamo convenzionati con TRE centri medici:
+  • Centro Medico Val Trompia – Via Europa 152, Concesio – visita con ECG a 33€
+  • Poliambulatorio Piscine TIBIDABO – Via Aldo Moro 18, Concesio – visita con ECG a 30€
+  • Medical Sport – Via Bazoli 6, Brescia (Centro Sportivo S. Filippo)
+- Per usufruire di Val Trompia o Tibidabo, il socio deve comunicarlo alla segreteria,
+  che segnala il nominativo alla struttura. Medical Sport invece si prenota
+  direttamente (vedi sotto) senza passare dalla segreteria.
   - Centro Medico Val Trompia: la segreteria invia al socio la TESSERA VIRTUALE
     (come sempre) via WhatsApp/email, da presentare il giorno della visita.
   - Poliambulatorio TIBIDABO: DA QUESTA STAGIONE SPORTIVA il centro richiede una
@@ -124,8 +126,12 @@ CERTIFICATO MEDICO
     quindi chiederla con un minimo di anticipo, non il giorno stesso della visita).
     Se un socio chiede della convenzione Tibidabo, ricordagli che gli servirà
     questa tessera cartacea e che va ritirata in palestra in anticipo.
-  - In entrambi i casi la tessera/segnalazione viene fatta solo su richiesta
-    esplicita del socio, non automaticamente a tutti.
+  - Medical Sport: il socio prenota da solo la visita scrivendo un WhatsApp al
+    numero 030-2411109, specificando di essere tesserato A.S.D. Sempre In Forma.
+    Il giorno della visita mostra la TESSERA VIRTUALE, esattamente come per il
+    Centro Medico Val Trompia (la segreteria gliela invia su richiesta, come sempre).
+  - Nei casi che prevedono una tessera (Val Trompia e Medical Sport), questa viene
+    inviata solo su richiesta esplicita del socio, non automaticamente a tutti.
 - Senza certificato valido non si può essere riconfermati alla stagione successiva.
 - Una volta ottenuto il certificato (da questi centri o dal proprio medico), va
   CARICATO nell'Area Tesserati del socio (mai via email) — vedi indicazione sopra.
