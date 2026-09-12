@@ -173,9 +173,20 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
   // stessa del certificato).
   const [scadenzaModificata, setScadenzaModificata] = useState(row.data_scadenza_certificato || '')
   const [modificaScadenzaAperta, setModificaScadenzaAperta] = useState(false)
+  // Tipo di pagamento/importo modificabile direttamente qui, senza dover
+  // andare in Anagrafica Soci — utile quando la ricevuta appena arrivata
+  // mostra che il socio ha versato un importo diverso da quello dichiarato
+  // (es. quadrimestre invece di annuale). Aggiunto il 12/09/2026 su richiesta
+  // di Solomon (caso reale: Pogliaghi Antonella).
+  const [modificaPagamentoAperta, setModificaPagamentoAperta] = useState(false)
+  const [tipoPagamentoModificato, setTipoPagamentoModificato] = useState(row.tipo_pagamento || 'annuale')
+  const [importoModificato, setImportoModificato] = useState(row.importo_dichiarato ?? '')
+  const [erroreModificaPagamento, setErroreModificaPagamento] = useState('')
 
   const socio = row.soci
   const corso = row.corsi
+
+  const etichettaTipoPagamento = (t) => t === 'quad1' ? '1° quadrimestre' : t === 'quad2' ? '2° quadrimestre' : 'Annuale'
 
   const aggiornaIscrizione = async (payload) => {
     const { error } = await supabase.from('iscrizioni').update({
@@ -185,6 +196,27 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
     }).eq('id', row.id)
     if (error) { alert('Errore: ' + error.message); return }
     onAggiorna()
+  }
+
+  const salvaModificaPagamento = async () => {
+    if (importoModificato === '' || isNaN(Number(importoModificato))) { setErroreModificaPagamento('Inserisci un importo valido.'); return }
+    const eraConfermato = row.stato_pagamento === 'confermato'
+    const messaggioConferma = eraConfermato
+      ? `Cambiare il pagamento in "${etichettaTipoPagamento(tipoPagamentoModificato)}" con importo ${importoModificato}€?\n\nQuesta iscrizione risultava già confermata: dato che l'importo cambia, verrà rimessa "in attesa" finché non la riconfermi.`
+      : `Cambiare il pagamento in "${etichettaTipoPagamento(tipoPagamentoModificato)}" con importo ${importoModificato}€?`
+    if (!window.confirm(messaggioConferma)) return
+
+    const nuovaNota = `${row.note ? row.note + ' | ' : ''}Pagamento cambiato da "${etichettaTipoPagamento(row.tipo_pagamento)} (${row.importo_dichiarato ?? '?'}€)" a "${etichettaTipoPagamento(tipoPagamentoModificato)} (${importoModificato}€)" il ${new Date().toLocaleDateString('it-IT')}.`
+    const payload = {
+      tipo_pagamento: tipoPagamentoModificato,
+      importo_dichiarato: Number(importoModificato),
+      note: nuovaNota,
+    }
+    if (eraConfermato) payload.stato_pagamento = 'in_attesa'
+
+    setErroreModificaPagamento('')
+    await aggiornaIscrizione(payload)
+    setModificaPagamentoAperta(false)
   }
 
   const salvaTessera = async () => {
@@ -255,7 +287,43 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
                   <button onClick={() => setModaleRifiuto('pagamento')} style={{ background: '#FEE2E2', color: '#991B1B', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>✕ Rifiuta</button>
                 </>
               )}
+              {!soloConsultazione && (
+                <button onClick={() => { setModificaPagamentoAperta(a => !a); setTipoPagamentoModificato(row.tipo_pagamento || 'annuale'); setImportoModificato(row.importo_dichiarato ?? ''); setErroreModificaPagamento('') }}
+                  style={{ background: '#EDE9FE', color: '#5B21B6', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>
+                  ✏️ Modifica pagamento
+                </button>
+              )}
             </div>
+
+            {modificaPagamentoAperta && (
+              <div style={{ marginTop: 10, paddingTop: 8, background: '#F5F3FF', borderRadius: 8, padding: 10 }}>
+                <div style={{ fontSize: 11.5, color: '#5B21B6', marginBottom: 6, fontWeight: 600 }}>Cambia tipo di pagamento e importo</div>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                  {['annuale', 'quad1', 'quad2'].map((t) => (
+                    <button key={t} onClick={() => setTipoPagamentoModificato(t)}
+                      style={{ flex: 1, padding: '6px', borderRadius: 6, border: `1px solid ${tipoPagamentoModificato === t ? '#5B21B6' : BD}`, background: tipoPagamentoModificato === t ? '#EDE9FE' : 'white', color: tipoPagamentoModificato === t ? '#5B21B6' : TX, fontSize: 12, cursor: 'pointer', fontWeight: tipoPagamentoModificato === t ? 600 : 400 }}>
+                      {etichettaTipoPagamento(t)}
+                    </button>
+                  ))}
+                </div>
+                <label style={{ fontSize: 11, color: SUB, display: 'block', marginBottom: 4 }}>Nuovo importo dovuto (€)</label>
+                <input type="number" value={importoModificato} onChange={(e) => setImportoModificato(e.target.value)}
+                  style={{ width: '100%', padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 12.5, marginBottom: 8, boxSizing: 'border-box' }} />
+                <p style={{ fontSize: 11, color: '#92400E', marginBottom: 8 }}>
+                  Usa il Calcolatore Prezzi se non sei sicuro dell'importo corretto per il nuovo tipo di pagamento.
+                </p>
+                {erroreModificaPagamento && <p style={{ fontSize: 11.5, color: '#991B1B', margin: '0 0 8px' }}>{erroreModificaPagamento}</p>}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setModificaPagamentoAperta(false)} style={{ flex: 1, padding: '7px', border: `1px solid ${BD}`, borderRadius: 7, background: 'white', color: SUB, fontSize: 12, cursor: 'pointer' }}>
+                    Annulla
+                  </button>
+                  <button onClick={salvaModificaPagamento}
+                    style={{ flex: 1, padding: '7px', border: 'none', borderRadius: 7, background: '#5B21B6', color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                    Conferma
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
