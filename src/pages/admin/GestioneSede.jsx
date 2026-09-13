@@ -74,21 +74,34 @@ export default function GestioneSede() {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// TAB 1 — Turni & Gruppi: vista per giorno, elenco iscritti, stampa
-// registro firme Libertas/ASI per singolo turno.
+// TAB 1 — Turni & Gruppi: vista per giorno, creazione/modifica turni,
+// gestione persone (aggiungi/modifica/rimuovi/sposta), stampa registro
+// firme Libertas/ASI per singolo turno.
 // ─────────────────────────────────────────────────────────────────
+const CAMPI_ANAGRAFICA_VUOTI = {
+  nome: "", cognome: "", cf: "", data_nascita: "", comune_nascita: "", provincia_nascita: "",
+  comune_residenza: "", provincia_residenza: "", cap: "", indirizzo: "", sesso: "", telefono: "", email: "", numero_tessera: "",
+};
+
 function TurniEGruppi() {
   const [turni, setTurni] = useState([]);
+  const [istruttori, setIstruttori] = useState([]);
   const [caricando, setCaricando] = useState(true);
   const [errore, setErrore] = useState("");
   const [giornoAttivo, setGiornoAttivo] = useState(1);
   const [espansi, setEspansi] = useState(new Set());
+  const [modaleTurno, setModaleTurno] = useState(null); // null | { turno: obj|null }
+  const [modalePersona, setModalePersona] = useState(null); // null | { turnoId, persona: obj|null }
 
   const carica = useCallback(async () => {
     setCaricando(true);
     try {
-      const dati = await chiamaAreaSede("lista_turni_con_iscritti", {});
+      const [dati, datiIstr] = await Promise.all([
+        chiamaAreaSede("lista_turni_con_iscritti", {}),
+        chiamaAreaSede("lista_istruttori_sede", {}),
+      ]);
       setTurni(dati.turni || []);
+      setIstruttori(datiIstr.istruttori || []);
     } catch (err) { setErrore(err.message); }
     finally { setCaricando(false); }
   }, []);
@@ -114,21 +127,42 @@ function TurniEGruppi() {
     else await generaRegistroFirmeLibertas(corsoFinto, iscrizioni, { nome: "" });
   }
 
+  async function eliminaTurno(turno) {
+    if (!window.confirm(`Eliminare il turno delle ${turno.orario?.slice(0, 5)} (${turno.istruttore?.nome} ${turno.istruttore?.cognome})? Le persone iscritte a questo turno verranno rimosse.`)) return;
+    try { await chiamaAreaSede("elimina_turno", { id: turno.id }); carica(); } catch (err) { alert(err.message); }
+  }
+
+  async function rimuoviPersona(persona) {
+    if (!window.confirm(`Rimuovere ${persona.cognome} ${persona.nome} da questo turno?`)) return;
+    try { await chiamaAreaSede("elimina_iscritto_turno", { id: persona.id }); carica(); } catch (err) { alert(err.message); }
+  }
+
   return (
     <div>
       {errore && <div style={{ background: "#fdecea", color: "#c0392b", padding: "8px 10px", borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{errore}</div>}
       {caricando ? <div style={{ color: "#999" }}>Caricamento…</div> : (
         <>
-          <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-            {giorniConTurni.map((g) => (
-              <button key={g} onClick={() => setGiornoAttivo(g)}
-                style={{
-                  background: giornoAttivo === g ? C : "#fff", color: giornoAttivo === g ? "#fff" : "#444",
-                  border: `1px solid ${C}`, borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: "pointer",
-                }}>
-                {GIORNI_LABEL[g]} ({turni.filter((t) => t.giorno_settimana === g).length})
-              </button>
-            ))}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {giorniConTurni.map((g) => (
+                <button key={g} onClick={() => setGiornoAttivo(g)}
+                  style={{
+                    background: giornoAttivo === g ? C : "#fff", color: giornoAttivo === g ? "#fff" : "#444",
+                    border: `1px solid ${C}`, borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: "pointer",
+                  }}>
+                  {GIORNI_LABEL[g]} ({turni.filter((t) => t.giorno_settimana === g).length})
+                </button>
+              ))}
+              {![1, 2, 3, 4, 5, 6].every((g) => giorniConTurni.includes(g)) && (
+                <select value={giornoAttivo} onChange={(e) => setGiornoAttivo(Number(e.target.value))} style={{ border: `1px solid ${C}`, borderRadius: 8, padding: "6px 10px", fontSize: 13, color: "#444" }}>
+                  {[1, 2, 3, 4, 5, 6].filter((g) => !giorniConTurni.includes(g)).map((g) => <option key={g} value={g}>{GIORNI_LABEL[g]} (0)</option>)}
+                </select>
+              )}
+            </div>
+            <button onClick={() => setModaleTurno({ turno: null, giornoDefault: giornoAttivo })}
+              style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              + Nuovo turno
+            </button>
           </div>
 
           {turniGiorno.length === 0 && <div style={{ color: "#999", fontSize: 13 }}>Nessun turno per questo giorno.</div>}
@@ -138,25 +172,46 @@ function TurniEGruppi() {
               const aperto = espansi.has(t.id);
               return (
                 <div key={t.id} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
-                  <div onClick={() => toggleEspanso(t.id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", cursor: "pointer", background: aperto ? CL : "#fff" }}>
-                    <div style={{ fontWeight: 700, width: 60 }}>{t.orario?.slice(0, 5)}</div>
-                    <div style={{ flex: 1 }}>{t.istruttore?.nome} {t.istruttore?.cognome}</div>
-                    <div style={{ color: "#777", fontSize: 12 }}>{t.iscritti?.length || 0} iscritti</div>
-                    {t.note && <div style={{ color: "#aaa", fontSize: 11 }}>{t.note}</div>}
-                    <div style={{ fontSize: 12 }}>{aperto ? "▲" : "▼"}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", background: aperto ? CL : "#fff" }}>
+                    <div onClick={() => toggleEspanso(t.id)} style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, cursor: "pointer" }}>
+                      <div style={{ fontWeight: 700, width: 60 }}>{t.orario?.slice(0, 5)}</div>
+                      <div style={{ flex: 1 }}>{t.istruttore?.nome} {t.istruttore?.cognome}</div>
+                      <div style={{ color: "#777", fontSize: 12 }}>{t.iscritti?.length || 0} iscritti</div>
+                      {t.note && <div style={{ color: "#aaa", fontSize: 11 }}>{t.note}</div>}
+                    </div>
+                    <button onClick={() => setModaleTurno({ turno: t })} title="Modifica turno" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14 }}>✏️</button>
+                    <button onClick={() => eliminaTurno(t)} title="Elimina turno" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14 }}>🗑️</button>
+                    <div onClick={() => toggleEspanso(t.id)} style={{ fontSize: 12, cursor: "pointer" }}>{aperto ? "▲" : "▼"}</div>
                   </div>
                   {aperto && (
                     <div style={{ padding: "10px 16px 16px", borderTop: "1px solid #f0f0f0" }}>
                       {(t.iscritti || []).length === 0 ? (
-                        <div style={{ color: "#999", fontSize: 13 }}>Nessun iscritto caricato — usa "Import elenco iscritti".</div>
+                        <div style={{ color: "#999", fontSize: 13, marginBottom: 10 }}>Nessun iscritto in questo turno.</div>
                       ) : (
-                        <ul style={{ margin: "0 0 12px", paddingLeft: 18, fontSize: 13, columns: 2 }}>
-                          {t.iscritti.map((i) => <li key={i.id}>{i.cognome} {i.nome}{!i.cf && <span style={{ color: "#c0392b" }}> (dati anagrafici incompleti)</span>}</li>)}
-                        </ul>
+                        <div style={{ marginBottom: 12 }}>
+                          {t.iscritti.map((i) => (
+                            <div key={i.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: "1px solid #f7f7f7", fontSize: 13 }}>
+                              <div style={{ flex: 1 }}>
+                                {i.cognome} {i.nome}
+                                {!i.cf && <span style={{ color: "#c0392b", fontSize: 11 }}> (dati anagrafici incompleti)</span>}
+                              </div>
+                              <select value="" onChange={(e) => { if (e.target.value) chiamaAreaSede("salva_iscritto_turno", { ...i, id: i.id, turno_id: e.target.value }).then(carica).catch((err) => alert(err.message)); }}
+                                style={{ fontSize: 11, border: "1px solid #ddd", borderRadius: 6, padding: "2px 4px", color: "#777" }}>
+                                <option value="">↔ Sposta a…</option>
+                                {turni.filter((t2) => t2.id !== t.id).map((t2) => (
+                                  <option key={t2.id} value={t2.id}>{GIORNI_LABEL[t2.giorno_settimana].slice(0, 3)} {t2.orario?.slice(0, 5)} — {t2.istruttore?.nome}</option>
+                                ))}
+                              </select>
+                              <button onClick={() => setModalePersona({ turnoId: t.id, persona: i })} title="Modifica" style={{ background: "none", border: "none", cursor: "pointer" }}>✏️</button>
+                              <button onClick={() => rimuoviPersona(i)} title="Rimuovi" style={{ background: "none", border: "none", cursor: "pointer" }}>🗑️</button>
+                            </div>
+                          ))}
+                        </div>
                       )}
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => stampa(t, "Libertas")} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>📄 Stampa registro Libertas</button>
-                        <button onClick={() => stampa(t, "ASI")} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>📄 Stampa registro ASI</button>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button onClick={() => setModalePersona({ turnoId: t.id, persona: null })} style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>+ Aggiungi persona</button>
+                        <button onClick={() => stampa(t, "Libertas")} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>📄 Registro Libertas</button>
+                        <button onClick={() => stampa(t, "ASI")} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>📄 Registro ASI</button>
                       </div>
                     </div>
                   )}
@@ -166,6 +221,133 @@ function TurniEGruppi() {
           </div>
         </>
       )}
+
+      {modaleTurno && (
+        <ModaleTurno turno={modaleTurno.turno} giornoDefault={modaleTurno.giornoDefault} istruttori={istruttori}
+          onChiudi={() => setModaleTurno(null)} onSalvato={() => { setModaleTurno(null); carica(); }} />
+      )}
+      {modalePersona && (
+        <ModalePersona turnoId={modalePersona.turnoId} persona={modalePersona.persona}
+          onChiudi={() => setModalePersona(null)} onSalvato={() => { setModalePersona(null); carica(); }} />
+      )}
+    </div>
+  );
+}
+
+function ModaleTurno({ turno, giornoDefault, istruttori, onChiudi, onSalvato }) {
+  const [form, setForm] = useState(turno ? {
+    istruttore_id: turno.istruttore_id, giorno_settimana: turno.giorno_settimana, orario: turno.orario?.slice(0, 5), ore: turno.ore, note: turno.note || "",
+  } : { istruttore_id: istruttori[0]?.id || "", giorno_settimana: giornoDefault || 1, orario: "09:00", ore: 1, note: "" });
+  const [errore, setErrore] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  async function salva() {
+    if (!form.istruttore_id || !form.orario) { setErrore("Istruttore e orario sono obbligatori."); return; }
+    setSalvando(true); setErrore("");
+    try {
+      await chiamaAreaSede("salva_turno", { id: turno?.id, ...form, numero_persone_default: turno?.numero_persone_default });
+      onSalvato();
+    } catch (err) { setErrore(err.message); }
+    finally { setSalvando(false); }
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: 16 }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 420, maxWidth: "95vw" }}>
+        <h3 style={{ margin: "0 0 14px", fontSize: 16 }}>{turno ? "Modifica turno" : "Nuovo turno"}</h3>
+
+        <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 4 }}>Giorno</label>
+        <select value={form.giorno_settimana} onChange={(e) => setForm({ ...form, giorno_settimana: Number(e.target.value) })} style={{ width: "100%", padding: 8, marginBottom: 12, border: "1px solid #ddd", borderRadius: 8 }}>
+          {[1, 2, 3, 4, 5, 6].map((g) => <option key={g} value={g}>{GIORNI_LABEL[g]}</option>)}
+        </select>
+
+        <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 4 }}>Orario</label>
+        <input type="time" value={form.orario} onChange={(e) => setForm({ ...form, orario: e.target.value })} style={{ width: "100%", padding: 8, marginBottom: 12, border: "1px solid #ddd", borderRadius: 8 }} />
+
+        <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 4 }}>Istruttore</label>
+        <select value={form.istruttore_id} onChange={(e) => setForm({ ...form, istruttore_id: e.target.value })} style={{ width: "100%", padding: 8, marginBottom: 12, border: "1px solid #ddd", borderRadius: 8 }}>
+          {istruttori.map((i) => <option key={i.id} value={i.id}>{i.nome} {i.cognome}</option>)}
+        </select>
+
+        <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 4 }}>Ore (durata)</label>
+        <input type="number" min="0.5" step="0.5" value={form.ore} onChange={(e) => setForm({ ...form, ore: Number(e.target.value) })} style={{ width: "100%", padding: 8, marginBottom: 12, border: "1px solid #ddd", borderRadius: 8 }} />
+
+        <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 4 }}>Note (opzionale)</label>
+        <input type="text" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} style={{ width: "100%", padding: 8, marginBottom: 14, border: "1px solid #ddd", borderRadius: 8 }} />
+
+        {errore && <div style={{ background: "#fdecea", color: "#c0392b", padding: "8px 10px", borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{errore}</div>}
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={onChiudi} style={{ flex: 1, background: "#f0f0f0", border: "none", borderRadius: 8, padding: "10px 0", cursor: "pointer" }}>Annulla</button>
+          <button onClick={salva} disabled={salvando} style={{ flex: 1, background: C, color: "#fff", border: "none", borderRadius: 8, padding: "10px 0", fontWeight: 600, cursor: "pointer", opacity: salvando ? 0.6 : 1 }}>{salvando ? "Salvo…" : "Salva"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModalePersona({ turnoId, persona, onChiudi, onSalvato }) {
+  const [form, setForm] = useState(persona ? {
+    nome: persona.nome || "", cognome: persona.cognome || "", cf: persona.cf || "", data_nascita: persona.data_nascita || "",
+    comune_nascita: persona.comune_nascita || "", provincia_nascita: persona.provincia_nascita || "",
+    comune_residenza: persona.comune_residenza || "", provincia_residenza: persona.provincia_residenza || "",
+    cap: persona.cap || "", indirizzo: persona.indirizzo || "", sesso: persona.sesso || "",
+    telefono: persona.telefono || "", email: persona.email || "", numero_tessera: persona.numero_tessera || "",
+  } : CAMPI_ANAGRAFICA_VUOTI);
+  const [errore, setErrore] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  function campo(k, v) { setForm((prev) => ({ ...prev, [k]: v })); }
+
+  async function salva() {
+    if (!form.nome || !form.cognome) { setErrore("Nome e cognome sono obbligatori."); return; }
+    setSalvando(true); setErrore("");
+    try {
+      await chiamaAreaSede("salva_iscritto_turno", { id: persona?.id, turno_id: turnoId, ...form });
+      onSalvato();
+    } catch (err) { setErrore(err.message); }
+    finally { setSalvando(false); }
+  }
+
+  const campiTesto = [
+    ["cognome", "Cognome *"], ["nome", "Nome *"], ["cf", "Codice Fiscale"],
+    ["comune_nascita", "Comune di nascita"], ["provincia_nascita", "Provincia nascita (sigla)"],
+    ["comune_residenza", "Comune di residenza"], ["provincia_residenza", "Provincia residenza (sigla)"],
+    ["cap", "CAP"], ["indirizzo", "Indirizzo residenza"],
+    ["telefono", "Telefono"], ["email", "Email"], ["numero_tessera", "Numero tessera (se già assegnato)"],
+  ];
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: 16 }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 520, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto" }}>
+        <h3 style={{ margin: "0 0 14px", fontSize: 16 }}>{persona ? "Modifica persona" : "Aggiungi persona al turno"}</h3>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 4 }}>
+          {campiTesto.map(([k, label]) => (
+            <div key={k}>
+              <label style={{ display: "block", fontSize: 11, color: "#555", marginBottom: 3 }}>{label}</label>
+              <input type="text" value={form[k]} onChange={(e) => campo(k, e.target.value)} style={{ width: "100%", padding: 7, border: "1px solid #ddd", borderRadius: 8, fontSize: 13 }} />
+            </div>
+          ))}
+          <div>
+            <label style={{ display: "block", fontSize: 11, color: "#555", marginBottom: 3 }}>Data di nascita</label>
+            <input type="date" value={form.data_nascita} onChange={(e) => campo("data_nascita", e.target.value)} style={{ width: "100%", padding: 7, border: "1px solid #ddd", borderRadius: 8, fontSize: 13 }} />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: 11, color: "#555", marginBottom: 3 }}>Sesso</label>
+            <select value={form.sesso} onChange={(e) => campo("sesso", e.target.value)} style={{ width: "100%", padding: 7, border: "1px solid #ddd", borderRadius: 8, fontSize: 13 }}>
+              <option value="">—</option>
+              <option value="M">M</option>
+              <option value="F">F</option>
+            </select>
+          </div>
+        </div>
+
+        {errore && <div style={{ background: "#fdecea", color: "#c0392b", padding: "8px 10px", borderRadius: 8, fontSize: 13, margin: "12px 0" }}>{errore}</div>}
+        <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+          <button onClick={onChiudi} style={{ flex: 1, background: "#f0f0f0", border: "none", borderRadius: 8, padding: "10px 0", cursor: "pointer" }}>Annulla</button>
+          <button onClick={salva} disabled={salvando} style={{ flex: 1, background: C, color: "#fff", border: "none", borderRadius: 8, padding: "10px 0", fontWeight: 600, cursor: "pointer", opacity: salvando ? 0.6 : 1 }}>{salvando ? "Salvo…" : "Salva"}</button>
+        </div>
+      </div>
     </div>
   );
 }
