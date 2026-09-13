@@ -17,6 +17,7 @@ import ElencoPersonalizzato from './ElencoPersonalizzato.jsx'
 import CalcolatorePrezzi from './CalcolatorePrezzi.jsx'
 import GenerazioneAttestati from './GenerazioneAttestati.jsx'
 import Note from './Note.jsx'
+import GestioneSede from './GestioneSede.jsx'
 
 const VOCI = [
   { id: 'note',          icon: '📝', label: 'Note' },
@@ -26,6 +27,7 @@ const VOCI = [
   { id: 'prove',         icon: '📋', label: 'Gestione prove' },
   { id: 'istruttori',   icon: '👨‍🏫', label: 'Istruttori' },
   { id: 'gestione-corsi', icon: '🎯', label: 'Gestione corsi' },
+  { id: 'gestione-sede', icon: '🏢', label: 'Gestione SEDE' },
   { id: 'calcolatore-prezzi', icon: '🧮', label: 'Calcolatore prezzi' },
   { id: 'gestione-stagioni', icon: '🗓️', label: 'Stagioni' },
   { id: 'corsi',        icon: '📱', label: 'Vista corso' },
@@ -141,6 +143,7 @@ export default function AdminLayout({ user, onLogout }) {
         {pagina === 'prove'       && <GestioneProve />}
         {pagina === 'istruttori'  && <GestioneIstruttori />}
         {pagina === 'gestione-corsi' && <GestioneCorsi />}
+        {pagina === 'gestione-sede' && <GestioneSede />}
         {pagina === 'calcolatore-prezzi' && <CalcolatorePrezzi />}
         {pagina === 'gestione-stagioni' && <GestioneStagioni />}
         {pagina === 'corsi'       && <VistaCorsomobile />}
