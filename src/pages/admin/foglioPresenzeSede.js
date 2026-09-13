@@ -166,9 +166,16 @@ export async function generaFoglioPresenzeSede(turno, iscritti, dataInizioISO, e
   const bytes = await pdfDoc.save();
   const blob = new Blob([bytes], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
+  const annoStagione = (() => {
+    const d = new Date(dataInizioISO + "T00:00:00");
+    const anno = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1;
+    return `${anno}-${anno + 1}`;
+  })();
+  const nomeIstruttore = (turno.istruttore?.nome || "").toUpperCase();
+  const orarioPunto = String(turno.orario || "").slice(0, 5).replace(":", ".");
   const a = document.createElement("a");
   a.href = url;
-  a.download = `Foglio_Presenze_SEDE_${GIORNI_LABEL_MAIUSC[turno.giorno_settimana]}_${String(turno.orario || "").slice(0, 5).replace(":", "")}.pdf`;
+  a.download = `SEDE  - turno PILATES ${nomeIstruttore} ${orarioPunto} (${GIORNI_LABEL_MAIUSC[turno.giorno_settimana]}) ${annoStagione}.pdf`;
   document.body.appendChild(a);
   a.click();
   a.remove();
