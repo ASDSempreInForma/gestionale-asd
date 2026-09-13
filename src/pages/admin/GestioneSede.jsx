@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import { createClient } from "@supabase/supabase-js";
 import { generaFileASI, generaFileLibertas } from "./esportaAssicurazioni.js";
 import { generaRegistroFirmeASI, generaRegistroFirmeLibertas, generaRegistroFirmeMistoASI, generaRegistroFirmeMistoLibertas } from "./registroFirme.js";
+import { generaFoglioPresenzeSede } from "./foglioPresenzeSede.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -92,6 +93,7 @@ function TurniEGruppi() {
   const [espansi, setEspansi] = useState(new Set());
   const [modaleTurno, setModaleTurno] = useState(null); // null | { turno: obj|null }
   const [modalePersona, setModalePersona] = useState(null); // null | { turnoId, persona: obj|null }
+  const [modaleFoglio, setModaleFoglio] = useState(null); // null | turno
 
   const carica = useCallback(async () => {
     setCaricando(true);
@@ -210,6 +212,7 @@ function TurniEGruppi() {
                       )}
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <button onClick={() => setModalePersona({ turnoId: t.id, persona: null })} style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>+ Aggiungi persona</button>
+                        <button onClick={() => setModaleFoglio(t)} style={{ background: "#fff", color: "#8e44ad", border: "1px solid #8e44ad", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>🗓️ Foglio presenze (PDF)</button>
                         <button onClick={() => stampa(t, "Libertas")} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>📄 Registro Libertas</button>
                         <button onClick={() => stampa(t, "ASI")} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>📄 Registro ASI</button>
                       </div>
@@ -230,6 +233,58 @@ function TurniEGruppi() {
         <ModalePersona turnoId={modalePersona.turnoId} persona={modalePersona.persona}
           onChiudi={() => setModalePersona(null)} onSalvato={() => { setModalePersona(null); carica(); }} />
       )}
+      {modaleFoglio && (
+        <ModaleFoglioPresenze turno={modaleFoglio} onChiudi={() => setModaleFoglio(null)} />
+      )}
+    </div>
+  );
+}
+
+function ModaleFoglioPresenze({ turno, onChiudi }) {
+  const [dataInizio, setDataInizio] = useState(new Date().toISOString().slice(0, 10));
+  const [esclusioni, setEsclusioni] = useState([]);
+  const [generando, setGenerando] = useState(false);
+  const [errore, setErrore] = useState("");
+
+  function aggiungiEsclusione() { setEsclusioni((prev) => [...prev, { dal: "", al: "" }]); }
+  function aggiornaEsclusione(i, campo, val) { setEsclusioni((prev) => prev.map((e, idx) => (idx === i ? { ...e, [campo]: val } : e))); }
+  function rimuoviEsclusione(i) { setEsclusioni((prev) => prev.filter((_, idx) => idx !== i)); }
+
+  async function genera() {
+    setErrore(""); setGenerando(true);
+    try {
+      await generaFoglioPresenzeSede(turno, turno.iscritti || [], dataInizio, esclusioni.filter((e) => e.dal && e.al));
+      onChiudi();
+    } catch (err) { setErrore(err.message); }
+    finally { setGenerando(false); }
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: 16 }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 460, maxWidth: "95vw" }}>
+        <h3 style={{ margin: "0 0 4px", fontSize: 16 }}>Foglio presenze — {GIORNI_LABEL[turno.giorno_settimana]} {turno.orario?.slice(0, 5)}</h3>
+        <p style={{ margin: "0 0 14px", fontSize: 12, color: "#777" }}>Genera un PDF con una riga per ogni lezione (una a settimana da qui in poi) e una colonna per ogni iscritto, da stampare per la firma.</p>
+
+        <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 4 }}>Data della prima lezione</label>
+        <input type="date" value={dataInizio} onChange={(e) => setDataInizio(e.target.value)} style={{ width: "100%", padding: 8, marginBottom: 14, border: "1px solid #ddd", borderRadius: 8 }} />
+
+        <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 6 }}>Periodi di sospensione da saltare (es. vacanze di Natale)</label>
+        {esclusioni.map((e, i) => (
+          <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
+            <input type="date" value={e.dal} onChange={(ev) => aggiornaEsclusione(i, "dal", ev.target.value)} style={{ flex: 1, padding: 6, border: "1px solid #ddd", borderRadius: 8, fontSize: 12 }} />
+            <span style={{ fontSize: 12, color: "#999" }}>→</span>
+            <input type="date" value={e.al} onChange={(ev) => aggiornaEsclusione(i, "al", ev.target.value)} style={{ flex: 1, padding: 6, border: "1px solid #ddd", borderRadius: 8, fontSize: 12 }} />
+            <button onClick={() => rimuoviEsclusione(i)} style={{ background: "none", border: "none", cursor: "pointer" }}>🗑️</button>
+          </div>
+        ))}
+        <button onClick={aggiungiEsclusione} style={{ background: "none", border: "1px dashed #ccc", borderRadius: 8, padding: "6px 10px", fontSize: 12, color: "#777", cursor: "pointer", marginBottom: 14 }}>+ Aggiungi periodo di sospensione</button>
+
+        {errore && <div style={{ background: "#fdecea", color: "#c0392b", padding: "8px 10px", borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{errore}</div>}
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={onChiudi} style={{ flex: 1, background: "#f0f0f0", border: "none", borderRadius: 8, padding: "10px 0", cursor: "pointer" }}>Annulla</button>
+          <button onClick={genera} disabled={generando} style={{ flex: 1, background: "#8e44ad", color: "#fff", border: "none", borderRadius: 8, padding: "10px 0", fontWeight: 600, cursor: "pointer", opacity: generando ? 0.6 : 1 }}>{generando ? "Genero…" : "Genera PDF"}</button>
+        </div>
+      </div>
     </div>
   );
 }
