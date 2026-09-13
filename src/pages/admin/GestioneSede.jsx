@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
+import Papa from "papaparse";
 import { createClient } from "@supabase/supabase-js";
 import { generaFileASI, generaFileLibertas } from "./esportaAssicurazioni.js";
 import { generaRegistroFirmeASI, generaRegistroFirmeLibertas, generaRegistroFirmeMistoASI, generaRegistroFirmeMistoLibertas } from "./registroFirme.js";
@@ -64,6 +65,7 @@ export default function GestioneSede() {
         {[
           ["turni", "📅 Turni & Gruppi"],
           ["import", "📥 Import elenco iscritti"],
+          ["tessere", "🎫 Import tessere"],
           ["export", "📄 Export assicurazioni"],
         ].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
@@ -78,6 +80,7 @@ export default function GestioneSede() {
 
       {tab === "turni" && <TurniEGruppi />}
       {tab === "import" && <ImportaIscritti />}
+      {tab === "tessere" && <ImportaTessereSede />}
       {tab === "export" && <EsportaAssicurazioniSede />}
     </div>
   );
@@ -609,6 +612,98 @@ function ImportaIscritti() {
               {importando ? "Importazione…" : `Importa ${valide.length} turni`}
             </button>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TAB "Import tessere" — CSV rilasciati da Libertas/ASI dopo un
+// tesseramento (contengono TUTTI i tesserati del club). Riconosce solo
+// i CF già presenti nei turni SEDE e aggiorna il loro numero_tessera.
+// ─────────────────────────────────────────────────────────────────
+function BloccoImportTessere({ etichetta, onRigheProcessate }) {
+  const [nomeFile, setNomeFile] = useState("");
+  const [processando, setProcessando] = useState(false);
+  const [errore, setErrore] = useState("");
+
+  function gestisciFile(file) {
+    if (!file) return;
+    setNomeFile(file.name); setProcessando(true); setErrore("");
+    Papa.parse(file, {
+      header: true, delimiter: ";", skipEmptyLines: true,
+      complete: (res) => {
+        try {
+          const righe = (res.data || [])
+            .filter((r) => r["Codice fiscale"] || r["CF"])
+            .map((r) => ({ cf: (r["Codice fiscale"] || r["CF"] || "").trim().toUpperCase(), numero_tessera: (r["Codice tessera"] || "").trim() }))
+            .filter((r) => r.cf && r.numero_tessera);
+          onRigheProcessate(etichetta, righe);
+        } catch (err) { setErrore("Errore: " + err.message); }
+        finally { setProcessando(false); }
+      },
+      error: (err) => { setErrore("Errore lettura file: " + err.message); setProcessando(false); },
+    });
+  }
+
+  return (
+    <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 16, marginBottom: 14 }}>
+      <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>{etichetta}</div>
+      <input type="file" accept=".csv" onChange={(e) => gestisciFile(e.target.files[0])} style={{ fontSize: 13 }} />
+      {processando && <p style={{ fontSize: 12, color: "#999" }}>Elaborazione {nomeFile}…</p>}
+      {errore && <p style={{ fontSize: 12, color: "#c0392b" }}>{errore}</p>}
+    </div>
+  );
+}
+
+function ImportaTessereSede() {
+  const [datiPerBlocco, setDatiPerBlocco] = useState({});
+  const [aggiornando, setAggiornando] = useState(false);
+  const [esito, setEsito] = useState(null);
+  const [errore, setErrore] = useState("");
+
+  function onRigheProcessate(etichetta, righe) {
+    setDatiPerBlocco((prev) => ({ ...prev, [etichetta]: righe }));
+    setEsito(null);
+  }
+
+  const totale = Object.values(datiPerBlocco).reduce((tot, arr) => tot + arr.length, 0);
+
+  async function conferma() {
+    setErrore(""); setAggiornando(true);
+    try {
+      const righe = Object.values(datiPerBlocco).flat();
+      const dati = await chiamaAreaSede("importa_tessere_sede", { righe });
+      setEsito(dati);
+    } catch (err) { setErrore(err.message); }
+    finally { setAggiornando(false); }
+  }
+
+  return (
+    <div style={{ maxWidth: 640 }}>
+      <p style={{ fontSize: 13, color: "#777", marginBottom: 14 }}>
+        Carica qui i CSV scaricati da Libertas o ASI dopo un tesseramento — contengono tutti i tesserati del club fino a quel momento. Il sistema riconosce e aggiorna solo i codici fiscali già presenti nei turni SEDE (una persona iscritta a più turni viene aggiornata ovunque).
+      </p>
+
+      <BloccoImportTessere etichetta="File Libertas" onRigheProcessate={onRigheProcessate} />
+      <BloccoImportTessere etichetta="File ASI" onRigheProcessate={onRigheProcessate} />
+
+      {totale > 0 && !esito && (
+        <div style={{ background: "#f8fafc", border: "1px solid #eee", borderRadius: 10, padding: 16, marginTop: 10 }}>
+          <div style={{ fontSize: 13, marginBottom: 10 }}>Pronto ad aggiornare fino a <b>{totale}</b> numeri tessera.</div>
+          <button onClick={conferma} disabled={aggiornando}
+            style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: aggiornando ? 0.6 : 1 }}>
+            {aggiornando ? "Aggiorno…" : `Conferma aggiornamento di ${totale} tessere`}
+          </button>
+        </div>
+      )}
+
+      {errore && <div style={{ background: "#fdecea", color: "#c0392b", padding: "8px 10px", borderRadius: 8, fontSize: 13, marginTop: 14 }}>{errore}</div>}
+      {esito && (
+        <div style={{ background: "#eafaf0", color: "#1f8a52", borderRadius: 10, padding: 14, marginTop: 14, fontSize: 13, fontWeight: 600 }}>
+          ✅ {esito.aggiornati} tessere aggiornate nei turni SEDE.
+          {esito.non_trovati > 0 && <div style={{ fontWeight: 400, marginTop: 6, color: "#777" }}>{esito.non_trovati} codici fiscali del file non appartengono a nessun turno SEDE (persone di altri corsi) — ignorati, come previsto.</div>}
         </div>
       )}
     </div>
