@@ -130,6 +130,14 @@ function TurniEGruppi() {
     else await generaRegistroFirmeLibertas(corsoFinto, iscrizioni, { nome: "" });
   }
 
+  function esportaDati(turno, ente) {
+    const iscrizioni = (turno.iscritti || []).map(comeIscrizione);
+    if (iscrizioni.length === 0) { alert("Nessun iscritto per questo turno."); return; }
+    const corsoFinto = { codice_corso: `SEDE_${GIORNI_LABEL[turno.giorno_settimana].slice(0, 3)}_${turno.orario.replace(":", "")}` };
+    if (ente === "ASI") generaFileASI(corsoFinto, iscrizioni, { nome: "" });
+    else generaFileLibertas(corsoFinto, iscrizioni, { nome: "" });
+  }
+
   async function eliminaTurno(turno) {
     if (!window.confirm(`Eliminare il turno delle ${turno.orario?.slice(0, 5)} (${turno.istruttore?.nome} ${turno.istruttore?.cognome})? Le persone iscritte a questo turno verranno rimosse.`)) return;
     try { await chiamaAreaSede("elimina_turno", { id: turno.id }); carica(); } catch (err) { alert(err.message); }
@@ -216,6 +224,8 @@ function TurniEGruppi() {
                         <button onClick={() => setModaleFoglio(t)} style={{ background: "#fff", color: "#8e44ad", border: "1px solid #8e44ad", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>🗓️ Foglio presenze (PDF)</button>
                         <button onClick={() => stampa(t, "Libertas")} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>📄 Registro Libertas</button>
                         <button onClick={() => stampa(t, "ASI")} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>📄 Registro ASI</button>
+                        <button onClick={() => esportaDati(t, "Libertas")} style={{ background: "#fff", color: "#1f8a52", border: "1px solid #1f8a52", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>⬇️ Libertas (.xls)</button>
+                        <button onClick={() => esportaDati(t, "ASI")} style={{ background: "#fff", color: "#1f8a52", border: "1px solid #1f8a52", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>⬇️ ASI (.csv)</button>
                       </div>
                     </div>
                   )}
