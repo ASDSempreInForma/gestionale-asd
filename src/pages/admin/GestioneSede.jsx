@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { generaFileASI, generaFileLibertas } from "./esportaAssicurazioni.js";
 import { generaRegistroFirmeASI, generaRegistroFirmeLibertas, generaRegistroFirmeMistoASI, generaRegistroFirmeMistoLibertas } from "./registroFirme.js";
 import { generaFoglioPresenzeSede } from "./foglioPresenzeSede.js";
+import { generaFoglioPresenzeExcelSede } from "./foglioPresenzeExcel.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -244,6 +245,7 @@ function ModaleFoglioPresenze({ turno, onChiudi }) {
   const [dataInizio, setDataInizio] = useState(new Date().toISOString().slice(0, 10));
   const [esclusioni, setEsclusioni] = useState([]);
   const [generando, setGenerando] = useState(false);
+  const [generandoExcel, setGenerandoExcel] = useState(false);
   const [errore, setErrore] = useState("");
 
   function aggiungiEsclusione() { setEsclusioni((prev) => [...prev, { dal: "", al: "" }]); }
@@ -257,6 +259,14 @@ function ModaleFoglioPresenze({ turno, onChiudi }) {
       onChiudi();
     } catch (err) { setErrore(err.message); }
     finally { setGenerando(false); }
+  }
+
+  function generaExcel() {
+    setErrore(""); setGenerandoExcel(true);
+    try {
+      generaFoglioPresenzeExcelSede(turno, turno.iscritti || [], dataInizio, esclusioni.filter((e) => e.dal && e.al));
+    } catch (err) { setErrore(err.message); }
+    finally { setGenerandoExcel(false); }
   }
 
   return (
@@ -282,6 +292,7 @@ function ModaleFoglioPresenze({ turno, onChiudi }) {
         {errore && <div style={{ background: "#fdecea", color: "#c0392b", padding: "8px 10px", borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{errore}</div>}
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={onChiudi} style={{ flex: 1, background: "#f0f0f0", border: "none", borderRadius: 8, padding: "10px 0", cursor: "pointer" }}>Annulla</button>
+          <button onClick={generaExcel} disabled={generandoExcel} style={{ flex: 1, background: "#fff", color: "#1f8a52", border: "1px solid #1f8a52", borderRadius: 8, padding: "10px 0", fontWeight: 600, cursor: "pointer", opacity: generandoExcel ? 0.6 : 1 }}>{generandoExcel ? "Genero…" : "Excel (backup)"}</button>
           <button onClick={genera} disabled={generando} style={{ flex: 1, background: "#8e44ad", color: "#fff", border: "none", borderRadius: 8, padding: "10px 0", fontWeight: 600, cursor: "pointer", opacity: generando ? 0.6 : 1 }}>{generando ? "Genero…" : "Genera PDF"}</button>
         </div>
       </div>
