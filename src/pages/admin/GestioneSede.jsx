@@ -15,6 +15,14 @@ const C = "#4A5560"; // stesso grafite usato per l'Area SEDE
 const CL = "#EEF0F1";
 const GIORNI_LABEL = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
 
+// Stagione sportiva corrente in formato esteso (es. "2026/2027"), da agosto
+// in poi è la nuova stagione — usata per l'intestazione dei registri firme.
+function stagioneCorrente() {
+  const oggi = new Date();
+  const anno = oggi.getMonth() >= 7 ? oggi.getFullYear() : oggi.getFullYear() - 1;
+  return `${anno}/${anno + 1}`;
+}
+
 async function chiamaAreaSede(action, payload) {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/area-sede`, {
     method: "POST",
@@ -126,16 +134,16 @@ function TurniEGruppi() {
     const iscrizioni = (turno.iscritti || []).map(comeIscrizione);
     if (iscrizioni.length === 0) { alert("Nessun iscritto per questo turno."); return; }
     const corsoFinto = { codice_corso: `SEDE_${GIORNI_LABEL[turno.giorno_settimana].slice(0, 3)}_${turno.orario.replace(":", "")}` };
-    if (ente === "ASI") await generaRegistroFirmeASI(corsoFinto, iscrizioni, { nome: "" });
-    else await generaRegistroFirmeLibertas(corsoFinto, iscrizioni, { nome: "" });
+    if (ente === "ASI") await generaRegistroFirmeASI(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
+    else await generaRegistroFirmeLibertas(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
   }
 
   function esportaDati(turno, ente) {
     const iscrizioni = (turno.iscritti || []).map(comeIscrizione);
     if (iscrizioni.length === 0) { alert("Nessun iscritto per questo turno."); return; }
     const corsoFinto = { codice_corso: `SEDE_${GIORNI_LABEL[turno.giorno_settimana].slice(0, 3)}_${turno.orario.replace(":", "")}` };
-    if (ente === "ASI") generaFileASI(corsoFinto, iscrizioni, { nome: "" });
-    else generaFileLibertas(corsoFinto, iscrizioni, { nome: "" });
+    if (ente === "ASI") generaFileASI(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
+    else generaFileLibertas(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
   }
 
   async function eliminaTurno(turno) {
@@ -449,9 +457,12 @@ function parseOrarioTurnoTesto(testo) {
 
 function excelDataToISO(v) {
   if (!v) return null;
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  const d = new Date(v);
-  return isNaN(d) ? null : d.toISOString().slice(0, 10);
+  const d = v instanceof Date ? v : new Date(v);
+  if (isNaN(d)) return null;
+  // Usa i componenti LOCALI (non toISOString, che converte in UTC e in Italia
+  // fa scivolare la data indietro di un giorno — bug scoperto da Solomon il
+  // 14/09/2026 confrontando le date di nascita nel registro Libertas).
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function ImportaIscritti() {
@@ -654,8 +665,8 @@ function EsportaAssicurazioniSede() {
     const iscrizioni = raccogliIscrittiUnici();
     if (iscrizioni.length === 0) { alert("Nessun iscritto nei turni selezionati."); return; }
     const corsoFinto = { codice_corso: "SEDE" };
-    if (ente === "ASI") generaFileASI(corsoFinto, iscrizioni, { nome: "" });
-    else generaFileLibertas(corsoFinto, iscrizioni, { nome: "" });
+    if (ente === "ASI") generaFileASI(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
+    else generaFileLibertas(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
   }
 
   function stampaRegistroMisto(ente) {
@@ -671,8 +682,8 @@ function EsportaAssicurazioniSede() {
       }
     }
     if (conCorso.length === 0) { alert("Nessun iscritto nei turni selezionati."); return; }
-    if (ente === "ASI") generaRegistroFirmeMistoASI(conCorso, { nome: "" });
-    else generaRegistroFirmeMistoLibertas(conCorso, { nome: "" });
+    if (ente === "ASI") generaRegistroFirmeMistoASI(conCorso, { nome: stagioneCorrente() });
+    else generaRegistroFirmeMistoLibertas(conCorso, { nome: stagioneCorrente() });
   }
 
   const numeroUnici = new Set(turni.filter((t) => selezionati.has(t.id)).flatMap((t) => (t.iscritti || []).map((i) => (i.cf || `${i.cognome}|${i.nome}`).toUpperCase()))).size;

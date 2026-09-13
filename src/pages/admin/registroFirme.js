@@ -136,9 +136,9 @@ async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile
   // pagine mezze bianche. Ora si calcola dinamicamente quante persone entrano
   // realmente, in base allo spazio disponibile sotto l'intestazione.
   // Inoltre il piè di pagina "Riservato all'Associazione" prima si ripeteva
-  // su OGNI pagina — ora compare una sola volta, alla fine di tutto l'elenco
-  // (nell'ultima pagina, sotto l'ultimo blocco persona; se non c'è più
-  // spazio sufficiente per entrambi, va su una pagina aggiuntiva dedicata).
+  // su OGNI pagina — ora compare una sola volta, alla fine di tutto l'elenco,
+  // sempre ancorato al margine inferiore del foglio (non subito sotto l'ultimo
+  // nome, per non lasciare vuoto sopra quando le persone sono poche).
   const BLOCK_GAP = 6; // spazio lasciato da disegnaPersona tra un blocco e il successivo
   const FOOTER_GAP = 10; // spazio prima del piè di pagina, come nell'originale (y - 10)
   const FOOTER_H = 20 + 26; // altezza delle due righe del piè di pagina
@@ -182,7 +182,12 @@ async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile
       y = disegnaPersona(page, y, iscrizione);
     }
     const eUltimaPagina = indice === gruppi.length - 1;
-    if (eUltimaPagina) disegnaPiedePagina(page, y - FOOTER_GAP);
+    // Il piè di pagina va sempre in fondo al foglio (non subito sotto l'ultimo
+    // nome) — con poche persone lascerebbe altrimenti gran parte della pagina
+    // vuota sopra di esso. Lo spazio è già garantito dal calcolo di persPerPagina
+    // sopra, che riserva sempre FOOTER_GAP+FOOTER_H sotto l'ultimo blocco
+    // (richiesto da Solomon il 14/09/2026).
+    if (eUltimaPagina) disegnaPiedePagina(page, MARGINE + FOOTER_H);
   });
 
   const bytes = await pdfDoc.save();
