@@ -62,20 +62,16 @@ export function generaFoglioPresenzeExcelSede(turno, iscritti, dataInizioISO, es
   righe.push(["TESSERATI corsi SEDE"]);
   merges.push({ s: { r: righe.length - 1, c: 0 }, e: { r: righe.length - 1, c: nCol - 1 } });
   rigaVuota();
-  righe.push([`Anno: ${stagioneDa(dataInizioISO)}`, "", "Corso:", "PILATES", "", "Orario:", `${GIORNI_LABEL_MAIUSC[turno.giorno_settimana]} ${String(turno.orario || "").slice(0, 5)}`, "", "N. Lezioni:", nLezioni]);
+  righe.push([`Anno: ${stagioneDa(dataInizioISO)}`, "", "Corso: PILATES", "", "Orario:", `${GIORNI_LABEL_MAIUSC[turno.giorno_settimana]} ${String(turno.orario || "").slice(0, 5)}`, "", "N. Lezioni:", nLezioni]);
   rigaVuota();
 
   function aggiungiBlocco(dateBlocco, numeroIniziale) {
     const rigaHeader1 = righe.length;
     const r1 = new Array(nCol).fill("");
-    r1[0] = "N°\nLezione"; r1[1] = "DATA LEZIONE"; r1[colIscrittiStart] = "ISCRITTI";
+    r1[0] = "N° Lezione"; r1[1] = "DATA LEZIONE"; r1[colIscrittiStart] = "ISCRITTI";
     r1[nCol - 2] = "NOTE GENERALI"; r1[nCol - 1] = "FIRMA";
     righe.push(r1);
     if (persone.length > 1) merges.push({ s: { r: rigaHeader1, c: colIscrittiStart }, e: { r: rigaHeader1, c: colIscrittiStart + persone.length - 1 } });
-    merges.push({ s: { r: rigaHeader1, c: 0 }, e: { r: rigaHeader1 + 1, c: 0 } });
-    merges.push({ s: { r: rigaHeader1, c: 1 }, e: { r: rigaHeader1 + 1, c: 1 } });
-    merges.push({ s: { r: rigaHeader1, c: nCol - 2 }, e: { r: rigaHeader1 + 1, c: nCol - 2 } });
-    merges.push({ s: { r: rigaHeader1, c: nCol - 1 }, e: { r: rigaHeader1 + 1, c: nCol - 1 } });
 
     const r2 = new Array(nCol).fill("");
     persone.forEach((per, i) => { r2[colIscrittiStart + i] = nomeCol(per); });
@@ -106,7 +102,7 @@ export function generaFoglioPresenzeExcelSede(turno, iscritti, dataInizioISO, es
   const ws = XLSX.utils.aoa_to_sheet(righe);
   ws["!merges"] = merges;
   ws["!cols"] = [
-    { wch: 6 }, { wch: 20 },
+    { wch: 16 }, { wch: 20 },
     ...persone.map(() => ({ wch: 16 })),
     { wch: 20 }, { wch: 16 },
   ];
