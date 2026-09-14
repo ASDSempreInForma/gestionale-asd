@@ -157,6 +157,21 @@ function TurniEGruppi() {
   const turniGiorno = turni.filter((t) => t.giorno_settimana === giornoAttivo);
   const giorniConTurni = [1, 2, 3, 4, 5, 6].filter((g) => turni.some((t) => t.giorno_settimana === g));
 
+  // Elenco di tutte le persone di tutti i turni, per la ricerca globale
+  // ("in che corso è questa persona?") e per riusarne i dati altrove.
+  const tuttePersone = turni.flatMap((t) => (t.iscritti || []).map((i) => ({ ...i, turno: t })));
+
+  const [ricercaPersona, setRicercaPersona] = useState("");
+  const risultatiRicerca = ricercaPersona.trim().length >= 2
+    ? tuttePersone.filter((p) => `${p.cognome} ${p.nome}`.toLowerCase().includes(ricercaPersona.trim().toLowerCase()))
+    : [];
+
+  function vaiAlTurno(p) {
+    setGiornoAttivo(p.turno.giorno_settimana);
+    setEspansi((prev) => new Set(prev).add(p.turno.id));
+    setRicercaPersona("");
+  }
+
   async function stampa(turno, ente) {
     const iscrizioni = (turno.iscritti || []).map(comeIscrizione);
     if (iscrizioni.length === 0) { alert("Nessun iscritto per questo turno."); return; }
@@ -207,6 +222,29 @@ function TurniEGruppi() {
       {errore && <div style={{ background: "#fdecea", color: "#c0392b", padding: "8px 10px", borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{errore}</div>}
       {caricando ? <div style={{ color: "#999" }}>Caricamento…</div> : (
         <>
+          <div style={{ position: "relative", marginBottom: 16, maxWidth: 420 }}>
+            <input type="text" placeholder="🔎 Cerca una persona per sapere in che corso è…" value={ricercaPersona}
+              onChange={(e) => setRicercaPersona(e.target.value)}
+              style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C}`, borderRadius: 8, fontSize: 13 }} />
+            {risultatiRicerca.length > 0 && (
+              <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1px solid #eee", borderRadius: 8, marginTop: 4, maxHeight: 280, overflowY: "auto", zIndex: 20, boxShadow: "0 4px 14px rgba(0,0,0,0.08)" }}>
+                {risultatiRicerca.map((p) => (
+                  <div key={p.id} onClick={() => vaiAlTurno(p)}
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid #f5f5f5" }}>
+                    <span style={{ flex: 1 }}>{p.cognome} {p.nome}</span>
+                    <span style={{ color: "#777" }}>{GIORNI_LABEL[p.turno.giorno_settimana]} {p.turno.orario?.slice(0, 5)}</span>
+                    <span style={{ color: "#999" }}>{p.turno.istruttore?.nome} {p.turno.istruttore?.cognome}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {ricercaPersona.trim().length >= 2 && risultatiRicerca.length === 0 && (
+              <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1px solid #eee", borderRadius: 8, marginTop: 4, padding: "8px 12px", fontSize: 13, color: "#999" }}>
+                Nessuna persona trovata con questo nome.
+              </div>
+            )}
+          </div>
+
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {giorniConTurni.map((g) => (
@@ -305,7 +343,7 @@ function TurniEGruppi() {
           onChiudi={() => setModaleTurno(null)} onSalvato={() => { setModaleTurno(null); carica(); }} />
       )}
       {modalePersona && (
-        <ModalePersona turnoId={modalePersona.turnoId} persona={modalePersona.persona}
+        <ModalePersona turnoId={modalePersona.turnoId} persona={modalePersona.persona} personeEsistenti={tuttePersone}
           onChiudi={() => setModalePersona(null)} onSalvato={() => { setModalePersona(null); carica(); }} />
       )}
       {modaleFoglio && (
@@ -425,7 +463,7 @@ function ModaleTurno({ turno, giornoDefault, istruttori, onChiudi, onSalvato }) 
   );
 }
 
-function ModalePersona({ turnoId, persona, onChiudi, onSalvato }) {
+function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato }) {
   const [form, setForm] = useState(persona ? {
     nome: persona.nome || "", cognome: persona.cognome || "", cf: persona.cf || "", data_nascita: persona.data_nascita || "",
     comune_nascita: persona.comune_nascita || "", provincia_nascita: persona.provincia_nascita || "",
@@ -435,8 +473,39 @@ function ModalePersona({ turnoId, persona, onChiudi, onSalvato }) {
   } : CAMPI_ANAGRAFICA_VUOTI);
   const [errore, setErrore] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const [ricercaEsistente, setRicercaEsistente] = useState("");
 
   function campo(k, v) { setForm((prev) => ({ ...prev, [k]: v })); }
+
+  // Ricerca tra le persone già presenti nel gestionale (dedup per CF/nome),
+  // per riusarne i dati invece di ricompilarli da zero — richiesto da
+  // Solomon il 14/09/2026.
+  const risultatiEsistenti = (() => {
+    if (persona || ricercaEsistente.trim().length < 2 || !personeEsistenti) return [];
+    const testo = ricercaEsistente.trim().toLowerCase();
+    const viste = new Set();
+    const risultato = [];
+    for (const p of personeEsistenti) {
+      if (!`${p.cognome} ${p.nome}`.toLowerCase().includes(testo)) continue;
+      const chiave = (p.cf || `${p.cognome}|${p.nome}`).toUpperCase();
+      if (viste.has(chiave)) continue;
+      viste.add(chiave);
+      risultato.push(p);
+      if (risultato.length >= 8) break;
+    }
+    return risultato;
+  })();
+
+  function usaPersonaEsistente(p) {
+    setForm({
+      nome: p.nome || "", cognome: p.cognome || "", cf: p.cf || "", data_nascita: p.data_nascita || "",
+      comune_nascita: p.comune_nascita || "", provincia_nascita: p.provincia_nascita || "",
+      comune_residenza: p.comune_residenza || "", provincia_residenza: p.provincia_residenza || "",
+      cap: p.cap || "", indirizzo: p.indirizzo || "", sesso: p.sesso || "",
+      telefono: p.telefono || "", email: p.email || "", numero_tessera: "", // il numero tessera resta legato alla stagione/turno, non lo riportiamo automaticamente
+    });
+    setRicercaEsistente("");
+  }
 
   async function salva() {
     if (!form.nome || !form.cognome) { setErrore("Nome e cognome sono obbligatori."); return; }
@@ -460,6 +529,26 @@ function ModalePersona({ turnoId, persona, onChiudi, onSalvato }) {
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: 16 }}>
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 520, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto" }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 16 }}>{persona ? "Modifica persona" : "Aggiungi persona al turno"}</h3>
+
+        {!persona && (
+          <div style={{ position: "relative", marginBottom: 16 }}>
+            <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 4 }}>Cerca tra le persone già nel gestionale (facoltativo)</label>
+            <input type="text" placeholder="Scrivi un nome per riusare i suoi dati…" value={ricercaEsistente} onChange={(e) => setRicercaEsistente(e.target.value)}
+              style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 8, fontSize: 13 }} />
+            {risultatiEsistenti.length > 0 && (
+              <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1px solid #eee", borderRadius: 8, marginTop: 4, maxHeight: 220, overflowY: "auto", zIndex: 20, boxShadow: "0 4px 14px rgba(0,0,0,0.08)" }}>
+                {risultatiEsistenti.map((p) => (
+                  <div key={p.id} onClick={() => usaPersonaEsistente(p)}
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid #f5f5f5" }}>
+                    <span style={{ flex: 1 }}>{p.cognome} {p.nome}</span>
+                    <span style={{ color: "#999" }}>{GIORNI_LABEL[p.turno.giorno_settimana].slice(0, 3)} {p.turno.orario?.slice(0, 5)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 4 }}>
           {campiTesto.map(([k, label]) => (
