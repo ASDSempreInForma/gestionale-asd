@@ -173,6 +173,25 @@ function TurniEGruppi() {
     else generaFileLibertas(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
   }
 
+  // Registri firme di TUTTI i turni del giorno selezionato in un unico PDF
+  // (un blocco per turno, stessa persona non duplicata se iscritta a più
+  // turni dello stesso giorno) — richiesto da Solomon il 14/09/2026.
+  async function scaricaRegistriGiorno(ente) {
+    const visti = new Set();
+    const conCorso = [];
+    for (const t of turniGiorno) {
+      for (const i of t.iscritti || []) {
+        const chiave = (i.cf || `${i.cognome}|${i.nome}`).toUpperCase();
+        if (visti.has(chiave)) continue;
+        visti.add(chiave);
+        conCorso.push({ ...comeIscrizione(i), corso: { disciplina: "SEDE", giorni_orari: `${GIORNI_LABEL[t.giorno_settimana]} ${t.orario?.slice(0, 5)}`, sedi: { nome: "Via del Brolo" } } });
+      }
+    }
+    if (conCorso.length === 0) { alert("Nessun iscritto nei turni di questo giorno."); return; }
+    if (ente === "ASI") await generaRegistroFirmeMistoASI(conCorso, { nome: stagioneCorrente() });
+    else await generaRegistroFirmeMistoLibertas(conCorso, { nome: stagioneCorrente() });
+  }
+
   async function eliminaTurno(turno) {
     if (!window.confirm(`Eliminare il turno delle ${turno.orario?.slice(0, 5)} (${turno.istruttore?.nome} ${turno.istruttore?.cognome})? Le persone iscritte a questo turno verranno rimosse.`)) return;
     try { await chiamaAreaSede("elimina_turno", { id: turno.id }); carica(); } catch (err) { alert(err.message); }
@@ -205,10 +224,20 @@ function TurniEGruppi() {
                 </select>
               )}
             </div>
-            <button onClick={() => setModaleTurno({ turno: null, giornoDefault: giornoAttivo })}
-              style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-              + Nuovo turno
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => scaricaRegistriGiorno("Libertas")}
+                style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}>
+                🖨️ Registri Libertas del giorno
+              </button>
+              <button onClick={() => scaricaRegistriGiorno("ASI")}
+                style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}>
+                🖨️ Registri ASI del giorno
+              </button>
+              <button onClick={() => setModaleTurno({ turno: null, giornoDefault: giornoAttivo })}
+                style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                + Nuovo turno
+              </button>
+            </div>
           </div>
 
           {turniGiorno.length === 0 && <div style={{ color: "#999", fontSize: 13 }}>Nessun turno per questo giorno.</div>}
@@ -542,14 +571,19 @@ function ImportaIscritti() {
         if (nomeFoglioTesserato) {
           const righeTesserato = XLSX.utils.sheet_to_json(wb.Sheets[nomeFoglioTesserato], { header: 1, defval: null });
           const datiRighe = righeTesserato.slice(1, 1 + (numeroAttuale || righeTesserato.length - 1));
+          // Trim di sicurezza su ogni campo testuale: i file Excel portano spesso
+          // spazi finali (specialmente sul CF) che rompono il confronto esatto
+          // usato più avanti per l'import dei numeri tessera (bug scoperto da
+          // Solomon il 14/09/2026).
+          const t = (v) => { const s = String(v ?? "").trim(); return s || null; };
           for (const rt of datiRighe) {
             if (!rt || !rt[5]) continue; // colonna Cognome vuota → riga vuota, salta
             iscritti.push({
-              cognome: String(rt[5] || "").trim(), nome: String(rt[6] || "").trim(),
-              data_nascita: excelDataToISO(rt[7]), provincia_nascita: rt[8] || null, comune_nascita: rt[9] || null,
-              sesso: rt[10] || null, provincia_residenza: rt[11] || null, comune_residenza: rt[12] || null,
-              cap: rt[13] ? String(rt[13]) : null, indirizzo: rt[14] || null,
-              email: rt[22] || null, telefono: rt[23] || rt[24] || null, cf: rt[25] || null,
+              cognome: t(rt[5]), nome: t(rt[6]),
+              data_nascita: excelDataToISO(rt[7]), provincia_nascita: t(rt[8]), comune_nascita: t(rt[9]),
+              sesso: t(rt[10]), provincia_residenza: t(rt[11]), comune_residenza: t(rt[12]),
+              cap: t(rt[13]), indirizzo: t(rt[14]),
+              email: t(rt[22]), telefono: t(rt[23]) || t(rt[24]), cf: t(rt[25])?.toUpperCase() || null,
             });
           }
         }
