@@ -621,24 +621,38 @@ function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato }) {
   const [importo, setImporto] = useState('')
   const [dataPagamento, setDataPagamento] = useState(new Date().toISOString().slice(0, 10))
   const [scadenzaCertificato, setScadenzaCertificato] = useState('')
+  // Pagamento manuale senza ricevuta (es. "prezzo amico" pagato in contanti): la
+  // segreteria conferma il pagamento senza allegare alcun documento, ma deve
+  // lasciare una nota interna obbligatoria salvata su soci.note (visibile SOLO
+  // allo staff, mai al socio — vedi learnings.md sui due campi nota distinti).
+  const [senzaRicevuta, setSenzaRicevuta] = useState(false)
+  const [notaManuale, setNotaManuale] = useState('')
 
   const etichetta = tipo === 'ricevuta' ? 'ricevuta di pagamento' : 'certificato medico'
 
   const salva = async () => {
-    if (!file) { setErrore('Seleziona prima un file (foto o PDF).'); return }
+    const pagamentoSenzaDocumento = tipo === 'ricevuta' && senzaRicevuta
+    if (!pagamentoSenzaDocumento && !file) { setErrore('Seleziona prima un file (foto o PDF).'); return }
+    if (pagamentoSenzaDocumento && !notaManuale.trim()) { setErrore('Inserisci una nota (obbligatoria) per registrare il pagamento senza ricevuta.'); return }
     if (tipo === 'certificato' && !scadenzaCertificato) { setErrore('Inserisci la data di scadenza del certificato.'); return }
     setCaricando(true)
     setErrore('')
     try {
-      const estensione = file.name.split('.').pop() || 'jpg'
-      const percorso = `${socio.cf}/${tipo}_manuale_${Date.now()}.${estensione}`
-      const { error: errUpload } = await supabase.storage.from(BUCKET).upload(percorso, file, { contentType: file.type })
-      if (errUpload) throw errUpload
+      let percorso = null
+      if (!pagamentoSenzaDocumento) {
+        const estensione = file.name.split('.').pop() || 'jpg'
+        percorso = `${socio.cf}/${tipo}_manuale_${Date.now()}.${estensione}`
+        const { error: errUpload } = await supabase.storage.from(BUCKET).upload(percorso, file, { contentType: file.type })
+        if (errUpload) throw errUpload
+      }
 
-      const notaAggiunta = `${tipo === 'ricevuta' ? 'Ricevuta' : 'Certificato'} consegnat${tipo === 'ricevuta' ? 'a' : 'o'} a mano, caricat${tipo === 'ricevuta' ? 'a' : 'o'} dalla segreteria il ${new Date().toLocaleDateString('it-IT')}.`
+      const notaAggiunta = pagamentoSenzaDocumento
+        ? `Pagamento registrato manualmente dalla segreteria SENZA ricevuta il ${new Date().toLocaleDateString('it-IT')} (dettagli sulla scheda del socio).`
+        : `${tipo === 'ricevuta' ? 'Ricevuta' : 'Certificato'} consegnat${tipo === 'ricevuta' ? 'a' : 'o'} a mano, caricat${tipo === 'ricevuta' ? 'a' : 'o'} dalla segreteria il ${new Date().toLocaleDateString('it-IT')}.`
+
       const payload = tipo === 'ricevuta'
         ? {
-            ricevuta_url: percorso,
+            ...(pagamentoSenzaDocumento ? {} : { ricevuta_url: percorso }),
             stato_pagamento: 'confermato',
             tipo_pagamento: tipoPagamento,
             importo_dichiarato: importo === '' ? null : Number(importo),
@@ -658,7 +672,14 @@ function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato }) {
       }).eq('id', iscrizione.id)
       if (errUpdate) throw errUpdate
 
-      if (socio.email) {
+      if (pagamentoSenzaDocumento) {
+        // Nota interna sulla scheda del socio — SOLO staff, mai visibile al socio.
+        const notaSocioAggiunta = `[${new Date().toLocaleDateString('it-IT')}] Pagamento senza ricevuta: ${notaManuale.trim()}`
+        const { error: errNotaSocio } = await supabase.from('soci').update({
+          note: socio.note ? `${socio.note} | ${notaSocioAggiunta}` : notaSocioAggiunta,
+        }).eq('cf', socio.cf)
+        if (errNotaSocio) throw errNotaSocio
+      } else if (socio.email) {
         fetch('https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/invia-email-iscrizione', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -673,6 +694,8 @@ function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato }) {
 
       setAperto(false)
       setFile(null)
+      setSenzaRicevuta(false)
+      setNotaManuale('')
       onAggiornato && onAggiornato()
     } catch (err) {
       setErrore('Errore: ' + err.message)
@@ -692,8 +715,18 @@ function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato }) {
   return (
     <div style={{ background: '#F8FAFC', border: `1px solid ${BD}`, borderRadius: 8, padding: 10, width: '100%' }}>
       <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 8 }}>Carica {etichetta} consegnata a mano</div>
-      <input type="file" accept="image/*,.pdf" onChange={e => setFile(e.target.files[0])}
-        style={{ fontSize: 12.5, marginBottom: 8, display: 'block' }} />
+
+      {tipo === 'ricevuta' && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#92400E', marginBottom: 8, cursor: 'pointer' }}>
+          <input type="checkbox" checked={senzaRicevuta} onChange={e => setSenzaRicevuta(e.target.checked)} />
+          Pagamento senza ricevuta (es. prezzo amico, contanti) — richiede una nota
+        </label>
+      )}
+
+      {!senzaRicevuta && (
+        <input type="file" accept="image/*,.pdf" onChange={e => setFile(e.target.files[0])}
+          style={{ fontSize: 12.5, marginBottom: 8, display: 'block' }} />
+      )}
 
       {tipo === 'ricevuta' && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
@@ -711,6 +744,16 @@ function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato }) {
         </div>
       )}
 
+      {senzaRicevuta && (
+        <div style={{ marginBottom: 8 }}>
+          <label style={{ fontSize: 11, color: SUB, display: 'block', marginBottom: 3 }}>Nota (obbligatoria — visibile solo allo staff, mai al socio)</label>
+          <textarea value={notaManuale} onChange={e => setNotaManuale(e.target.value)}
+            placeholder="Es. Pagato 40€ in contanti in palestra, prezzo amico concordato con Solomon."
+            rows={2}
+            style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: `1px solid ${BD}`, fontSize: 12.5, resize: 'vertical', boxSizing: 'border-box' }} />
+        </div>
+      )}
+
       {tipo === 'certificato' && (
         <div style={{ marginBottom: 8 }}>
           <label style={{ fontSize: 11, color: SUB, display: 'block', marginBottom: 3 }}>Data di scadenza del certificato</label>
@@ -720,9 +763,11 @@ function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato }) {
       )}
 
       <div style={{ fontSize: 11, color: '#92400E', marginBottom: 8 }}>
-        {socio.email
-          ? `Al salvataggio il documento risulterà confermato e partirà subito l'email di conferma a ${socio.email} (la stessa che parte quando è il socio a caricarlo).`
-          : 'Attenzione: questo socio non ha un indirizzo email in anagrafica, quindi il documento verrà confermato ma nessuna email potrà partire.'}
+        {senzaRicevuta
+          ? 'Al salvataggio il pagamento risulterà confermato senza alcun documento allegato. Non parte nessuna email al socio: la nota resta interna, visibile solo sulla scheda del socio.'
+          : socio.email
+            ? `Al salvataggio il documento risulterà confermato e partirà subito l'email di conferma a ${socio.email} (la stessa che parte quando è il socio a caricarlo).`
+            : 'Attenzione: questo socio non ha un indirizzo email in anagrafica, quindi il documento verrà confermato ma nessuna email potrà partire.'}
       </div>
 
       {errore && <div style={{ fontSize: 11, color: R, marginBottom: 8 }}>{errore}</div>}
@@ -730,7 +775,7 @@ function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato }) {
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={salva} disabled={caricando}
           style={{ background: G, color: 'white', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12.5, fontWeight: 600, cursor: caricando ? 'default' : 'pointer' }}>
-          {caricando ? 'Carico...' : 'Conferma e invia email'}
+          {caricando ? 'Carico...' : senzaRicevuta ? 'Conferma pagamento' : 'Conferma e invia email'}
         </button>
         <button onClick={() => { setAperto(false); setErrore('') }}
           style={{ background: '#F1F5F9', color: SUB, border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12.5, cursor: 'pointer' }}>
