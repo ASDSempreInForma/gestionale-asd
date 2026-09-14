@@ -76,7 +76,7 @@ export function generaFileLibertas(corso, iscritti, stagione) {
   const wsElenco = XLSX.utils.aoa_to_sheet([intestazioneLib, ...righeLib]);
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, wsElenco, "Elenco LIBERTAS");
+  XLSX.utils.book_append_sheet(wb, wsElenco, "Dati tesserato");
   // Salvato in formato .xls (Excel 97-2003 / BIFF8), non .xlsx — richiesto da
   // Solomon il 09/09/2026 perché è il formato accettato dal portale Libertas.
   scaricaWorkbook(wb, `Libertas_${corso?.codice_corso || "Misto"}.xls`, { bookType: "biff8" });
