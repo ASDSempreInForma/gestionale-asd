@@ -776,18 +776,31 @@ function EsportaAssicurazioniSede() {
   const [turni, setTurni] = useState([]);
   const [caricando, setCaricando] = useState(true);
   const [errore, setErrore] = useState("");
-  const [selezionati, setSelezionati] = useState(new Set());
+  const [selezionati, setSelezionati] = useState(new Set()); // Set di id di sede_turno_iscritti
+  const [ricerca, setRicerca] = useState("");
 
   useEffect(() => {
     (async () => {
       try {
         const dati = await chiamaAreaSede("lista_turni_con_iscritti", {});
         setTurni(dati.turni || []);
-        setSelezionati(new Set((dati.turni || []).map((t) => t.id)));
+        // Nessuno selezionato di default: qui si sceglie a mano chi includere
+        // (richiesto da Solomon il 14/09/2026 — es. una sola persona subentrata,
+        // o poche persone da corsi diversi in un'unica stampa).
       } catch (err) { setErrore(err.message); }
       finally { setCaricando(false); }
     })();
   }, []);
+
+  // Elenco piatto: una riga per ogni persona in ogni turno, con il contesto
+  // (giorno/orario/istruttore) e un id univoco della riga in sede_turno_iscritti.
+  const righePersone = turni.flatMap((t) =>
+    (t.iscritti || []).map((i) => ({ ...i, turno: t }))
+  ).sort((a, b) => (a.cognome || "").localeCompare(b.cognome || ""));
+
+  const righeFiltrate = ricerca.trim()
+    ? righePersone.filter((r) => `${r.cognome} ${r.nome}`.toLowerCase().includes(ricerca.trim().toLowerCase()))
+    : righePersone;
 
   function toggle(id) {
     setSelezionati((prev) => {
@@ -797,49 +810,43 @@ function EsportaAssicurazioniSede() {
     });
   }
 
+  function selezionaTutteFiltrate() { setSelezionati((prev) => new Set([...prev, ...righeFiltrate.map((r) => r.id)])); }
+  function deselezionaTutteFiltrate() { setSelezionati((prev) => { const next = new Set(prev); righeFiltrate.forEach((r) => next.delete(r.id)); return next; }); }
+
   // Un CF (o, in mancanza, nome+cognome) compare una sola volta nell'export,
-  // anche se la persona è iscritta a più turni SEDE.
-  function raccogliIscrittiUnici() {
+  // anche se selezionato più volte (iscritto a più turni SEDE).
+  function raccogliSelezionatiUnici() {
     const visti = new Set();
     const risultato = [];
-    for (const t of turni) {
-      if (!selezionati.has(t.id)) continue;
-      for (const i of t.iscritti || []) {
-        const chiave = (i.cf || `${i.cognome}|${i.nome}`).toUpperCase();
-        if (visti.has(chiave)) continue;
-        visti.add(chiave);
-        risultato.push(comeIscrizione(i));
-      }
+    for (const r of righePersone) {
+      if (!selezionati.has(r.id)) continue;
+      const chiave = (r.cf || `${r.cognome}|${r.nome}`).toUpperCase();
+      if (visti.has(chiave)) continue;
+      visti.add(chiave);
+      risultato.push(r);
     }
     return risultato;
   }
 
   function esporta(ente) {
-    const iscrizioni = raccogliIscrittiUnici();
-    if (iscrizioni.length === 0) { alert("Nessun iscritto nei turni selezionati."); return; }
+    const persone = raccogliSelezionatiUnici().map(comeIscrizione);
+    if (persone.length === 0) { alert("Nessuna persona selezionata."); return; }
     const corsoFinto = { codice_corso: "SEDE" };
-    if (ente === "ASI") generaFileASI(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
-    else generaFileLibertas(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
+    if (ente === "ASI") generaFileASI(corsoFinto, persone, { nome: stagioneCorrente() });
+    else generaFileLibertas(corsoFinto, persone, { nome: stagioneCorrente() });
   }
 
   function stampaRegistroMisto(ente) {
-    const conCorso = [];
-    const visti = new Set();
-    for (const t of turni) {
-      if (!selezionati.has(t.id)) continue;
-      for (const i of t.iscritti || []) {
-        const chiave = (i.cf || `${i.cognome}|${i.nome}`).toUpperCase();
-        if (visti.has(chiave)) continue;
-        visti.add(chiave);
-        conCorso.push({ ...comeIscrizione(i), corso: { disciplina: "SEDE", giorni_orari: `${GIORNI_LABEL[t.giorno_settimana]} ${t.orario?.slice(0, 5)}`, sedi: { nome: "Via del Brolo" } } });
-      }
-    }
-    if (conCorso.length === 0) { alert("Nessun iscritto nei turni selezionati."); return; }
+    const conCorso = raccogliSelezionatiUnici().map((r) => ({
+      ...comeIscrizione(r),
+      corso: { disciplina: "SEDE", giorni_orari: `${GIORNI_LABEL[r.turno.giorno_settimana]} ${r.turno.orario?.slice(0, 5)}`, sedi: { nome: "Via del Brolo" } },
+    }));
+    if (conCorso.length === 0) { alert("Nessuna persona selezionata."); return; }
     if (ente === "ASI") generaRegistroFirmeMistoASI(conCorso, { nome: stagioneCorrente() });
     else generaRegistroFirmeMistoLibertas(conCorso, { nome: stagioneCorrente() });
   }
 
-  const numeroUnici = new Set(turni.filter((t) => selezionati.has(t.id)).flatMap((t) => (t.iscritti || []).map((i) => (i.cf || `${i.cognome}|${i.nome}`).toUpperCase()))).size;
+  const numeroUnici = raccogliSelezionatiUnici().length;
 
   if (caricando) return <div style={{ color: "#999" }}>Caricamento…</div>;
 
@@ -847,26 +854,34 @@ function EsportaAssicurazioniSede() {
     <div>
       {errore && <div style={{ background: "#fdecea", color: "#c0392b", padding: "8px 10px", borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{errore}</div>}
       <p style={{ fontSize: 13, color: "#777", marginBottom: 14 }}>
-        Seleziona i turni da includere (tutti selezionati di default). Ogni persona compare una sola volta nell'export anche se iscritta a più turni. Il certificato medico non è incluso nei file per i portali — resta solo tracciato internamente, come per il resto del gestionale.
+        Cerca e spunta le persone da includere — anche di turni diversi, per fare un'unica stampa (es. una persona subentrata a un corso). Ogni persona compare una sola volta anche se iscritta a più turni. Il certificato medico non è incluso nei file per i portali — resta solo tracciato internamente.
       </p>
 
       <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-        <button onClick={() => esporta("Libertas")} style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>📄 Esporta Libertas (.xls) — {numeroUnici} persone</button>
-        <button onClick={() => esporta("ASI")} style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>📄 Esporta ASI (.csv) — {numeroUnici} persone</button>
+        <button onClick={() => esporta("Libertas")} disabled={numeroUnici === 0} style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: numeroUnici === 0 ? 0.5 : 1 }}>📄 Esporta Libertas (.xls) — {numeroUnici} persone</button>
+        <button onClick={() => esporta("ASI")} disabled={numeroUnici === 0} style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: numeroUnici === 0 ? 0.5 : 1 }}>📄 Esporta ASI (.csv) — {numeroUnici} persone</button>
       </div>
       <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-        <button onClick={() => stampaRegistroMisto("Libertas")} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}>🖨️ Registro firme Libertas (misto, tutti i turni)</button>
-        <button onClick={() => stampaRegistroMisto("ASI")} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}>🖨️ Registro firme ASI (misto, tutti i turni)</button>
+        <button onClick={() => stampaRegistroMisto("Libertas")} disabled={numeroUnici === 0} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer", opacity: numeroUnici === 0 ? 0.5 : 1 }}>🖨️ Registro firme Libertas (selezionati)</button>
+        <button onClick={() => stampaRegistroMisto("ASI")} disabled={numeroUnici === 0} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer", opacity: numeroUnici === 0 ? 0.5 : 1 }}>🖨️ Registro firme ASI (selezionati)</button>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+        <input type="text" placeholder="Cerca per nome o cognome…" value={ricerca} onChange={(e) => setRicerca(e.target.value)}
+          style={{ flex: 1, padding: 8, border: "1px solid #ddd", borderRadius: 8, fontSize: 13 }} />
+        <button onClick={selezionaTutteFiltrate} style={{ background: "#fff", border: "1px solid #ccc", borderRadius: 8, padding: "7px 10px", fontSize: 12, cursor: "pointer" }}>Seleziona {ricerca ? "risultati" : "tutti"}</button>
+        <button onClick={deselezionaTutteFiltrate} style={{ background: "#fff", border: "1px solid #ccc", borderRadius: 8, padding: "7px 10px", fontSize: 12, cursor: "pointer" }}>Deseleziona {ricerca ? "risultati" : "tutti"}</button>
       </div>
 
       <div style={{ maxHeight: 420, overflowY: "auto", border: "1px solid #eee", borderRadius: 8, padding: 8 }}>
-        {turni.map((t) => (
-          <label key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 4px", fontSize: 13, cursor: "pointer" }}>
-            <input type="checkbox" checked={selezionati.has(t.id)} onChange={() => toggle(t.id)} />
-            <span style={{ width: 70, fontWeight: 600 }}>{GIORNI_LABEL[t.giorno_settimana].slice(0, 3)}</span>
-            <span style={{ width: 50 }}>{t.orario?.slice(0, 5)}</span>
-            <span style={{ flex: 1, color: "#777" }}>{t.istruttore?.nome} {t.istruttore?.cognome}</span>
-            <span style={{ color: "#999" }}>{(t.iscritti || []).length} iscritti</span>
+        {righeFiltrate.length === 0 && <div style={{ color: "#999", fontSize: 13, padding: 8 }}>Nessuna persona trovata.</div>}
+        {righeFiltrate.map((r) => (
+          <label key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 4px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid #f7f7f7" }}>
+            <input type="checkbox" checked={selezionati.has(r.id)} onChange={() => toggle(r.id)} />
+            <span style={{ flex: 1 }}>{r.cognome} {r.nome}{!r.cf && <span style={{ color: "#c0392b", fontSize: 11 }}> (dati incompleti)</span>}</span>
+            <span style={{ width: 55, color: "#777" }}>{GIORNI_LABEL[r.turno.giorno_settimana].slice(0, 3)}</span>
+            <span style={{ width: 45, color: "#777" }}>{r.turno.orario?.slice(0, 5)}</span>
+            <span style={{ width: 120, color: "#999" }}>{r.turno.istruttore?.nome} {r.turno.istruttore?.cognome}</span>
           </label>
         ))}
       </div>
