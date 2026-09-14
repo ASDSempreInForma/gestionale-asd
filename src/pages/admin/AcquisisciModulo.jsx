@@ -49,6 +49,36 @@ function comprimiImmagine(file, maxLato = 1800, qualita = 0.8) {
   });
 }
 
+// Le foto scattate/salvate su iPhone sono spesso in formato HEIC/HEIF (impostazione
+// di default della fotocamera Apple). Claude Vision (come la maggior parte dei
+// browser non-Safari) non sa leggere HEIC: senza questa conversione, comprimiImmagine
+// fallisce silenziosamente (img.onerror → resolve(file) invariato) e il file HEIC
+// originale finisce inviato all'AI così com'è, che lo rifiuta o non riesce a
+// leggerlo — è la causa più comune dei moduli che "non vengono presi per niente",
+// specialmente quando la foto è scelta dalla galleria invece che scattata sul momento.
+function isHeic(file) {
+  const tipo = (file.type || "").toLowerCase();
+  if (tipo === "image/heic" || tipo === "image/heif") return true;
+  return /\.(heic|heif)$/i.test(file.name || "");
+}
+
+async function convertiSeHeic(file, addLog) {
+  if (!isHeic(file)) return file;
+  addLog && addLog("Formato HEIC (foto iPhone) rilevato — converto in JPEG...");
+  try {
+    const heic2any = (await import("heic2any")).default;
+    const risultato = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.85 });
+    const blob = Array.isArray(risultato) ? risultato[0] : risultato;
+    return new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" });
+  } catch (e) {
+    throw new Error(
+      "Questa foto è in formato HEIC (tipico di iPhone) e la conversione automatica non è riuscita. " +
+      "Prova a: 1) usare il pulsante \"📷 Fotografa il modulo\" invece di scegliere dalla galleria, oppure " +
+      "2) su iPhone andare in Impostazioni → Fotocamera → Formati e scegliere \"Più compatibile\" (salva in JPEG), poi rifotografare."
+    );
+  }
+}
+
 function fileToBase64(file) {
   return new Promise((res, rej) => {
     const r = new FileReader();
@@ -148,13 +178,22 @@ export default function AcquisisciModulo() {
     setSocioTrovato(data || null);
   }
 
-  async function elaboraImmagine(file) {
-    if (!file) return;
+  async function elaboraImmagine(fileOriginale) {
+    if (!fileOriginale) return;
     setStato("analisi");
     setErrore("");
     setDati({});
     setSocioTrovato(null);
     setCorsoIdScelto("");
+
+    let file;
+    try {
+      file = await convertiSeHeic(fileOriginale, addLog);
+    } catch (e) {
+      setErrore(e.message);
+      setStato("errore");
+      return;
+    }
 
     const fileCompresso = await comprimiImmagine(file);
     const base64 = await fileToBase64(fileCompresso);
@@ -224,9 +263,25 @@ Rispondi SOLO con il JSON, senza testo aggiuntivo.`;
 
       let estratti;
       try {
-        estratti = JSON.parse((dataRes.testo || "").replace(/```json|```/g, "").trim());
+        const testoGrezzo = (dataRes.testo || "").replace(/```json|```/g, "").trim();
+        // Estraggo solo la porzione tra la prima "{" e l'ultima "}": tollera
+        // eventuale testo introduttivo/conclusivo che il modello a volte aggiunge
+        // nonostante l'istruzione di rispondere solo con JSON — prima causava un
+        // fallimento totale (JSON.parse su tutta la stringa) anche quando i dati
+        // estratti erano perfettamente validi.
+        const inizio = testoGrezzo.indexOf("{");
+        const fine = testoGrezzo.lastIndexOf("}");
+        if (inizio === -1 || fine === -1 || fine <= inizio) throw new Error("nessun JSON trovato");
+        estratti = JSON.parse(testoGrezzo.slice(inizio, fine + 1));
       } catch {
-        throw new Error("Non riesco a leggere la risposta dell'AI. Riprova con una foto più nitida e ben illuminata.");
+        const anteprima = (dataRes.testo || "").slice(0, 300);
+        addLog("❌ Risposta AI non interpretabile: " + (anteprima || "(vuota)"));
+        throw new Error(
+          dataRes.troncato
+            ? "L'AI ha impiegato troppo spazio per rispondere e la risposta si è troncata a metà (non è la foto). Riprova — se capita di nuovo su moduli molto annotati, segnalalo così alziamo ulteriormente il limite."
+            : "Non riesco a interpretare la risposta dell'AI (non è la foto: il modello ha risposto in un formato inatteso, forse per un modulo particolarmente lungo o pieno di annotazioni). " +
+              "Riprova — se il problema si ripete su questo stesso modulo, controlla il \"Log attività\" qui sotto e segnalalo così possiamo correggere il prompt."
+        );
       }
 
       addLog(`Estratto: ${estratti.cognome || "?"} ${estratti.nome || "?"}`);
@@ -373,7 +428,7 @@ Rispondi SOLO con il JSON, senza testo aggiuntivo.`;
                 style={{ width: "100%", padding: "13px", background: G, border: "none", borderRadius: 12, fontSize: 14, fontWeight: 600, color: "white", cursor: "pointer" }}>
                 📷 Fotografa il modulo
               </button>
-              <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => elaboraImmagine(e.target.files[0])} />
+              <input ref={fileRef} type="file" accept="image/*,.heic,.heif" style={{ display: "none" }} onChange={(e) => elaboraImmagine(e.target.files[0])} />
               <button onClick={() => fileRef.current?.click()}
                 style={{ width: "100%", padding: "13px", background: "white", border: `1px solid ${BD}`, borderRadius: 12, fontSize: 14, fontWeight: 600, color: TX, cursor: "pointer" }}>
                 📂 Carica da file / galleria
