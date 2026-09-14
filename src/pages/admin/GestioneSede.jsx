@@ -291,6 +291,9 @@ function TurniEGruppi() {
                       <div style={{ flex: 1 }}>{t.istruttore?.nome} {t.istruttore?.cognome}</div>
                       <div style={{ color: "#777", fontSize: 12 }}>{t.iscritti?.length || 0} iscritti</div>
                       {t.note && <div style={{ color: "#aaa", fontSize: 11 }}>{t.note}</div>}
+                      {t.data_inizio && new Date(t.data_inizio + "T00:00:00") <= new Date()
+                        ? <span style={{ background: "#eafaf0", color: "#1f8a52", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600 }}>✅ Iniziato {t.data_inizio.split("-").reverse().join("/")}</span>
+                        : <span style={{ background: "#fdecea", color: "#c0392b", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600 }}>⏳ {t.data_inizio ? `Da iniziare (${t.data_inizio.split("-").reverse().join("/")})` : "Non iniziato"}</span>}
                     </div>
                     <button onClick={() => setModaleTurno({ turno: t })} title="Modifica turno" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14 }}>✏️</button>
                     <button onClick={() => eliminaTurno(t)} title="Elimina turno" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14 }}>🗑️</button>
@@ -414,8 +417,8 @@ function ModaleFoglioPresenze({ turno, onChiudi }) {
 
 function ModaleTurno({ turno, giornoDefault, istruttori, onChiudi, onSalvato }) {
   const [form, setForm] = useState(turno ? {
-    istruttore_id: turno.istruttore_id, giorno_settimana: turno.giorno_settimana, orario: turno.orario?.slice(0, 5), ore: turno.ore, note: turno.note || "",
-  } : { istruttore_id: istruttori[0]?.id || "", giorno_settimana: giornoDefault || 1, orario: "09:00", ore: 1, note: "" });
+    istruttore_id: turno.istruttore_id, giorno_settimana: turno.giorno_settimana, orario: turno.orario?.slice(0, 5), ore: turno.ore, note: turno.note || "", data_inizio: turno.data_inizio || "",
+  } : { istruttore_id: istruttori[0]?.id || "", giorno_settimana: giornoDefault || 1, orario: "09:00", ore: 1, note: "", data_inizio: "" });
   const [errore, setErrore] = useState("");
   const [salvando, setSalvando] = useState(false);
 
@@ -451,7 +454,11 @@ function ModaleTurno({ turno, giornoDefault, istruttori, onChiudi, onSalvato }) 
         <input type="number" min="0.5" step="0.5" value={form.ore} onChange={(e) => setForm({ ...form, ore: Number(e.target.value) })} style={{ width: "100%", padding: 8, marginBottom: 12, border: "1px solid #ddd", borderRadius: 8 }} />
 
         <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 4 }}>Note (opzionale)</label>
-        <input type="text" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} style={{ width: "100%", padding: 8, marginBottom: 14, border: "1px solid #ddd", borderRadius: 8 }} />
+        <input type="text" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} style={{ width: "100%", padding: 8, marginBottom: 12, border: "1px solid #ddd", borderRadius: 8 }} />
+
+        <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 4 }}>Data di inizio (lascia vuoto se non ancora nota)</label>
+        <input type="date" value={form.data_inizio} onChange={(e) => setForm({ ...form, data_inizio: e.target.value })} style={{ width: "100%", padding: 8, marginBottom: 14, border: "1px solid #ddd", borderRadius: 8 }} />
+        <p style={{ fontSize: 11, color: "#999", margin: "-10px 0 14px" }}>Senza data, o con una data futura, il turno risulta "non iniziato" nell'elenco.</p>
 
         {errore && <div style={{ background: "#fdecea", color: "#c0392b", padding: "8px 10px", borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{errore}</div>}
         <div style={{ display: "flex", gap: 10 }}>
