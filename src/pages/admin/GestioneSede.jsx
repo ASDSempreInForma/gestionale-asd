@@ -53,6 +53,17 @@ function comeIscrizione(i) {
 
 export default function GestioneSede() {
   const [tab, setTab] = useState("turni");
+  const [conteggio, setConteggio] = useState(null);
+  const [caricandoConteggio, setCaricandoConteggio] = useState(true);
+
+  const caricaConteggio = useCallback(async () => {
+    setCaricandoConteggio(true);
+    try { setConteggio(await chiamaAreaSede("conteggio_tesseramento", {})); }
+    catch { /* silenzioso: non è critico per l'uso della pagina */ }
+    finally { setCaricandoConteggio(false); }
+  }, []);
+
+  useEffect(() => { caricaConteggio(); }, [caricaConteggio, tab]);
 
   return (
     <div style={{ padding: 20 }}>
@@ -60,6 +71,19 @@ export default function GestioneSede() {
       <p style={{ margin: "0 0 18px", fontSize: 13, color: "#777" }}>
         Turni, gruppi, elenchi da stampare ed export assicurazioni per la SEDE (Via del Brolo). Le presenze e i compensi restano nell'Area SEDE dedicata a Sabina/istruttori.
       </p>
+
+      {!caricandoConteggio && conteggio && (
+        <div style={{
+          display: "inline-flex", alignItems: "center", gap: 10, marginBottom: 16,
+          background: conteggio.non_aggiornati > 0 ? "#fdecea" : "#eafaf0",
+          color: conteggio.non_aggiornati > 0 ? "#c0392b" : "#1f8a52",
+          borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 600,
+        }}>
+          🎫 {conteggio.non_aggiornati > 0
+            ? `${conteggio.non_aggiornati} persone senza tesseramento ${conteggio.stagione} aggiornato`
+            : `Tutte le ${conteggio.totale} persone hanno il tesseramento ${conteggio.stagione} aggiornato`}
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 18, borderBottom: "1px solid #eee" }}>
         {[
