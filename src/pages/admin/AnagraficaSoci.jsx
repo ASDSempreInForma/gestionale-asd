@@ -1625,7 +1625,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
 
           {!modificaAnagrafica ? (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 13, color: SUB, marginTop: 8 }}>
-              <div>📍 {socio.indirizzo || '—'}{socio.comune_residenza ? `, ${socio.comune_residenza}` : ''} {socio.cap || ''}</div>
+              <div>📍 {socio.indirizzo || '—'}{socio.comune_residenza ? `, ${socio.comune_residenza}` : ''}{socio.provincia_residenza ? ` (${socio.provincia_residenza})` : ''} {socio.cap || ''}</div>
               <div>📞 {socio.telefono || '—'}</div>
               <div style={{ gridColumn: 'span 2' }}>📧 {socio.email || <span style={{ color: R }}>nessuna email</span>}</div>
             </div>
@@ -1656,11 +1656,23 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
                   onChange={e => setAnagrafica(a => ({ ...a, provincia_nascita: e.target.value.toUpperCase() }))}
                   style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box', textTransform: 'uppercase' }} />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+              <div style={{ marginBottom: 8 }}>
                 <input placeholder="Indirizzo" value={anagrafica.indirizzo} onChange={e => setAnagrafica(a => ({ ...a, indirizzo: e.target.value }))}
-                  style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
+                  style={{ width: '100%', padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
                 <ComboComune value={anagrafica.comune_residenza} onChange={v => setAnagrafica(a => ({ ...a, comune_residenza: v }))}
-                  onSiglaProvincia={sigla => setAnagrafica(a => ({ ...a, provincia_residenza: sigla }))} placeholder="Comune" />
+                  onSiglaProvincia={sigla => setAnagrafica(a => ({ ...a, provincia_residenza: sigla }))} placeholder="Comune di residenza" />
+                {/* Campo provincia SEMPRE visibile e modificabile a mano — prima
+                    veniva compilato solo in automatico quando si sceglieva un
+                    comune dal menu di ComboComune, ma digitando un comune a
+                    testo libero (es. correggendo un dato sporco) la provincia
+                    restava vuota senza che ce ne si accorgesse. Caso reale:
+                    Shqepa Besjana, corretta a mano il 15/09/2026 senza che la
+                    provincia venisse compilata di conseguenza. */}
+                <input placeholder="Prov." value={anagrafica.provincia_residenza} maxLength={2}
+                  onChange={e => setAnagrafica(a => ({ ...a, provincia_residenza: e.target.value.toUpperCase() }))}
+                  style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box', textTransform: 'uppercase' }} />
                 <input placeholder="CAP" value={anagrafica.cap} onChange={e => setAnagrafica(a => ({ ...a, cap: e.target.value }))}
                   style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
               </div>
