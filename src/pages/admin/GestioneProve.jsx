@@ -91,6 +91,11 @@ export default function GestioneProve() {
   const [filtroCorsoPk, setFiltroCorsoPk] = useState("");
   const [ricercaTesto, setRicercaTesto] = useState("");
   const [soloOggi, setSoloOggi] = useState(false);
+  // Filtro per trovare rapidamente chi ha lo sblocco manuale del limite prove
+  // (tabella eccezioni_limite_prova) — richiesto da Solomon il 15/09/2026 per
+  // ritrovare velocemente le eccezioni concesse in passato, invece di dover
+  // aprire ogni singola scheda per controllare il badge.
+  const [soloConEccezione, setSoloConEccezione] = useState(false);
   // Ordinamento della lista "In corso/Storico" (richiesto da Solomon il
   // 09/09/2026): di default resta l'ordine di arrivo dal DB (più recenti
   // per data di richiesta prima), ma si può ordinare anche per data della
@@ -502,6 +507,9 @@ export default function GestioneProve() {
       const oggiStr = new Date().toISOString().slice(0, 10);
       if (p.data_effettuata !== oggiStr) return false;
     }
+    // Solo chi ha l'eccezione limite-prove attiva (badge "🔓 Eccezione attiva"
+    // sulla scheda) — utile per un controllo periodico di chi è stato sbloccato.
+    if (soloConEccezione && !eccezioni[p.cf]) return false;
     return true;
   });
   const opzioniStato = STATI_PROVA.filter(s => (vistaProve === "attive" ? STATI_ATTIVI : STATI_STORICO).includes(s.value));
@@ -760,6 +768,13 @@ export default function GestioneProve() {
                   background:soloOggi?GL:"white", color:soloOggi?GD:SUB,
                   fontSize:12.5, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>
                 📅 Solo oggi
+              </button>
+              <button onClick={() => setSoloConEccezione(v => !v)}
+                title="Mostra solo chi ha lo sblocco manuale del limite prove attivo"
+                style={{ padding:"8px 14px", borderRadius:8, border:`1px solid ${soloConEccezione?G:BD}`,
+                  background:soloConEccezione?GL:"white", color:soloConEccezione?GD:SUB,
+                  fontSize:12.5, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>
+                🔓 Con eccezione ({Object.keys(eccezioni).length})
               </button>
               <select value={ordinamentoProve} onChange={e => setOrdinamentoProve(e.target.value)}
                 style={{ padding:"8px 10px", border:`1px solid ${BD}`, borderRadius:8, fontSize:12, background:"white", whiteSpace:"nowrap" }}>
