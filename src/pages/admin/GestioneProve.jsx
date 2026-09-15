@@ -202,6 +202,10 @@ export default function GestioneProve() {
           });
         }
         const proveNonFissate = proveAttiveList.filter(p => !p.data_effettuata).length;
+        // Confermate con data fissata ma non ancora svolte: utile da vedere
+        // accanto a ogni singola richiesta, non solo nel riepilogo del corso
+        // (richiesto da Solomon il 15/09/2026).
+        const proveConfermateAttesa = (c.prove || []).filter(p => p.stato === "confermata").length;
 
         return {
           id: c.id,
@@ -217,6 +221,7 @@ export default function GestioneProve() {
           iscritti: iscrizioniAttive.length,
           proveCount: proveAttiveList.length,
           proveNonFissate,
+          proveConfermateAttesa,
           capacitaPerGiorno,
           giorni,
         };
@@ -822,6 +827,12 @@ export default function GestioneProve() {
                             📍 {corso?.nome || p.dati_extra?.corso_nome || "—"} — {corso?.sede || p.dati_extra?.corso_sede || "—"}
                             {corso?.orario && ` · 🕐 ${corso.orario}`}
                           </div>
+                          {corso && (
+                            <div style={{ fontSize:11, color:SUB, marginTop:1 }}>
+                              👥 {corso.iscritti} già iscritt{corso.iscritti === 1 ? "o" : "i"} al corso
+                              {corso.proveConfermateAttesa > 0 && ` · 🕐 ${corso.proveConfermateAttesa} già confermat${corso.proveConfermateAttesa === 1 ? "o" : "i"} in attesa di fare la prova`}
+                            </div>
+                          )}
                           {p.dati_extra?.orario_prova_preferito && (
                             <div style={{ fontSize:11, color:AD, marginTop:1 }}>
                               💬 Orario preferito per la prova: "{p.dati_extra.orario_prova_preferito}"
