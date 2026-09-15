@@ -459,9 +459,20 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato }) {
             {iscrizione.stagioni?.data_fine && ` · termine corso il ${fmtData(fineCorso(iscrizione.stagioni.data_fine, iscrizione.tipo_pagamento))}`}
           </div>
         )}
-        {iscrizione.data_scadenza_certificato && (
-          <div>Certificato in scadenza il {fmtData(iscrizione.data_scadenza_certificato)}</div>
-        )}
+        {iscrizione.data_scadenza_certificato && (() => {
+          // Prima era sempre "Certificato in scadenza il ..." anche a scadenza
+          // già passata — fuorviante, perché il badge sopra diceva "scaduto"
+          // ma il testo sotto sembrava un avviso ancora da venire. Corretto
+          // il 15/09/2026 su segnalazione di Solomon.
+          const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+          const gia_scaduto = new Date(iscrizione.data_scadenza_certificato) < oggi;
+          return (
+            <div style={gia_scaduto ? { color: "#B91C1C", fontWeight: 600 } : undefined}>
+              {gia_scaduto ? "Certificato scaduto il " : "Certificato in scadenza il "}
+              {fmtData(iscrizione.data_scadenza_certificato)}
+            </div>
+          );
+        })()}
       </div>
       {(iscrizione.stato_pagamento === "rifiutato" || iscrizione.stato_certificato === "rifiutato") && iscrizione.note && (
         <div style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "8px 10px", fontSize: 12.5, color: "#991B1B", marginBottom: 10 }}>

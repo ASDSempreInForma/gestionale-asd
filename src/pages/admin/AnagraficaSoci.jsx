@@ -1460,7 +1460,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
       .from('iscrizioni')
       .select(`
         id, corso_id, stagione_id, tipo_pagamento, stato_pagamento, importo_dichiarato, ricevuta_url,
-        stato_certificato, data_scadenza_certificato, certificato_url,
+        stato_certificato, data_scadenza_certificato, certificato_url, certificato_ereditato,
         data_iscrizione, note, nota_socio, firma_url, firma_genitore_url, modulo_cartaceo_url,
         frequenza, giorno_scelto,
         corso_extra_settembre_id, frequenza_extra_settembre, sovrapprezzo_extra_settembre,
@@ -1832,6 +1832,18 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
                 <BadgeCertificato stato={i.stato_certificato} scadenza={i.data_scadenza_certificato} />
               </div>
             </div>
+            {i.certificato_ereditato && (
+              <button
+                onClick={async () => {
+                  await supabase.from('iscrizioni').update({ certificato_ereditato: false }).eq('id', i.id)
+                  caricaIscrizioni()
+                }}
+                title="Clicca dopo averlo controllato: il certificato mostrato qui è stato caricato in una stagione precedente ed è stato riportato avanti in automatico perché ancora valido oltre l'inizio di questo corso."
+                style={{ marginTop: 6, fontSize: 11.5, padding: '4px 9px', borderRadius: 7, border: '1px solid #FDE68A',
+                  background: '#FEF3C7', color: '#92400E', cursor: 'pointer', display: 'inline-block' }}>
+                🔁 Certificato ereditato dalla stagione precedente — verificalo tu la prima volta
+              </button>
+            )}
             {i.stato_certificato === 'valido' && (
               <div style={{ marginTop: 6 }}>
                 <CorreggiScadenzaCertificato iscrizione={i} onAggiornato={caricaIscrizioni} />
