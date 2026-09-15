@@ -1056,7 +1056,7 @@ function ModaleImportaGiornata({ sessione, istruttoriSede, onChiudi, onImportato
         <p style={{ margin: '0 0 14px', fontSize: 12, color: '#777' }}>
           Legge il pannello "PROGRAMMA SETTIMANALE" del foglio GIORNATA: solo le sessioni con un trainer realmente assegnato, con orario vero e persone effettivamente presenti (o programmate, se le presenze non sono ancora compilate). Ogni riga diventa una lezione pagabile da 1 ora — modificabile dopo nell'elenco lezioni.
           <br /><br />
-          <b>Per un mese intero:</b> in Excel naviga con ">> SETTIMANA" e salva una copia del file per ogni settimana del mese (di solito 4), poi seleziona qui tutti i file insieme — vengono uniti in un'unica anteprima.
+          {'Per un mese intero: in Excel naviga con ">> SETTIMANA" e salva una copia del file per ogni settimana del mese (di solito 4), poi seleziona qui tutti i file insieme — vengono uniti in un\'unica anteprima.'}
         </p>
 
         {risultato ? (
