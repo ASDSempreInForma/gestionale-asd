@@ -134,7 +134,56 @@ function scriviAdattivo(page, font, str, x, yTop, larghezzaDisponibile, sizeMax,
 // spesso 400-550KB per una tessera). Le rasterizziamo a una risoluzione
 // più ragionevole e le ricomprimiamo come PDF-immagine JPEG, restando
 // perfettamente leggibili ma molto più leggere (in genere sotto i 100KB).
+//
+// Dal 16/09/2026 la pagina viene anche RITAGLIATA automaticamente sul solo
+// contenuto reale: le tessere scaricate da Libertas/ASI hanno tantissimo
+// spazio bianco attorno al riquadro vero e proprio (spesso l'80% della
+// pagina). Il ritaglio analizza i pixel della pagina rasterizzata e trova da
+// solo il rettangolo minimo che contiene tutto ciò che non è bianco/quasi
+// bianco — funziona quindi sia per il formato Libertas che ASI (o qualunque
+// altro) senza coordinate fisse pensate per un solo template.
 // ─────────────────────────────────────────────────────────────────────────
+function trovaRiquadroContenuto(imageData, sogliaBianco = 245, tolleranzaRumore = 3) {
+  const { data, width, height } = imageData;
+  let minX = width, maxX = -1, minY = height, maxY = -1;
+
+  // Un pixel conta come "contenuto" se un qualsiasi canale RGB scende sotto
+  // la soglia — cattura testo nero, loghi colorati e bordi grigio chiaro,
+  // ignorando il bianco puro/quasi puro dello sfondo pagina.
+  for (let y = 0; y < height; y++) {
+    let rigaHaContenuto = false;
+    const rowOffset = y * width * 4;
+    for (let x = 0; x < width; x++) {
+      const i = rowOffset + x * 4;
+      if (data[i] < sogliaBianco || data[i + 1] < sogliaBianco || data[i + 2] < sogliaBianco) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        rigaHaContenuto = true;
+      }
+    }
+    if (rigaHaContenuto) {
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+
+  if (maxX < 0 || maxY < 0) return null; // pagina interamente bianca: non ritagliare
+
+  // Piccolo margine di sicurezza attorno al contenuto rilevato, e uno scarto
+  // minimo (tolleranzaRumore) sotto il quale non vale la pena ritagliare.
+  const margine = 12;
+  minX = Math.max(0, minX - margine);
+  minY = Math.max(0, minY - margine);
+  maxX = Math.min(width - 1, maxX + margine);
+  maxY = Math.min(height - 1, maxY + margine);
+
+  const riduzioneX = width - (maxX - minX);
+  const riduzioneY = height - (maxY - minY);
+  if (riduzioneX < tolleranzaRumore && riduzioneY < tolleranzaRumore) return null; // niente da tagliare
+
+  return { minX, minY, larghezza: maxX - minX + 1, altezza: maxY - minY + 1 };
+}
+
 export async function comprimiTesseraPdf(file, scalaResa = 2, qualita = 0.72) {
   if (file.type !== "application/pdf") return file; // non tocchiamo altri formati
 
@@ -155,18 +204,44 @@ export async function comprimiTesseraPdf(file, scalaResa = 2, qualita = 0.72) {
     const canvas = document.createElement("canvas");
     canvas.width = viewport.width;
     canvas.height = viewport.height;
-    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+    const ctx = canvas.getContext("2d");
+    await page.render({ canvasContext: ctx, viewport }).promise;
 
-    const jpegBlob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", qualita));
+    // Individua il riquadro di contenuto reale e, se trovato, lavora da qui
+    // in poi su un canvas ritagliato invece che sulla pagina intera.
+    let canvasFinale = canvas;
+    let larghezzaFinalePt = larghezzaPt;
+    let altezzaFinalePt = altezzaPt;
+    try {
+      const riquadro = trovaRiquadroContenuto(ctx.getImageData(0, 0, canvas.width, canvas.height));
+      if (riquadro) {
+        const canvasRitagliato = document.createElement("canvas");
+        canvasRitagliato.width = riquadro.larghezza;
+        canvasRitagliato.height = riquadro.altezza;
+        canvasRitagliato.getContext("2d").drawImage(
+          canvas, riquadro.minX, riquadro.minY, riquadro.larghezza, riquadro.altezza,
+          0, 0, riquadro.larghezza, riquadro.altezza
+        );
+        canvasFinale = canvasRitagliato;
+        larghezzaFinalePt = riquadro.larghezza / scalaResa;
+        altezzaFinalePt = riquadro.altezza / scalaResa;
+      }
+    } catch {
+      // se il rilevamento fallisce per qualsiasi motivo, si prosegue con la
+      // pagina intera non ritagliata — mai bloccare l'upload per questo
+    }
+
+    const jpegBlob = await new Promise((resolve) => canvasFinale.toBlob(resolve, "image/jpeg", qualita));
     if (!jpegBlob) return file; // se qualcosa va storto, teniamo l'originale
 
     const jpegBytes = new Uint8Array(await jpegBlob.arrayBuffer());
 
-    // Ricrea un PDF minimo con la sola immagine JPEG, stessa dimensione fisica dell'originale
+    // Ricrea un PDF minimo con la sola immagine JPEG, dimensionato sul
+    // contenuto ritagliato (o sulla pagina intera se non si è ritagliato nulla)
     const nuovoDoc = await PDFDocument.create();
     const img = await nuovoDoc.embedJpg(jpegBytes);
-    const nuovaPagina = nuovoDoc.addPage([larghezzaPt, altezzaPt]);
-    nuovaPagina.drawImage(img, { x: 0, y: 0, width: larghezzaPt, height: altezzaPt });
+    const nuovaPagina = nuovoDoc.addPage([larghezzaFinalePt, altezzaFinalePt]);
+    nuovaPagina.drawImage(img, { x: 0, y: 0, width: larghezzaFinalePt, height: altezzaFinalePt });
 
     const nuoviBytes = await nuovoDoc.save();
 
