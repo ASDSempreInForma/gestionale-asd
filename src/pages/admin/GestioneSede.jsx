@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import Papa from "papaparse";
 import { createClient } from "@supabase/supabase-js";
 import { generaFileASI, generaFileLibertas } from "./esportaAssicurazioni.js";
-import { generaRegistroFirmeASI, generaRegistroFirmeLibertas, generaRegistroFirmeMistoASI, generaRegistroFirmeMistoLibertas } from "./registroFirme.js";
+import { generaRegistroFirmeASI, generaRegistroFirmeLibertas, generaRegistroFirmeMistoASI, generaRegistroFirmeMistoLibertas, generaRegistroFirmeGiornoASI, generaRegistroFirmeGiornoLibertas } from "./registroFirme.js";
 import { generaFoglioPresenzeSede } from "./foglioPresenzeSede.js";
 import { generaFoglioPresenzeExcelSede } from "./foglioPresenzeExcel.js";
 
@@ -199,6 +199,23 @@ function TurniEGruppi() {
     });
   }
 
+  // Registro firme PDF con TUTTI i turni del giorno in un unico file: una
+  // pagina dedicata a ciascun turno (non mescolati), la stessa persona non
+  // viene esclusa se compare in più turni — ogni turno ha le sue pagine
+  // (richiesto da Solomon il 16/09/2026).
+  async function stampaRegistriGiorno(ente) {
+    const sezioni = turniGiorno
+      .filter((t) => (t.iscritti || []).length > 0)
+      .map((t) => ({
+        titolo: `${t.istruttore?.nome} ${t.istruttore?.cognome} — ${GIORNI_LABEL[t.giorno_settimana]} ${t.orario?.slice(0, 5)}`,
+        iscritti: (t.iscritti || []).map(comeIscrizione),
+      }));
+    if (sezioni.length === 0) { alert("Nessun iscritto nei turni di questo giorno."); return; }
+    const nomeFile = `Registro_Firme_${ente}_${GIORNI_LABEL[giornoAttivo]}.pdf`;
+    if (ente === "ASI") await generaRegistroFirmeGiornoASI(sezioni, { nome: stagioneCorrente() }, nomeFile);
+    else await generaRegistroFirmeGiornoLibertas(sezioni, { nome: stagioneCorrente() }, nomeFile);
+  }
+
   // File dati (.xls/.csv) da caricare sui portali Libertas/ASI con TUTTE le
   // persone del giorno selezionato (deduplicate per CF se iscritte a più
   // turni dello stesso giorno). Il registro firme PDF resta invece solo
@@ -279,6 +296,14 @@ function TurniEGruppi() {
               )}
             </div>
             <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => stampaRegistriGiorno("Libertas")}
+                style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}>
+                🖨️ Registri Libertas del giorno
+              </button>
+              <button onClick={() => stampaRegistriGiorno("ASI")}
+                style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}>
+                🖨️ Registri ASI del giorno
+              </button>
               <button onClick={() => scaricaRegistriGiorno("Libertas")}
                 style={{ background: "#fff", color: "#1f8a52", border: "1px solid #1f8a52", borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}>
                 ⬇️ Libertas (.xls) del giorno

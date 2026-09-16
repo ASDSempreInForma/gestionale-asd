@@ -250,3 +250,144 @@ export async function generaRegistroFirmeMistoLibertas(iscrittiConCorso, stagion
     misto: true,
   });
 }
+
+// ─────────────────────────────────────────────────────────────────
+// REGISTRO FIRME "DEL GIORNO" — un unico PDF con una pagina dedicata
+// a ciascun turno/corso (non mescolati come nel "misto": ogni turno
+// inizia sempre su una pagina nuova, con le sue sole persone). Pensato
+// per stampare in un colpo solo tutti i turni di una giornata invece
+// di scaricare un file per turno (richiesto da Solomon il 16/09/2026).
+// `sezioni` = [{ titolo, iscritti }], una per turno/corso.
+// ─────────────────────────────────────────────────────────────────
+async function generaPDFMultiSezione({ sezioni, codiceSocieta, stagioneNome, ente, nomeFile }) {
+  const pdfDoc = await PDFDocument.create();
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const logoBytes = base64ToBytes(ente === "ASI" ? LOGO_ASI_B64 : LOGO_LIBERTAS_B64);
+  const logoImage = ente === "ASI" ? await pdfDoc.embedPng(logoBytes) : await pdfDoc.embedJpg(logoBytes);
+  const logoDims = logoImage.scale(ente === "ASI" ? 0.55 : 0.42);
+
+  const W = 595.28, H = 841.89;
+  const MARGINE = 40;
+  const nero = rgb(0.1, 0.1, 0.1);
+
+  function disegnaIntestazione(page, titoloSezione) {
+    page.drawImage(logoImage, { x: MARGINE, y: H - MARGINE - logoDims.height, width: logoDims.width, height: logoDims.height });
+    const boxX = MARGINE + logoDims.width + 20;
+    const boxW = W - MARGINE - boxX;
+
+    page.drawText("Codice Società:", { x: boxX, y: H - MARGINE - 10, size: 10, font: fontRegular, color: nero });
+    page.drawText(String(codiceSocieta), { x: boxX + 90, y: H - MARGINE - 10, size: 10, font: fontBold, color: nero });
+
+    const titoloY = H - MARGINE - 40;
+    page.drawRectangle({ x: boxX, y: titoloY - 4, width: boxW, height: 22, borderColor: nero, borderWidth: 1 });
+    const titolo = `Tesseramento Anno sportivo ${stagioneNome}`;
+    const wTitolo = fontBold.widthOfTextAtSize(titolo, 12);
+    page.drawText(titolo, { x: boxX + (boxW - wTitolo) / 2, y: titoloY + 2, size: 12, font: fontBold, color: nero });
+
+    const societaY = titoloY - 26;
+    page.drawRectangle({ x: boxX, y: societaY - 4, width: boxW, height: 22, borderColor: nero, borderWidth: 1 });
+    const societa = titoloSezione || "Società Sportiva : A.S.D. Sempre in Forma";
+    const wSocieta = fontRegular.widthOfTextAtSize(societa, 11);
+    page.drawText(societa, { x: boxX + (boxW - wSocieta) / 2, y: societaY + 2, size: 11, font: fontRegular, color: nero });
+
+    return societaY - 30;
+  }
+
+  function disegnaPersona(page, yTop, iscrizione) {
+    const s = iscrizione.soci || {};
+    const rigaH = 18;
+    const blockH = rigaH * 3;
+    const xTot = MARGINE, wTot = W - 2 * MARGINE;
+
+    page.drawRectangle({ x: xTot, y: yTop - blockH, width: wTot, height: blockH, borderColor: nero, borderWidth: 1 });
+    page.drawLine({ start: { x: xTot, y: yTop - rigaH }, end: { x: xTot + wTot, y: yTop - rigaH }, thickness: 0.5, color: nero });
+    page.drawLine({ start: { x: xTot, y: yTop - rigaH * 2 }, end: { x: xTot + wTot, y: yTop - rigaH * 2 }, thickness: 0.5, color: nero });
+
+    const riga = (testo, x, y, bold, size = 10) => page.drawText(testo, { x, y, size, font: bold ? fontBold : fontRegular, color: nero });
+
+    riga("Cognome:", xTot + 8, yTop - 13, false);
+    riga((s.cognome || "").toUpperCase(), xTot + 65, yTop - 13, true);
+    riga("Nome:", xTot + 220, yTop - 13, false);
+    riga((s.nome || "").toUpperCase(), xTot + 260, yTop - 13, true);
+    riga("Data _____ / _____ / _____", xTot + 380, yTop - 13, false);
+
+    riga("Data nascita:", xTot + 8, yTop - rigaH - 13, false);
+    riga(fmtData(s.data_nascita), xTot + 80, yTop - rigaH - 13, true);
+    riga("a:", xTot + 220, yTop - rigaH - 13, false);
+    riga(s.comune_nascita || "", xTot + 235, yTop - rigaH - 13, true);
+    riga("Firma ____________________", xTot + 380, yTop - rigaH - 13, false, 9);
+
+    riga("Tipo Tessera:", xTot + 8, yTop - rigaH * 2 - 13, false);
+    riga(ente === "ASI" ? "A" : "APR", xTot + 80, yTop - rigaH * 2 - 13, true);
+    riga("Codice tessera:", xTot + 150, yTop - rigaH * 2 - 13, false);
+    riga(s.numero_tessera ? String(s.numero_tessera) : "", xTot + 250, yTop - rigaH * 2 - 13, true);
+    riga("Data emissione:", xTot + 380, yTop - rigaH * 2 - 13, false);
+    riga(fmtData(new Date()), xTot + 460, yTop - rigaH * 2 - 13, true);
+
+    return yTop - blockH - 6;
+  }
+
+  function disegnaPiedePagina(page, yTop) {
+    const xTot = MARGINE, wTot = W - 2 * MARGINE;
+    page.drawRectangle({ x: xTot, y: yTop - 20, width: wTot, height: 20, borderColor: nero, borderWidth: 1 });
+    const titolo = "Riservato all'Associazione";
+    const wTitolo = fontBold.widthOfTextAtSize(titolo, 10);
+    page.drawText(titolo, { x: xTot + (wTot - wTitolo) / 2, y: yTop - 14, size: 10, font: fontBold, color: nero });
+    page.drawRectangle({ x: xTot, y: yTop - 20 - 26, width: wTot, height: 26, borderColor: nero, borderWidth: 1 });
+    page.drawText("Data _____ / _____ / _____", { x: xTot + 10, y: yTop - 20 - 17, size: 10, font: fontRegular, color: nero });
+    page.drawText("Firme ______________ ______________", { x: xTot + 220, y: yTop - 20 - 17, size: 10, font: fontRegular, color: nero });
+  }
+
+  const BLOCK_GAP = 6;
+  const FOOTER_GAP = 10;
+  const FOOTER_H = 20 + 26;
+  const blockH = 18 * 3;
+
+  const paginaProva = pdfDoc.addPage([W, H]);
+  const yInizioContenuto = disegnaIntestazione(paginaProva, "");
+  pdfDoc.removePage(pdfDoc.getPageCount() - 1);
+  const usableHeight = yInizioContenuto - MARGINE;
+  const persPerPagina = Math.max(1, Math.floor(usableHeight / (blockH + BLOCK_GAP)));
+
+  for (const sezione of sezioni) {
+    const iscritti = sezione.iscritti || [];
+    const gruppi = [];
+    for (let i = 0; i < iscritti.length; i += persPerPagina) gruppi.push(iscritti.slice(i, i + persPerPagina));
+    if (gruppi.length === 0) gruppi.push([]);
+
+    while (true) {
+      const ultimo = gruppi[gruppi.length - 1];
+      if (ultimo.length === 0) break;
+      const spazioResiduo = usableHeight - ultimo.length * (blockH + BLOCK_GAP);
+      if (spazioResiduo >= FOOTER_GAP + FOOTER_H) break;
+      gruppi.push([ultimo.pop()]);
+    }
+
+    gruppi.forEach((gruppo, indice) => {
+      const page = pdfDoc.addPage([W, H]);
+      let y = disegnaIntestazione(page, sezione.titolo);
+      for (const iscrizione of gruppo) y = disegnaPersona(page, y, iscrizione);
+      if (indice === gruppi.length - 1) disegnaPiedePagina(page, MARGINE + FOOTER_H);
+    });
+  }
+
+  const bytes = await pdfDoc.save();
+  const blob = new Blob([bytes], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nomeFile;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+export async function generaRegistroFirmeGiornoASI(sezioni, stagione, nomeFile = "Registro_Firme_ASI_Giorno.pdf") {
+  await generaPDFMultiSezione({ sezioni, codiceSocieta: "BS0905", stagioneNome: stagione?.nome || "", ente: "ASI", nomeFile });
+}
+
+export async function generaRegistroFirmeGiornoLibertas(sezioni, stagione, nomeFile = "Registro_Firme_Libertas_Giorno.pdf") {
+  await generaPDFMultiSezione({ sezioni, codiceSocieta: "BS481", stagioneNome: stagione?.nome || "", ente: "Libertas", nomeFile });
+}
