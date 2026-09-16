@@ -2084,7 +2084,7 @@ export default function AnagraficaSoci() {
       .from('soci')
       .select('cf, nome, cognome, email, telefono, numero_tessera, ente_tessera, scadenza_tessera, is_admin_blocked, blocco_motivo, data_nascita, comune_nascita, provincia_nascita, indirizzo, comune_residenza, provincia_residenza, cap, note')
     parole.forEach(parola => {
-      query = query.or(`nome.ilike.%${parola}%,cognome.ilike.%${parola}%,cf.ilike.%${parola}%`)
+      query = query.or(`nome.ilike.%${parola}%,cognome.ilike.%${parola}%,cf.ilike.%${parola}%,telefono.ilike.%${parola}%`)
     })
     const { data, error } = await query.order('cognome').limit(30)
     setCercando(false)
@@ -2102,14 +2102,14 @@ export default function AnagraficaSoci() {
     <div style={{ padding: '20px 24px', fontFamily: 'system-ui, sans-serif', maxWidth: 800 }}>
       <h2 style={{ marginBottom: 4 }}>👤 Anagrafica soci</h2>
       <p style={{ color: SUB, fontSize: 14, marginBottom: 16 }}>
-        Cerca un socio per nome, cognome o codice fiscale per vedere tessera, dati e storico iscrizioni.
+        Cerca un socio per nome, cognome, codice fiscale o numero di telefono per vedere tessera, dati e storico iscrizioni.
       </p>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <input
           value={query}
           onChange={e => cerca(e.target.value)}
-          placeholder="🔍 Cerca per nome, cognome o CF..."
+          placeholder="🔍 Cerca per nome, cognome, CF o telefono..."
           style={{ flex: 1, padding: '10px 12px', borderRadius: 8, border: `1px solid ${BD}`, fontSize: 14, boxSizing: 'border-box' }}
         />
         <button onClick={() => setModaleNuovoSocio(true)}
