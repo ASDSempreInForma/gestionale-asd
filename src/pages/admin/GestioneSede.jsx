@@ -188,23 +188,26 @@ function TurniEGruppi() {
     else generaFileLibertas(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
   }
 
-  // Registri firme di TUTTI i turni del giorno selezionato in un unico PDF
-  // (un blocco per turno, stessa persona non duplicata se iscritta a più
-  // turni dello stesso giorno) — richiesto da Solomon il 14/09/2026.
-  async function scaricaRegistriGiorno(ente) {
+  // File dati (.xls/.csv) da caricare sui portali Libertas/ASI con TUTTE le
+  // persone del giorno selezionato (deduplicate per CF se iscritte a più
+  // turni dello stesso giorno). Il registro firme PDF resta invece solo
+  // per singolo turno (pulsanti dentro ogni riga) — non ha senso combinato
+  // per giornata (chiarito da Solomon il 16/09/2026).
+  function scaricaRegistriGiorno(ente) {
     const visti = new Set();
-    const conCorso = [];
+    const persone = [];
     for (const t of turniGiorno) {
       for (const i of t.iscritti || []) {
         const chiave = (i.cf || `${i.cognome}|${i.nome}`).toUpperCase();
         if (visti.has(chiave)) continue;
         visti.add(chiave);
-        conCorso.push({ ...comeIscrizione(i), corso: { disciplina: "SEDE", giorni_orari: `${GIORNI_LABEL[t.giorno_settimana]} ${t.orario?.slice(0, 5)}`, sedi: { nome: "Via del Brolo" } } });
+        persone.push(comeIscrizione(i));
       }
     }
-    if (conCorso.length === 0) { alert("Nessun iscritto nei turni di questo giorno."); return; }
-    if (ente === "ASI") await generaRegistroFirmeMistoASI(conCorso, { nome: stagioneCorrente() });
-    else await generaRegistroFirmeMistoLibertas(conCorso, { nome: stagioneCorrente() });
+    if (persone.length === 0) { alert("Nessun iscritto nei turni di questo giorno."); return; }
+    const corsoFinto = { codice_corso: `SEDE_${GIORNI_LABEL[giornoAttivo].slice(0, 3)}` };
+    if (ente === "ASI") generaFileASI(corsoFinto, persone, { nome: stagioneCorrente() });
+    else generaFileLibertas(corsoFinto, persone, { nome: stagioneCorrente() });
   }
 
   async function eliminaTurno(turno) {
@@ -264,12 +267,12 @@ function TurniEGruppi() {
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => scaricaRegistriGiorno("Libertas")}
-                style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}>
-                🖨️ Registri Libertas del giorno
+                style={{ background: "#fff", color: "#1f8a52", border: "1px solid #1f8a52", borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}>
+                ⬇️ Libertas (.xls) del giorno
               </button>
               <button onClick={() => scaricaRegistriGiorno("ASI")}
-                style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}>
-                🖨️ Registri ASI del giorno
+                style={{ background: "#fff", color: "#1f8a52", border: "1px solid #1f8a52", borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}>
+                ⬇️ ASI (.csv) del giorno
               </button>
               <button onClick={() => setModaleTurno({ turno: null, giornoDefault: giornoAttivo })}
                 style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
