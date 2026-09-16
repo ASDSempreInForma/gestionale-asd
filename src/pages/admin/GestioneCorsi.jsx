@@ -46,10 +46,43 @@ export default function GestioneCorsi() {
   const [filtroStato, setFiltroStato] = useState("tutti"); // tutti | pieni | quasi
   const [salvataggio, setSalvataggio] = useState({}); // "corsoId:campo" -> "salvando" | "ok" | "errore"
   const [valoriModificati, setValoriModificati] = useState({});
+  // Riepilogo numerico della stagione, richiesto da Solomon il 16/09/2026 —
+  // per avere subito sotto gli occhi i numeri chiave senza dover incrociare
+  // Gestione Prove + Verifica Documenti + il conteggio manuale degli iscritti.
+  const [riepilogo, setRiepilogo] = useState(null);
 
   useEffect(() => {
     caricaCorsi();
   }, []);
+
+  async function caricaRiepilogo(stagioneId) {
+    // Query separate e leggere (solo le colonne che servono) invece di
+    // riusare i dati già caricati per le capienze, che coprono solo i campi
+    // necessari a quel calcolo.
+    const [{ data: iscrizioni }, { data: prove }] = await Promise.all([
+      supabase.from("iscrizioni").select("stato_pagamento, stato_certificato").eq("stagione_id", stagioneId),
+      // "prove" non ha una colonna stagione_id propria: si filtra tramite il
+      // corso collegato, esattamente come fa GestioneProve.jsx.
+      supabase.from("prove").select("stato, corsi!inner ( stagione_id )").eq("corsi.stagione_id", stagioneId),
+    ]);
+
+    const iscrizioniAttive = (iscrizioni || []).filter((i) => i.stato_pagamento !== "annullata");
+    const prov = prove || [];
+    const proveInCorso = prov.filter((p) => ["in_attesa", "confermata", "effettuata"].includes(p.stato)).length;
+    const proveIscritte = prov.filter((p) => p.stato === "iscritta").length;
+    const proveChiuse = prov.filter((p) => ["iscritta", "scaduta", "annullata"].includes(p.stato));
+    const tassoConversione = proveChiuse.length > 0 ? Math.round((proveIscritte / proveChiuse.length) * 100) : null;
+
+    setRiepilogo({
+      iscrittiTotali: iscrizioniAttive.length,
+      proveInCorso,
+      proveIscritte,
+      tassoConversione,
+      pagamentiDaVerificare: iscrizioniAttive.filter((i) => i.stato_pagamento === "dichiarato").length,
+      certificatiDaVerificare: iscrizioniAttive.filter((i) => i.stato_certificato === "dichiarato").length,
+      certificatiMancanti: iscrizioniAttive.filter((i) => ["mancante", "scaduto"].includes(i.stato_certificato)).length,
+    });
+  }
 
   async function caricaCorsi() {
     setCaricando(true);
@@ -61,6 +94,8 @@ export default function GestioneCorsi() {
         .eq("attiva", true)
         .single();
       if (errS) throw errS;
+
+      caricaRiepilogo(stagione.id);
 
       const { data: corsiDB, error: errC } = await supabase
         .from("corsi")
@@ -197,6 +232,42 @@ export default function GestioneCorsi() {
           separatamente per ciascun giorno (utile es. se il venerdì ha storicamente più assenze). Lascia
           vuoto per nessun limite. Il modulo di iscrizione pubblico si aggiorna automaticamente.
         </p>
+
+        {riepilogo && (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+            {[
+              { label: "Iscritti totali", valore: riepilogo.iscrittiTotali, colore: C.green },
+              { label: "Persone in prova", valore: riepilogo.proveInCorso, colore: C.textSub },
+              {
+                label: "Prove convertite",
+                valore: riepilogo.proveIscritte,
+                sotto: riepilogo.tassoConversione !== null ? `${riepilogo.tassoConversione}% delle prove concluse` : "nessuna prova conclusa",
+                colore: C.green,
+              },
+              {
+                label: "Pagamenti da verificare",
+                valore: riepilogo.pagamentiDaVerificare,
+                colore: riepilogo.pagamentiDaVerificare > 0 ? C.amber : C.textSub,
+              },
+              {
+                label: "Certificati da verificare",
+                valore: riepilogo.certificatiDaVerificare,
+                colore: riepilogo.certificatiDaVerificare > 0 ? C.amber : C.textSub,
+              },
+              {
+                label: "Certificati mancanti/scaduti",
+                valore: riepilogo.certificatiMancanti,
+                colore: riepilogo.certificatiMancanti > 0 ? C.red : C.textSub,
+              },
+            ].map((n) => (
+              <div key={n.label} style={{ flex: "1 1 150px", background: C.card, borderRadius: 10, border: `1px solid ${C.border}`, padding: "12px 14px" }}>
+                <div style={{ fontSize: 22, fontWeight: 700, color: n.colore, lineHeight: 1.1 }}>{n.valore}</div>
+                <div style={{ fontSize: 12, color: C.textSub, marginTop: 4 }}>{n.label}</div>
+                {n.sotto && <div style={{ fontSize: 10.5, color: C.textSub, marginTop: 2 }}>{n.sotto}</div>}
+              </div>
+            ))}
+          </div>
+        )}
 
         <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
           <select
