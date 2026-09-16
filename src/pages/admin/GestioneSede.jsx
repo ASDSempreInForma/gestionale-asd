@@ -130,6 +130,7 @@ function TurniEGruppi() {
   const [modaleTurno, setModaleTurno] = useState(null); // null | { turno: obj|null }
   const [modalePersona, setModalePersona] = useState(null); // null | { turnoId, persona: obj|null }
   const [modaleFoglio, setModaleFoglio] = useState(null); // null | turno
+  const [modaleSelezione, setModaleSelezione] = useState(null); // null | { titolo, persone, onConferma }
 
   const carica = useCallback(async () => {
     setCaricando(true);
@@ -172,20 +173,30 @@ function TurniEGruppi() {
     setRicercaPersona("");
   }
 
-  async function stampa(turno, ente) {
-    const iscrizioni = (turno.iscritti || []).map(comeIscrizione);
-    if (iscrizioni.length === 0) { alert("Nessun iscritto per questo turno."); return; }
-    const corsoFinto = { codice_corso: `SEDE_${GIORNI_LABEL[turno.giorno_settimana].slice(0, 3)}_${turno.orario.replace(":", "")}` };
-    if (ente === "ASI") await generaRegistroFirmeASI(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
-    else await generaRegistroFirmeLibertas(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
+  // Prima di ogni stampa/export apre il modale di selezione persone, così si
+  // può escludere al volo chi non è ancora iscritto davvero o ha dati
+  // incompleti (es. Becchetti) — richiesto da Solomon il 16/09/2026.
+  function apriSelezione(titolo, persone, onConferma) {
+    if (persone.length === 0) { alert("Nessun iscritto disponibile."); return; }
+    setModaleSelezione({ titolo, persone, onConferma });
+  }
+
+  function stampa(turno, ente) {
+    apriSelezione(`Registro ${ente} — ${GIORNI_LABEL[turno.giorno_settimana]} ${turno.orario?.slice(0, 5)}`, turno.iscritti || [], async (selezionati) => {
+      const iscrizioni = selezionati.map(comeIscrizione);
+      const corsoFinto = { codice_corso: `SEDE_${GIORNI_LABEL[turno.giorno_settimana].slice(0, 3)}_${turno.orario.replace(":", "")}` };
+      if (ente === "ASI") await generaRegistroFirmeASI(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
+      else await generaRegistroFirmeLibertas(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
+    });
   }
 
   function esportaDati(turno, ente) {
-    const iscrizioni = (turno.iscritti || []).map(comeIscrizione);
-    if (iscrizioni.length === 0) { alert("Nessun iscritto per questo turno."); return; }
-    const corsoFinto = { codice_corso: `SEDE_${GIORNI_LABEL[turno.giorno_settimana].slice(0, 3)}_${turno.orario.replace(":", "")}` };
-    if (ente === "ASI") generaFileASI(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
-    else generaFileLibertas(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
+    apriSelezione(`Export ${ente} — ${GIORNI_LABEL[turno.giorno_settimana]} ${turno.orario?.slice(0, 5)}`, turno.iscritti || [], (selezionati) => {
+      const iscrizioni = selezionati.map(comeIscrizione);
+      const corsoFinto = { codice_corso: `SEDE_${GIORNI_LABEL[turno.giorno_settimana].slice(0, 3)}_${turno.orario.replace(":", "")}` };
+      if (ente === "ASI") generaFileASI(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
+      else generaFileLibertas(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
+    });
   }
 
   // File dati (.xls/.csv) da caricare sui portali Libertas/ASI con TUTTE le
@@ -201,13 +212,15 @@ function TurniEGruppi() {
         const chiave = (i.cf || `${i.cognome}|${i.nome}`).toUpperCase();
         if (visti.has(chiave)) continue;
         visti.add(chiave);
-        persone.push(comeIscrizione(i));
+        persone.push(i);
       }
     }
-    if (persone.length === 0) { alert("Nessun iscritto nei turni di questo giorno."); return; }
-    const corsoFinto = { codice_corso: `SEDE_${GIORNI_LABEL[giornoAttivo].slice(0, 3)}` };
-    if (ente === "ASI") generaFileASI(corsoFinto, persone, { nome: stagioneCorrente() });
-    else generaFileLibertas(corsoFinto, persone, { nome: stagioneCorrente() });
+    apriSelezione(`${ente} del giorno — ${GIORNI_LABEL[giornoAttivo]}`, persone, (selezionati) => {
+      const iscrizioni = selezionati.map(comeIscrizione);
+      const corsoFinto = { codice_corso: `SEDE_${GIORNI_LABEL[giornoAttivo].slice(0, 3)}` };
+      if (ente === "ASI") generaFileASI(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
+      else generaFileLibertas(corsoFinto, iscrizioni, { nome: stagioneCorrente() });
+    });
   }
 
   async function eliminaTurno(turno) {
@@ -355,6 +368,66 @@ function TurniEGruppi() {
       {modaleFoglio && (
         <ModaleFoglioPresenze turno={modaleFoglio} onChiudi={() => setModaleFoglio(null)} />
       )}
+      {modaleSelezione && (
+        <ModaleSelezionaPersone titolo={modaleSelezione.titolo} persone={modaleSelezione.persone}
+          onChiudi={() => setModaleSelezione(null)}
+          onConferma={(selezionati) => { modaleSelezione.onConferma(selezionati); setModaleSelezione(null); }} />
+      )}
+    </div>
+  );
+}
+
+function ModaleSelezionaPersone({ titolo, persone, onChiudi, onConferma }) {
+  const [selezionati, setSelezionati] = useState(new Set(persone.map((p) => p.id)));
+
+  function toggle(id) {
+    setSelezionati((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function deselezionaIncompleti() {
+    setSelezionati((prev) => {
+      const next = new Set(prev);
+      persone.filter((p) => !p.cf).forEach((p) => next.delete(p.id));
+      return next;
+    });
+  }
+
+  const nIncompleti = persone.filter((p) => !p.cf).length;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 70, padding: 16 }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 480, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto" }}>
+        <h3 style={{ margin: "0 0 4px", fontSize: 16 }}>{titolo}</h3>
+        <p style={{ margin: "0 0 14px", fontSize: 12, color: "#777" }}>Togli la spunta a chi vuoi escludere (es. non ancora iscritto davvero, o dati incompleti).</p>
+
+        {nIncompleti > 0 && (
+          <button onClick={deselezionaIncompleti} style={{ background: "none", border: "1px dashed #c0392b", color: "#c0392b", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", marginBottom: 12 }}>
+            Deseleziona {nIncompleti} con dati incompleti
+          </button>
+        )}
+
+        <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid #eee", borderRadius: 8, padding: 8, marginBottom: 14 }}>
+          {persone.map((p) => (
+            <label key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 4px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid #f7f7f7" }}>
+              <input type="checkbox" checked={selezionati.has(p.id)} onChange={() => toggle(p.id)} />
+              <span style={{ flex: 1 }}>{p.cognome} {p.nome}</span>
+              {!p.cf && <span style={{ color: "#c0392b", fontSize: 11 }}>dati incompleti</span>}
+            </label>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={onChiudi} style={{ flex: 1, background: "#f0f0f0", border: "none", borderRadius: 8, padding: "10px 0", cursor: "pointer" }}>Annulla</button>
+          <button onClick={() => onConferma(persone.filter((p) => selezionati.has(p.id)))} disabled={selezionati.size === 0}
+            style={{ flex: 1, background: C, color: "#fff", border: "none", borderRadius: 8, padding: "10px 0", fontWeight: 600, cursor: "pointer", opacity: selezionati.size === 0 ? 0.5 : 1 }}>
+            Conferma ({selezionati.size})
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
