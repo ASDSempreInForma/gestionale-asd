@@ -96,6 +96,11 @@ export default function GestioneProve() {
   // ritrovare velocemente le eccezioni concesse in passato, invece di dover
   // aprire ogni singola scheda per controllare il badge.
   const [soloConEccezione, setSoloConEccezione] = useState(false);
+  // Solo prove con l'ultimatum "posti in esaurimento" già inviato e ancora
+  // attivo (non ancora scaduto) — richiesto da Solomon il 16/09/2026 per
+  // ritrovare rapidamente chi ha un ultimatum in corso, senza scorrere tutta
+  // la lista cercando il badge giallo.
+  const [soloConPreavviso, setSoloConPreavviso] = useState(false);
   // Ordinamento della lista "In corso/Storico" (richiesto da Solomon il
   // 09/09/2026): di default resta l'ordine di arrivo dal DB (più recenti
   // per data di richiesta prima), ma si può ordinare anche per data della
@@ -515,6 +520,12 @@ export default function GestioneProve() {
     // Solo chi ha l'eccezione limite-prove attiva (badge "🔓 Eccezione attiva"
     // sulla scheda) — utile per un controllo periodico di chi è stato sbloccato.
     if (soloConEccezione && !eccezioni[p.cf]) return false;
+    // Solo chi ha l'ultimatum "posti in esaurimento" ancora attivo (inviato e
+    // non ancora scaduto) — stessa formula usata per il badge sulla scheda.
+    if (soloConPreavviso) {
+      const hPreavviso = p.scadenza_preavviso ? (new Date(p.scadenza_preavviso) - new Date()) / 36e5 : null;
+      if (!(hPreavviso !== null && hPreavviso > 0)) return false;
+    }
     return true;
   });
   const opzioniStato = STATI_PROVA.filter(s => (vistaProve === "attive" ? STATI_ATTIVI : STATI_STORICO).includes(s.value));
@@ -780,6 +791,16 @@ export default function GestioneProve() {
                   background:soloConEccezione?GL:"white", color:soloConEccezione?GD:SUB,
                   fontSize:12.5, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>
                 🔓 Con eccezione ({Object.keys(eccezioni).length})
+              </button>
+              <button onClick={() => setSoloConPreavviso(v => !v)}
+                title="Mostra solo chi ha l'ultimatum posti in esaurimento ancora attivo"
+                style={{ padding:"8px 14px", borderRadius:8, border:`1px solid ${soloConPreavviso?A:BD}`,
+                  background:soloConPreavviso?AL:"white", color:soloConPreavviso?"#92400E":SUB,
+                  fontSize:12.5, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>
+                ⚠️ Posti in esaurimento ({prove.filter(p => {
+                  const h = p.scadenza_preavviso ? (new Date(p.scadenza_preavviso) - new Date()) / 36e5 : null;
+                  return h !== null && h > 0;
+                }).length})
               </button>
               <select value={ordinamentoProve} onChange={e => setOrdinamentoProve(e.target.value)}
                 style={{ padding:"8px 10px", border:`1px solid ${BD}`, borderRadius:8, fontSize:12, background:"white", whiteSpace:"nowrap" }}>
