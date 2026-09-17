@@ -472,11 +472,16 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
   const carica = useCallback(async () => {
     setCaricando(true);
     try {
-      const [datiTurni, datiLezioni] = await Promise.all([
-        chiamaAreaSede('lista_turni', {}),
-        chiamaAreaSede('lista_lezioni_intervallo', { data_inizio: settimanaBase, data_fine: fineSettimanaIso }),
-      ]);
-      setTurni(datiTurni.turni || []);
+      const datiTurni = await chiamaAreaSede('lista_turni', {});
+      const turniCaricati = datiTurni.turni || [];
+      setTurni(turniCaricati);
+      // Recupera le lezioni da PRIMA dell'inizio di ciascun turno (non solo
+      // della settimana visualizzata), per poter contare "lezione N di M"
+      // in base a quante ne sono state già segnate svolte fino ad ora —
+      // richiesto da Solomon il 17/09/2026.
+      const minDataInizio = turniCaricati.reduce((min, t) => (t.data_inizio && (!min || t.data_inizio < min)) ? t.data_inizio : min, null);
+      const dataInizioFetch = minDataInizio && minDataInizio < settimanaBase ? minDataInizio : settimanaBase;
+      const datiLezioni = await chiamaAreaSede('lista_lezioni_intervallo', { data_inizio: dataInizioFetch, data_fine: fineSettimanaIso });
       setLezioni(datiLezioni.lezioni || []);
     } catch (err) { setErrore(err.message); }
     finally { setCaricando(false); }
@@ -492,6 +497,13 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
 
   function trovaLezione(turno, dataGiornoIso) {
     return lezioni.find((l) => l.istruttore_id === turno.istruttore_id && l.data === dataGiornoIso && (l.orario || '') === (turno.orario || ''));
+  }
+
+  // Numero progressivo della lezione (1, 2, 3…) contando quante volte prima
+  // di questa data quel turno risulta già segnato "svolta" — così se una
+  // settimana viene saltata/sospesa non conta comunque come lezione fatta.
+  function numeroLezione(turno, dataGiornoIso) {
+    return lezioni.filter((l) => l.istruttore_id === turno.istruttore_id && (l.orario || '') === (turno.orario || '') && l.stato === 'svolta' && l.data < dataGiornoIso).length + 1;
   }
 
   function apriCella(turno, dataGiornoIso) {
@@ -565,10 +577,13 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
                     const beneficiario = l?.istruttore_sostituto_id
                       ? istruttoriSede.find((i) => i.id === l.istruttore_sostituto_id)
                       : null;
+                    const nTot = nLezioniDaNota(t.note);
+                    const nCorrente = numeroLezione(t, dataGiornoIso);
+                    const oltreLimite = nTot && nCorrente > nTot;
                     return (
                       <div key={t.id} onClick={() => apriCella(t, dataGiornoIso)}
                         style={{
-                          background: l ? (statoInfo?.badge + '22') : C_LIGHT, border: l ? `1px solid ${statoInfo?.badge}` : '1px dashed #ccc',
+                          background: l ? (statoInfo?.badge + '22') : C_LIGHT, border: oltreLimite ? '1px solid #e67e22' : (l ? `1px solid ${statoInfo?.badge}` : '1px dashed #ccc'),
                           borderRadius: 8, padding: '6px 8px', fontSize: 11, cursor: 'pointer',
                         }}>
                         <div style={{ fontWeight: 700 }}>{t.orario?.slice(0, 5)}</div>
@@ -576,6 +591,9 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
                         {beneficiario && <div style={{ color: '#777' }}>↔ {beneficiario.nome} {beneficiario.cognome}</div>}
                         <div style={{ color: statoInfo ? statoInfo.badge : '#aaa', fontWeight: l ? 700 : 400 }}>
                           {statoInfo ? statoInfo.label : 'Da segnare'}
+                        </div>
+                        <div style={{ color: oltreLimite ? '#e67e22' : '#aaa', fontSize: 10, fontWeight: oltreLimite ? 700 : 400 }}>
+                          {oltreLimite ? `⚠️ oltre le ${nTot} — da rinnovare` : `Lezione ${nCorrente}${nTot ? ` di ${nTot}` : ''}`}
                         </div>
                       </div>
                     );

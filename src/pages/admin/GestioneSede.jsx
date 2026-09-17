@@ -24,6 +24,22 @@ function stagioneCorrente() {
   return `${anno}/${anno + 1}`;
 }
 
+// Estrae il numero totale di lezioni previste dal testo della nota del turno
+// (es. "N.Lezioni:8" o "N.Lezioni:8 (da verificare)").
+function nLezioniDaNota(note) {
+  const m = String(note || "").match(/N\.Lezioni:(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+
+// Sostituisce (o aggiunge, se assente) il numero N.Lezioni dentro la nota,
+// preservando eventuale altro testo presente — usato per "rinnovare" un
+// turno aggiungendo altre lezioni quando ha esaurito quelle previste.
+function sostituisciNLezioni(note, nuovoTotale) {
+  const testo = String(note || "");
+  if (/N\.Lezioni:\d+/.test(testo)) return testo.replace(/N\.Lezioni:\d+/, `N.Lezioni:${nuovoTotale}`);
+  return testo ? `${testo} N.Lezioni:${nuovoTotale}` : `N.Lezioni:${nuovoTotale}`;
+}
+
 async function chiamaAreaSede(action, payload) {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/area-sede`, {
     method: "POST",
@@ -123,6 +139,7 @@ const CAMPI_ANAGRAFICA_VUOTI = {
 function TurniEGruppi() {
   const [turni, setTurni] = useState([]);
   const [istruttori, setIstruttori] = useState([]);
+  const [svolteConteggio, setSvolteConteggio] = useState({});
   const [caricando, setCaricando] = useState(true);
   const [errore, setErrore] = useState("");
   const [giornoAttivo, setGiornoAttivo] = useState(1);
@@ -135,14 +152,17 @@ function TurniEGruppi() {
   const carica = useCallback(async () => {
     setCaricando(true);
     try {
-      const [dati, datiIstr] = await Promise.all([
+      const [dati, datiIstr, datiSvolte] = await Promise.all([
         chiamaAreaSede("lista_turni_con_iscritti", {}),
         chiamaAreaSede("lista_istruttori_sede", {}),
+        chiamaAreaSede("conteggio_lezioni_svolte", {}),
       ]);
       setTurni(dati.turni || []);
       setIstruttori(datiIstr.istruttori || []);
+      setSvolteConteggio(datiSvolte.conteggi || {});
     } catch (err) { setErrore(err.message); }
     finally { setCaricando(false); }
+
   }, []);
 
   useEffect(() => { carica(); }, [carica]);
@@ -245,6 +265,23 @@ function TurniEGruppi() {
     try { await chiamaAreaSede("elimina_turno", { id: turno.id }); carica(); } catch (err) { alert(err.message); }
   }
 
+  // "Rinnova" un turno che ha esaurito le lezioni previste: chiede quante
+  // lezioni aggiungere e aggiorna il totale nella nota (N.Lezioni) — le
+  // lezioni già segnate come svolte in Area SEDE non vengono toccate,
+  // continuano semplicemente a contare verso il nuovo totale.
+  async function rinnovaTurno(turno) {
+    const attuale = nLezioniDaNota(turno.note) || 0;
+    const risposta = window.prompt(`Quante lezioni aggiungere a questo turno? (attualmente previste: ${attuale})`, String(attuale || 8));
+    if (!risposta) return;
+    const daAggiungere = Number(risposta);
+    if (!daAggiungere || daAggiungere <= 0) { alert("Inserisci un numero valido."); return; }
+    const nuovoTotale = attuale + daAggiungere;
+    try {
+      await chiamaAreaSede("salva_turno", { ...turno, id: turno.id, note: sostituisciNLezioni(turno.note, nuovoTotale) });
+      carica();
+    } catch (err) { alert(err.message); }
+  }
+
   async function rimuoviPersona(persona) {
     if (!window.confirm(`Rimuovere ${persona.cognome} ${persona.nome} da questo turno?`)) return;
     try { await chiamaAreaSede("elimina_iscritto_turno", { id: persona.id }); carica(); } catch (err) { alert(err.message); }
@@ -332,6 +369,19 @@ function TurniEGruppi() {
                       <div style={{ flex: 1 }}>{t.istruttore?.nome} {t.istruttore?.cognome}</div>
                       <div style={{ color: "#777", fontSize: 12 }}>{t.iscritti?.length || 0} iscritti</div>
                       {t.note && <div style={{ color: "#aaa", fontSize: 11 }}>{t.note}</div>}
+                      {(() => {
+                        const nTot = nLezioniDaNota(t.note);
+                        const svolte = svolteConteggio[`${t.istruttore_id}|${t.orario}`] || 0;
+                        if (!nTot) return null;
+                        const completato = svolte >= nTot;
+                        return (
+                          <span onClick={(e) => { if (completato) { e.stopPropagation(); rinnovaTurno(t); } }}
+                            style={{ background: completato ? "#fdecea" : "#f0f0f0", color: completato ? "#c0392b" : "#777", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600, cursor: completato ? "pointer" : "default" }}
+                            title={completato ? "Clicca per rinnovare (aggiungere altre lezioni)" : ""}>
+                            {completato ? `🔁 ${svolte}/${nTot} — Rinnova` : `${svolte}/${nTot} svolte`}
+                          </span>
+                        );
+                      })()}
                       {t.data_inizio && new Date(t.data_inizio + "T00:00:00") <= new Date()
                         ? <span style={{ background: "#eafaf0", color: "#1f8a52", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600 }}>✅ Iniziato {t.data_inizio.split("-").reverse().join("/")}</span>
                         : <span style={{ background: "#fdecea", color: "#c0392b", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600 }}>⏳ {t.data_inizio ? `Da iniziare (${t.data_inizio.split("-").reverse().join("/")})` : "Non iniziato"}</span>}
