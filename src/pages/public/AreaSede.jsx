@@ -214,7 +214,7 @@ function Dashboard({ sessione }) {
       {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '10px 14px', borderRadius: 8, marginBottom: 16 }}>{errore}</div>}
 
       {mostraCalendario && (
-        <CalendarioSettimanale sessione={sessione} istruttoriSede={istruttoriSede} onCambiamenti={caricaTutto} />
+        <PianificazioneSettimanale sessione={sessione} istruttoriSede={istruttoriSede} onCambiamenti={caricaTutto} />
       )}
 
       {/* Riepilogo compensi del mese */}
@@ -418,40 +418,94 @@ function ModaleLezione({ sessione, istruttoriSede, lezioneEsistente, annoDefault
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Calendario settimanale: i turni fissi (istruttore + giorno + orario)
-// da cui si generano le lezioni reali per un periodo scelto.
+// Pianificazione settimanale REALE: a differenza del vecchio calendario
+// (sempre uguale ogni settimana), questa vista mostra, settimana per
+// settimana a partire da OGGI (navigabile avanti/indietro), solo i turni
+// che sono già effettivamente iniziati (in base alla "Data di inizio"
+// impostata in Gestione SEDE) — e permette di segnare svolta/sospesa/
+// sostituzione direttamente sulla lezione di quel giorno specifico,
+// scrivendo in sede_lezioni. Sostituisce il vecchio "Calendario
+// settimanale (turni fissi)" (richiesto da Solomon il 17/09/2026).
+// I turni fissi (istruttore/giorno/orario) restano gestiti da Gestione
+// SEDE (pannello admin) — qui sono solo di sola lettura.
 // ─────────────────────────────────────────────────────────────────
 const GIORNI_CALENDARIO = [1, 2, 3, 4, 5, 6, 0]; // Lun...Dom
 
-function CalendarioSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
+function lunedìDi(dataIso) {
+  const d = new Date(dataIso + 'T00:00:00');
+  const giorno = d.getDay();
+  const diff = giorno === 0 ? -6 : 1 - giorno;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+function isoData(d) { return d.toISOString().slice(0, 10); }
+function dataEstesa(d) { return d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' }); }
+function nLezioniDaNota(note) {
+  const m = String(note || '').match(/N\.Lezioni:(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+
+function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
+  const [settimanaBase, setSettimanaBase] = useState(() => isoData(lunedìDi(isoData(new Date()))));
   const [turni, setTurni] = useState([]);
+  const [lezioni, setLezioni] = useState([]);
   const [caricando, setCaricando] = useState(true);
   const [errore, setErrore] = useState('');
-  const [modaleTurno, setModaleTurno] = useState(null); // { turno: null|obj, giornoDefault } oppure null = chiuso
+  const [modaleLezione, setModaleLezione] = useState(null);
   const [modaleGenera, setModaleGenera] = useState(false);
   const [modaleImporta, setModaleImporta] = useState(false);
   const [modaleImportaGiornata, setModaleImportaGiornata] = useState(false);
 
-  const caricaTurni = useCallback(async () => {
+  const dateSettimana = GIORNI_CALENDARIO.map((_, idx) => {
+    const d = new Date(settimanaBase + 'T00:00:00');
+    d.setDate(d.getDate() + idx);
+    return d;
+  });
+  const fineSettimanaIso = isoData(dateSettimana[6]);
+
+  const carica = useCallback(async () => {
     setCaricando(true);
     try {
-      const dati = await chiamaAreaSede('lista_turni', {});
-      setTurni(dati.turni || []);
+      const [datiTurni, datiLezioni] = await Promise.all([
+        chiamaAreaSede('lista_turni', {}),
+        chiamaAreaSede('lista_lezioni_intervallo', { data_inizio: settimanaBase, data_fine: fineSettimanaIso }),
+      ]);
+      setTurni(datiTurni.turni || []);
+      setLezioni(datiLezioni.lezioni || []);
     } catch (err) { setErrore(err.message); }
     finally { setCaricando(false); }
-  }, []);
+  }, [settimanaBase, fineSettimanaIso]);
 
-  useEffect(() => { caricaTurni(); }, [caricaTurni]);
+  useEffect(() => { carica(); }, [carica]);
 
-  async function eliminaTurno(id) {
-    if (!window.confirm('Rimuovere questo turno fisso dal calendario? (le lezioni già generate restano)')) return;
-    try { await chiamaAreaSede('elimina_turno', { id }); caricaTurni(); } catch (err) { alert(err.message); }
+  function cambiaSettimana(delta) {
+    const d = new Date(settimanaBase + 'T00:00:00');
+    d.setDate(d.getDate() + delta * 7);
+    setSettimanaBase(isoData(d));
   }
+
+  function trovaLezione(turno, dataGiornoIso) {
+    return lezioni.find((l) => l.istruttore_id === turno.istruttore_id && l.data === dataGiornoIso && (l.orario || '') === (turno.orario || ''));
+  }
+
+  function apriCella(turno, dataGiornoIso) {
+    const esistente = trovaLezione(turno, dataGiornoIso);
+    setModaleLezione(esistente || {
+      istruttore_id: turno.istruttore_id,
+      data: dataGiornoIso,
+      orario: turno.orario,
+      ore: turno.ore,
+      numero_persone: turno.numero_persone_default || 1,
+      stato: 'svolta',
+    });
+  }
+
+  const oggiIso = isoData(new Date());
 
   return (
     <div style={{ background: '#fff', borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <h3 style={{ margin: 0, fontSize: 15, color: '#333' }}>Calendario settimanale (turni fissi)</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+        <h3 style={{ margin: 0, fontSize: 15, color: '#333' }}>Pianificazione settimanale (reale)</h3>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => setModaleImportaGiornata(true)}
             style={{ background: '#fff', color: '#1f8a52', border: '1px solid #1f8a52', borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
@@ -469,8 +523,15 @@ function CalendarioSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
       </div>
 
       <p style={{ fontSize: 11, color: '#999', margin: '0 0 14px' }}>
-        ⚠️ "Importa modello" e "Genera lezioni per un periodo" usano lo schema teorico settimanale — utile per pianificare, ma non riflette chi ha davvero lavorato quell'ora. Per i compensi reali usa <b>"Importa settimana reale"</b> (dal foglio GIORNATA, dopo che la settimana è conclusa e le presenze sono compilate).
+        Mostra solo i turni già iniziati (in base alla "Data di inizio" impostata in Gestione SEDE) nella settimana selezionata. Clicca su una lezione per segnarla svolta, sospesa o sostituita — resta l'unico modo per registrare i compensi reali di quella settimana, insieme a "Importa settimana reale". I turni fissi (istruttore/giorno/orario) si modificano da Gestione SEDE.
       </p>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginBottom: 14 }}>
+        <button onClick={() => cambiaSettimana(-1)} style={{ background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 14, cursor: 'pointer' }}>← Sett. prec.</button>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>{dataEstesa(dateSettimana[0])} – {dataEstesa(dateSettimana[6])}</div>
+        <button onClick={() => setSettimanaBase(isoData(lunedìDi(isoData(new Date()))))} style={{ background: '#fff', border: `1px solid ${C}`, color: C, borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>Oggi</button>
+        <button onClick={() => cambiaSettimana(1)} style={{ background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 14, cursor: 'pointer' }}>Sett. succ. →</button>
+      </div>
 
       {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{errore}</div>}
 
@@ -478,23 +539,41 @@ function CalendarioSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
         <div style={{ color: '#999', fontSize: 13 }}>Caricamento…</div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, overflowX: 'auto' }}>
-          {GIORNI_CALENDARIO.map((g) => {
+          {GIORNI_CALENDARIO.map((g, idx) => {
             const label = GIORNI_SETTIMANA.find((gs) => gs.value === g)?.label;
-            const turniDelGiorno = turni.filter((t) => t.giorno_settimana === g);
+            const dataGiorno = dateSettimana[idx];
+            const dataGiornoIso = isoData(dataGiorno);
+            const eOggi = dataGiornoIso === oggiIso;
+            const turniDelGiorno = turni.filter((t) => t.giorno_settimana === g && t.data_inizio && t.data_inizio <= dataGiornoIso);
             return (
               <div key={g} style={{ minWidth: 110 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', marginBottom: 6, textAlign: 'center' }}>{label}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: eOggi ? C : '#888', textTransform: 'uppercase', marginBottom: 2, textAlign: 'center' }}>{label}</div>
+                <div style={{ fontSize: 10, color: eOggi ? C : '#bbb', textAlign: 'center', marginBottom: 6 }}>{dataEstesa(dataGiorno)}</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {turniDelGiorno.map((t) => (
-                    <div key={t.id} onClick={() => setModaleTurno({ turno: t, giornoDefault: g })}
-                      style={{ background: t.attivo ? C_LIGHT : '#f5f5f5', opacity: t.attivo ? 1 : 0.5, borderRadius: 8, padding: '6px 8px', fontSize: 11, cursor: 'pointer' }}>
-                      <div style={{ fontWeight: 700 }}>{t.orario?.slice(0, 5)}</div>
-                      <div>{t.istruttore?.nome} {t.istruttore?.cognome}</div>
-                      <div style={{ color: '#777' }}>{t.ore}h · {t.numero_persone_default}p</div>
-                    </div>
-                  ))}
-                  <button onClick={() => setModaleTurno({ turno: null, giornoDefault: g })}
-                    style={{ background: 'transparent', border: `1px dashed ${C}`, color: C, borderRadius: 8, padding: '5px 0', fontSize: 16, cursor: 'pointer' }}>+</button>
+                  {turniDelGiorno.length === 0 && (
+                    <div style={{ fontSize: 10, color: '#ccc', textAlign: 'center', padding: '10px 0' }}>—</div>
+                  )}
+                  {turniDelGiorno.map((t) => {
+                    const l = trovaLezione(t, dataGiornoIso);
+                    const statoInfo = l ? STATI.find((s) => s.value === l.stato) : null;
+                    const beneficiario = l?.istruttore_sostituto_id
+                      ? istruttoriSede.find((i) => i.id === l.istruttore_sostituto_id)
+                      : null;
+                    return (
+                      <div key={t.id} onClick={() => apriCella(t, dataGiornoIso)}
+                        style={{
+                          background: l ? (statoInfo?.badge + '22') : C_LIGHT, border: l ? `1px solid ${statoInfo?.badge}` : '1px dashed #ccc',
+                          borderRadius: 8, padding: '6px 8px', fontSize: 11, cursor: 'pointer',
+                        }}>
+                        <div style={{ fontWeight: 700 }}>{t.orario?.slice(0, 5)}</div>
+                        <div>{t.istruttore?.nome} {t.istruttore?.cognome}</div>
+                        {beneficiario && <div style={{ color: '#777' }}>↔ {beneficiario.nome} {beneficiario.cognome}</div>}
+                        <div style={{ color: statoInfo ? statoInfo.badge : '#aaa', fontWeight: l ? 700 : 400 }}>
+                          {statoInfo ? statoInfo.label : 'Da segnare'}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -502,14 +581,15 @@ function CalendarioSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
         </div>
       )}
 
-      {modaleTurno && (
-        <ModaleTurno
+      {modaleLezione && (
+        <ModaleLezione
+          sessione={sessione}
           istruttoriSede={istruttoriSede}
-          turno={modaleTurno.turno}
-          giornoDefault={modaleTurno.giornoDefault}
-          onChiudi={() => setModaleTurno(null)}
-          onEliminaRichiesto={modaleTurno.turno ? () => { eliminaTurno(modaleTurno.turno.id); setModaleTurno(null); } : null}
-          onSalvato={() => { setModaleTurno(null); caricaTurni(); }}
+          lezioneEsistente={modaleLezione}
+          annoDefault={new Date(modaleLezione.data).getFullYear()}
+          meseDefault={new Date(modaleLezione.data).getMonth() + 1}
+          onChiudi={() => setModaleLezione(null)}
+          onSalvata={() => { setModaleLezione(null); carica(); onCambiamenti(); }}
         />
       )}
 
@@ -517,7 +597,7 @@ function CalendarioSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
         <ModaleGeneraDaTurni
           sessione={sessione}
           onChiudi={() => setModaleGenera(false)}
-          onGenerate={() => { setModaleGenera(false); onCambiamenti(); }}
+          onGenerate={() => { setModaleGenera(false); carica(); onCambiamenti(); }}
         />
       )}
 
@@ -525,7 +605,7 @@ function CalendarioSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
         <ModaleImportaExcel
           istruttoriSede={istruttoriSede}
           onChiudi={() => setModaleImporta(false)}
-          onImportato={() => { setModaleImporta(false); caricaTurni(); }}
+          onImportato={() => { setModaleImporta(false); carica(); }}
         />
       )}
 
@@ -534,7 +614,7 @@ function CalendarioSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
           sessione={sessione}
           istruttoriSede={istruttoriSede}
           onChiudi={() => setModaleImportaGiornata(false)}
-          onImportato={() => { setModaleImportaGiornata(false); onCambiamenti(); }}
+          onImportato={() => { setModaleImportaGiornata(false); carica(); onCambiamenti(); }}
         />
       )}
     </div>
