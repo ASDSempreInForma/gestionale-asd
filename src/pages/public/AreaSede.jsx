@@ -438,7 +438,13 @@ function lunedìDi(dataIso) {
   d.setDate(d.getDate() + diff);
   return d;
 }
-function isoData(d) { return d.toISOString().slice(0, 10); }
+function isoData(d) {
+  // Componenti LOCALI, mai toISOString(): quella converte in UTC e in Italia
+  // fa scivolare la data indietro di un giorno (stesso bug già corretto
+  // altrove nel gestionale — reintrodotto qui per sbaglio, corretto il
+  // 17/09/2026 dopo che Solomon ha notato settimane sbagliate).
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 function dataEstesa(d) { return d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' }); }
 function nLezioniDaNota(note) {
   const m = String(note || '').match(/N\.Lezioni:(\d+)/);
