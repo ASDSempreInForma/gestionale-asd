@@ -930,7 +930,12 @@ function ModaleAssenzeTesto({ sessione, istruttoriSede, onChiudi, onApplicate })
         testo,
         istruttori_riferimento: istruttoriSede.map((i) => ({ id: i.id, nome: i.nome, cognome: i.cognome })),
       });
-      setProposte((dati.proposte || []).map((p) => ({ ...p, numero_persone_manuale: p.lezione_esistente?.numero_persone || 1 })));
+      setProposte((dati.proposte || []).map((p) => ({
+        ...p,
+        numero_persone_manuale: p.tipo === 'lezione_extra' ? (p.numero_persone || 1) : (p.lezione_esistente?.numero_persone || 1),
+        orario_manuale: p.orario || '',
+        ore_manuale: p.ore || 1,
+      })));
     } catch (err) { setErrore(err.message); }
     finally { setInterpretando(false); }
   }
@@ -943,9 +948,14 @@ function ModaleAssenzeTesto({ sessione, istruttoriSede, onChiudi, onApplicate })
     setErrore(''); setApplicando(true);
     try {
       const daInviare = proposte.map((p) => ({
-        istruttore_id: p.istruttore_id, data: p.data, ore_sostituite: p.ore_sostituite,
-        sostituto_id: p.sostituto_id || null, nota: p.nota, lezione_esistente: p.lezione_esistente,
-        numero_persone: p.numero_persone_manuale, inserito_da: `${sessione.nome} ${sessione.cognome}`,
+        tipo: p.tipo || 'assenza',
+        istruttore_id: p.istruttore_id, data: p.data,
+        ore_sostituite: p.ore_sostituite, sostituto_id: p.sostituto_id || null, nota: p.nota,
+        lezione_esistente: p.lezione_esistente,
+        numero_persone: p.numero_persone_manuale,
+        orario: p.tipo === 'lezione_extra' ? (p.orario_manuale || null) : null,
+        ore: p.tipo === 'lezione_extra' ? (Number(p.ore_manuale) || 1) : null,
+        inserito_da: `${sessione.nome} ${sessione.cognome}`,
       }));
       const dati = await chiamaAreaSede('applica_proposte_assenze', { proposte: daInviare });
       setRisultatoApplicazione(dati.risultati || []);
@@ -958,9 +968,9 @@ function ModaleAssenzeTesto({ sessione, istruttoriSede, onChiudi, onApplicate })
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}>
       <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 620, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' }}>
-        <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>Assenze e sostituzioni da testo libero</h3>
+        <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>Assenze, sostituzioni e lezioni extra da testo libero</h3>
         <p style={{ margin: '0 0 14px', fontSize: 12, color: '#777' }}>
-          Scrivi la situazione come la racconteresti a voce (es. "Nadia sarà assente le sue prime due ore venerdì 17 e venerdì 24 luglio, sostituita da Monica"). L'AI propone le modifiche, tu le controlli prima di confermarle — non viene scritto nulla finché non premi "Conferma e applica".
+          Scrivi la situazione come la racconteresti a voce — funziona sia per un'assenza/sostituzione (es. "Nadia sarà assente le sue prime due ore venerdì 17 e venerdì 24 luglio, sostituita da Monica") sia per una lezione singola fatta in più, tipo un recupero (es. "Oggi Marta ha fatto una lezione extra alle 14:30 con 2 persone"). L'AI propone le modifiche, tu le controlli prima di confermarle — non viene scritto nulla finché non premi "Conferma e applica".
         </p>
 
         {risultatoApplicazione ? (
@@ -974,7 +984,7 @@ function ModaleAssenzeTesto({ sessione, istruttoriSede, onChiudi, onApplicate })
         ) : !proposte ? (
           <div>
             <textarea value={testo} onChange={(e) => setTesto(e.target.value)} rows={5}
-              placeholder="Es. Nadia sarà assente le sue prime due ore venerdì 17 e venerdì 24 luglio, sostituita da Monica"
+              placeholder="Es. Nadia sarà assente le sue prime due ore venerdì 17 e venerdì 24 luglio, sostituita da Monica. Oppure: Oggi Marta ha fatto una lezione extra alle 14:30 con 2 persone."
               style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd', fontSize: 14, boxSizing: 'border-box', marginBottom: 14, fontFamily: 'inherit' }} />
             {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{errore}</div>}
             <div style={{ display: 'flex', gap: 10 }}>
@@ -992,23 +1002,46 @@ function ModaleAssenzeTesto({ sessione, istruttoriSede, onChiudi, onApplicate })
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
                 {proposte.map((p, i) => (
                   <div key={i} style={{ border: `1px solid ${p.istruttore_id ? '#ddd' : '#e0b4b4'}`, borderRadius: 8, padding: 12 }}>
+                    <div style={{ display: 'inline-block', background: p.tipo === 'lezione_extra' ? '#eafaf0' : '#eef0f1', color: p.tipo === 'lezione_extra' ? '#1f8a52' : C, borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 600, marginBottom: 8 }}>
+                      {p.tipo === 'lezione_extra' ? '➕ Lezione extra' : '🚫 Assenza/sostituzione'}
+                    </div>
                     {!p.istruttore_id && <div style={{ fontSize: 11, color: '#c0392b', marginBottom: 6 }}>⚠️ Non ho riconosciuto "{p.istruttore_nome_originale}" — selezionalo a mano</div>}
-                    <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                      <select value={p.istruttore_id || ''} onChange={(e) => aggiornaProposta(i, 'istruttore_id', e.target.value)} style={{ ...campoStile, width: 160 }}>
-                        <option value="">Istruttore…</option>
-                        {istruttoriSede.map((ist) => <option key={ist.id} value={ist.id}>{ist.nome} {ist.cognome}</option>)}
-                      </select>
-                      <input type="date" value={p.data || ''} onChange={(e) => aggiornaProposta(i, 'data', e.target.value)} style={{ ...campoStile, width: 140 }} />
-                      <input type="number" min="0" step="0.25" placeholder="ore (vuoto = tutta)" value={p.ore_sostituite ?? ''} onChange={(e) => aggiornaProposta(i, 'ore_sostituite', e.target.value === '' ? null : e.target.value)} style={{ ...campoStile, width: 140 }} />
-                      <select value={p.sostituto_id || ''} onChange={(e) => aggiornaProposta(i, 'sostituto_id', e.target.value)} style={{ ...campoStile, width: 160 }}>
-                        <option value="">Nessun sostituto</option>
-                        {istruttoriSede.filter((ist) => ist.id !== p.istruttore_id).map((ist) => <option key={ist.id} value={ist.id}>{ist.nome} {ist.cognome}</option>)}
-                      </select>
-                    </div>
-                    <div style={{ fontSize: 11, color: '#888' }}>
-                      {p.lezione_esistente ? <>Trovata lezione esistente quel giorno: {p.lezione_esistente.ore} ore, {p.lezione_esistente.numero_persone} persone.</> : <>Nessuna lezione registrata per questa data/istruttore — verrà creata direttamente.</>}
-                      {p.nota && <> · "{p.nota}"</>}
-                    </div>
+                    {p.tipo === 'lezione_extra' ? (
+                      <>
+                        <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                          <select value={p.istruttore_id || ''} onChange={(e) => aggiornaProposta(i, 'istruttore_id', e.target.value)} style={{ ...campoStile, width: 160 }}>
+                            <option value="">Istruttore…</option>
+                            {istruttoriSede.map((ist) => <option key={ist.id} value={ist.id}>{ist.nome} {ist.cognome}</option>)}
+                          </select>
+                          <input type="date" value={p.data || ''} onChange={(e) => aggiornaProposta(i, 'data', e.target.value)} style={{ ...campoStile, width: 140 }} />
+                          <input type="time" value={p.orario_manuale || ''} onChange={(e) => aggiornaProposta(i, 'orario_manuale', e.target.value)} style={{ ...campoStile, width: 110 }} />
+                          <input type="number" min="0.25" step="0.25" placeholder="ore" value={p.ore_manuale ?? ''} onChange={(e) => aggiornaProposta(i, 'ore_manuale', e.target.value)} style={{ ...campoStile, width: 90 }} />
+                          <input type="number" min="1" max="5" placeholder="persone" value={p.numero_persone_manuale ?? ''} onChange={(e) => aggiornaProposta(i, 'numero_persone_manuale', e.target.value)} style={{ ...campoStile, width: 90 }} />
+                        </div>
+                        <div style={{ fontSize: 11, color: '#888' }}>
+                          Verrà aggiunta come lezione extra, senza toccare i turni fissi.{p.nota && <> · "{p.nota}"</>}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                          <select value={p.istruttore_id || ''} onChange={(e) => aggiornaProposta(i, 'istruttore_id', e.target.value)} style={{ ...campoStile, width: 160 }}>
+                            <option value="">Istruttore…</option>
+                            {istruttoriSede.map((ist) => <option key={ist.id} value={ist.id}>{ist.nome} {ist.cognome}</option>)}
+                          </select>
+                          <input type="date" value={p.data || ''} onChange={(e) => aggiornaProposta(i, 'data', e.target.value)} style={{ ...campoStile, width: 140 }} />
+                          <input type="number" min="0" step="0.25" placeholder="ore (vuoto = tutta)" value={p.ore_sostituite ?? ''} onChange={(e) => aggiornaProposta(i, 'ore_sostituite', e.target.value === '' ? null : e.target.value)} style={{ ...campoStile, width: 140 }} />
+                          <select value={p.sostituto_id || ''} onChange={(e) => aggiornaProposta(i, 'sostituto_id', e.target.value)} style={{ ...campoStile, width: 160 }}>
+                            <option value="">Nessun sostituto</option>
+                            {istruttoriSede.filter((ist) => ist.id !== p.istruttore_id).map((ist) => <option key={ist.id} value={ist.id}>{ist.nome} {ist.cognome}</option>)}
+                          </select>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#888' }}>
+                          {p.lezione_esistente ? <>Trovata lezione esistente quel giorno: {p.lezione_esistente.ore} ore, {p.lezione_esistente.numero_persone} persone.</> : <>Nessuna lezione registrata per questa data/istruttore — verrà creata direttamente.</>}
+                          {p.nota && <> · "{p.nota}"</>}
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
