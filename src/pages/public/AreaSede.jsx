@@ -90,7 +90,7 @@ export default function AreaSede() {
         <div style={{ maxWidth: 900, margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 13, opacity: 0.75, letterSpacing: 0.5 }}>A.S.D. SEMPRE IN FORMA</div>
-            <div style={{ fontSize: 20, fontWeight: 700 }}>Area SEDE — Compensi</div>
+            <div style={{ fontSize: 20, fontWeight: 700 }}>Area SEDE</div>
           </div>
           {sessione && (
             <div style={{ textAlign: 'right' }}>
