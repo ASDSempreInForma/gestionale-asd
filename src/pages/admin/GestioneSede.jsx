@@ -139,7 +139,7 @@ const CAMPI_ANAGRAFICA_VUOTI = {
 function TurniEGruppi() {
   const [turni, setTurni] = useState([]);
   const [istruttori, setIstruttori] = useState([]);
-  const [svolteConteggio, setSvolteConteggio] = useState({});
+  const [sospensioni, setSospensioni] = useState([]);
   const [caricando, setCaricando] = useState(true);
   const [errore, setErrore] = useState("");
   const [giornoAttivo, setGiornoAttivo] = useState(1);
@@ -152,20 +152,45 @@ function TurniEGruppi() {
   const carica = useCallback(async () => {
     setCaricando(true);
     try {
-      const [dati, datiIstr, datiSvolte] = await Promise.all([
+      const [dati, datiIstr] = await Promise.all([
         chiamaAreaSede("lista_turni_con_iscritti", {}),
         chiamaAreaSede("lista_istruttori_sede", {}),
-        chiamaAreaSede("conteggio_lezioni_svolte", {}),
       ]);
-      setTurni(dati.turni || []);
+      const turniCaricati = dati.turni || [];
+      setTurni(turniCaricati);
       setIstruttori(datiIstr.istruttori || []);
-      setSvolteConteggio(datiSvolte.conteggi || {});
+      // Ogni lezione è considerata svolta di default dal titolare (17/09/2026):
+      // per sapere quante ne sono state fatte finora basta contare le settimane
+      // trascorse da "Data di inizio" e sottrarre le eventuali sospensioni
+      // registrate in Area SEDE — niente più bisogno di conferme esplicite.
+      const minDataInizio = turniCaricati.reduce((min, t) => (t.data_inizio && (!min || t.data_inizio < min)) ? t.data_inizio : min, null);
+      if (minDataInizio) {
+        const oggiIso = new Date().toISOString().slice(0, 10);
+        const datiLezioni = await chiamaAreaSede("lista_lezioni_intervallo", { data_inizio: minDataInizio, data_fine: oggiIso });
+        setSospensioni((datiLezioni.lezioni || []).filter((l) => l.stato === "sospesa"));
+      } else {
+        setSospensioni([]);
+      }
     } catch (err) { setErrore(err.message); }
     finally { setCaricando(false); }
 
   }, []);
 
   useEffect(() => { carica(); }, [carica]);
+
+  // Quante lezioni risultano svolte finora per un turno, contando le
+  // settimane trascorse dalla sua "Data di inizio" e sottraendo le
+  // sospensioni registrate — stessa logica della vista settimanale in
+  // Area SEDE, dove ogni lezione è considerata svolta di default.
+  function svolteAttuali(turno) {
+    if (!turno.data_inizio) return 0;
+    const inizio = new Date(turno.data_inizio + "T00:00:00");
+    const oggi = new Date();
+    const settimane = Math.floor((oggi - inizio) / (7 * 24 * 3600 * 1000)) + 1;
+    if (settimane <= 0) return 0;
+    const nSospensioni = sospensioni.filter((s) => s.istruttore_id === turno.istruttore_id && (s.orario || "") === (turno.orario || "")).length;
+    return Math.max(0, settimane - nSospensioni);
+  }
 
   function toggleEspanso(id) {
     setEspansi((prev) => {
@@ -371,7 +396,7 @@ function TurniEGruppi() {
                       {t.note && <div style={{ color: "#aaa", fontSize: 11 }}>{t.note}</div>}
                       {(() => {
                         const nTot = nLezioniDaNota(t.note);
-                        const svolte = svolteConteggio[`${t.istruttore_id}|${t.orario}`] || 0;
+                        const svolte = svolteAttuali(t);
                         if (!nTot) return null;
                         const completato = svolte >= nTot;
                         return (
