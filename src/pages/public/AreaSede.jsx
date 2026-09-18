@@ -167,6 +167,8 @@ function Dashboard({ sessione }) {
   const [lezioneInModifica, setLezioneInModifica] = useState(null);
   const [mostraCalendario, setMostraCalendario] = useState(true);
   const [modaleAssenzeAperta, setModaleAssenzeAperta] = useState(false);
+  const [soloModifiche, setSoloModifiche] = useState(false);
+  const lezioniFiltrate = soloModifiche ? lezioni.filter((l) => !l.di_default) : lezioni;
 
   const caricaTutto = useCallback(async () => {
     setCaricando(true);
@@ -285,16 +287,27 @@ function Dashboard({ sessione }) {
             )}
           </div>
 
-          {/* Elenco lezioni del mese — solo desktop/tablet */}
+          {/* Elenco lezioni del mese — solo desktop/tablet. È il registro di
+              controllo per tutto ciò che viene segnalato dal cellulare (o
+              inserito qui): cambi istruttore, cancellazioni, lezioni singole.
+              Ogni riga non automatica mostra chi l'ha inserita e quando. */}
           <div style={{ background: '#fff', borderRadius: 12, padding: 18, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-            <h3 style={{ margin: '0 0 12px', fontSize: 15, color: '#333' }}>Lezioni registrate</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+              <h3 style={{ margin: 0, fontSize: 15, color: '#333' }}>Lezioni registrate</h3>
+              <button onClick={() => setSoloModifiche((v) => !v)}
+                style={{ background: soloModifiche ? C : '#fff', color: soloModifiche ? '#fff' : C, border: `1px solid ${C}`, borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                {soloModifiche ? '✓ Solo modifiche/eccezioni' : 'Mostra solo modifiche/eccezioni'}
+              </button>
+            </div>
             {caricando ? (
               <div style={{ color: '#999', fontSize: 13 }}>Caricamento…</div>
-            ) : lezioni.length === 0 ? (
-              <div style={{ color: '#999', fontSize: 13 }}>Nessuna lezione ancora inserita per questo mese. Usa "+ Aggiungi lezione".</div>
+            ) : (lezioniFiltrate.length === 0) ? (
+              <div style={{ color: '#999', fontSize: 13 }}>
+                {soloModifiche ? 'Nessuna modifica/eccezione registrata per questo mese.' : 'Nessuna lezione ancora inserita per questo mese. Usa "+ Aggiungi lezione".'}
+              </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {lezioni.map((l) => {
+                {lezioniFiltrate.map((l) => {
                   const stato = STATI.find((s) => s.value === l.stato);
                   const chiave = l.id || `${l.istruttore_id}-${l.orario}-${l.data}`;
                   return (
@@ -306,6 +319,11 @@ function Dashboard({ sessione }) {
                           {l.di_default && <span style={{ color: '#aaa', fontWeight: 400 }}> (automatica, come da programma)</span>}
                         </div>
                         <div style={{ color: '#777' }}>{l.ore} ore · {l.numero_persone} {l.numero_persone === 1 ? 'persona' : 'persone'}{l.note ? ` · ${l.note}` : ''}</div>
+                        {!l.di_default && (l.inserito_da || l.created_at) && (
+                          <div style={{ color: '#aaa', fontSize: 11, marginTop: 2 }}>
+                            {l.inserito_da ? `Inserita da ${l.inserito_da}` : 'Inserita'}{l.created_at ? ` il ${new Date(l.created_at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : ''}
+                          </div>
+                        )}
                       </div>
                       <div style={{ padding: '3px 8px', borderRadius: 6, fontSize: 12, color: '#fff', background: stato?.badge || '#999' }}>{stato?.label || l.stato}</div>
                       <div style={{ fontWeight: 700, width: 80, textAlign: 'right' }}>{l.compenso !== null ? euro(l.compenso) : '—'}</div>
