@@ -561,6 +561,15 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
     return lezioni.find((l) => l.istruttore_id === turno.istruttore_id && l.data === dataGiornoIso && (l.orario || '') === (turno.orario || ''));
   }
 
+  // Lezioni "extra" di un giorno: righe salvate (tipicamente da testo
+  // libero → lezione_extra) che non corrispondono a nessun turno fisso di
+  // quel giorno — quindi non comparirebbero mai tra le card dei turni,
+  // che sono generate a partire dai turni stessi, non da una scansione
+  // diretta delle lezioni.
+  function extraDelGiorno(dataGiornoIso) {
+    return lezioni.filter((l) => l.data === dataGiornoIso && !turni.some((t) => t.istruttore_id === l.istruttore_id && (t.orario || '') === (l.orario || '')));
+  }
+
   // Numero progressivo della lezione (1, 2, 3…): conta le settimane trascorse
   // da quando il turno è iniziato (ogni settimana è considerata svolta di
   // default dal titolare) meno le eventuali sospensioni registrate prima di
@@ -671,6 +680,17 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
                       </div>
                     );
                   })}
+                  {extraDelGiorno(dataGiornoIso).map((l) => {
+                    const istr = istruttoriSede.find((i) => i.id === l.istruttore_id) || l.titolare;
+                    return (
+                      <div key={`extra-${l.id}`} onClick={() => setModaleLezione(l)}
+                        style={{ background: '#eafaf022', border: '1px solid #1f8a52', borderRadius: 8, padding: '6px 8px', fontSize: 11, cursor: 'pointer' }}>
+                        <div style={{ fontWeight: 700 }}>{l.orario ? l.orario.slice(0, 5) : '—'}</div>
+                        <div>{istr?.nome} {istr?.cognome}</div>
+                        <div style={{ color: '#1f8a52', fontWeight: 700 }}>➕ Lezione extra</div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -707,7 +727,8 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
             const dataGiorno = dateSettimana[idx];
             const dataGiornoIso = isoData(dataGiorno);
             const turniDelGiorno = turni.filter((t) => t.giorno_settimana === giornoSelezionato && t.data_inizio && t.data_inizio <= dataGiornoIso);
-            if (turniDelGiorno.length === 0) {
+            const extra = extraDelGiorno(dataGiornoIso);
+            if (turniDelGiorno.length === 0 && extra.length === 0) {
               return <div style={{ color: '#bbb', fontSize: 13, textAlign: 'center', padding: '30px 0' }}>Nessun turno questo giorno.</div>;
             }
             return (
@@ -737,6 +758,19 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
                       <div style={{ color: oltreLimite ? '#e67e22' : '#aaa', fontSize: 12, fontWeight: oltreLimite ? 700 : 400, marginTop: 4 }}>
                         {oltreLimite ? `⚠️ oltre le ${nTot} — da rinnovare` : `Lezione ${nCorrente}${nTot ? ` di ${nTot}` : ''}`}
                       </div>
+                    </div>
+                  );
+                })}
+                {extra.map((l) => {
+                  const istr = istruttoriSede.find((i) => i.id === l.istruttore_id) || l.titolare;
+                  return (
+                    <div key={`extra-${l.id}`} onClick={() => setModaleLezione(l)}
+                      style={{ background: '#eafaf022', border: '1px solid #1f8a52', borderRadius: 10, padding: '12px 14px', fontSize: 14, cursor: 'pointer' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                        <div style={{ fontWeight: 700 }}>{l.orario ? `${l.orario.slice(0, 5)} · ` : ''}{istr?.nome} {istr?.cognome}</div>
+                        <div style={{ color: '#1f8a52', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' }}>➕ Extra</div>
+                      </div>
+                      <div style={{ color: '#aaa', fontSize: 12, marginTop: 4 }}>{l.ore} ore · {l.numero_persone} {l.numero_persone === 1 ? 'persona' : 'persone'}{l.note ? ` · ${l.note}` : ''}</div>
                     </div>
                   );
                 })}
