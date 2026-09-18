@@ -15,6 +15,15 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const C = "#4A5560"; // stesso grafite usato per l'Area SEDE
 const CL = "#EEF0F1";
 const GIORNI_LABEL = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
+const MESI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+// Stessi stati/colori usati in AreaSede.jsx — tenerli identici perché la
+// stessa lezione può essere vista da qui (sola lettura) o da lì (Sabina/istruttori).
+const STATI = [
+  { value: 'svolta', label: 'Svolta', badge: '#1f8a52' },
+  { value: 'sospesa', label: 'Sospesa (festività/ponte)', badge: '#9a9a9a' },
+  { value: 'assente_senza_sostituto', label: 'Assente, nessun sostituto', badge: '#c0392b' },
+];
+function euro(n) { return n == null ? '—' : `€ ${Number(n).toFixed(2)}`; }
 
 // Stagione sportiva corrente in formato esteso (es. "2026/2027"), da agosto
 // in poi è la nuova stagione — usata per l'intestazione dei registri firme.
@@ -85,7 +94,7 @@ export default function GestioneSede() {
     <div style={{ padding: 20 }}>
       <h2 style={{ margin: "0 0 4px", fontSize: 20, color: "#222" }}>Gestione SEDE</h2>
       <p style={{ margin: "0 0 18px", fontSize: 13, color: "#777" }}>
-        Turni, gruppi, elenchi da stampare ed export assicurazioni per la SEDE (Via del Brolo). Le presenze e i compensi restano nell'Area SEDE dedicata a Sabina/istruttori.
+        Turni, gruppi, elenchi da stampare ed export assicurazioni per la SEDE (Via del Brolo). Le presenze si registrano dall'Area SEDE dedicata a Sabina/istruttori; i compensi sono consultabili anche qui, in sola lettura.
       </p>
 
       {!caricandoConteggio && conteggio && (
@@ -107,6 +116,7 @@ export default function GestioneSede() {
           ["import", "📥 Import elenco iscritti"],
           ["tessere", "🎫 Import tessere"],
           ["export", "📄 Export assicurazioni"],
+          ["compensi", "💶 Compensi"],
         ].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
             style={{
@@ -122,6 +132,7 @@ export default function GestioneSede() {
       {tab === "import" && <ImportaIscritti />}
       {tab === "tessere" && <ImportaTessereSede />}
       {tab === "export" && <EsportaAssicurazioniSede />}
+      {tab === "compensi" && <CompensiSede />}
     </div>
   );
 }
@@ -1160,6 +1171,133 @@ function EsportaAssicurazioniSede() {
             <span style={{ width: 120, color: "#999" }}>{r.turno.istruttore?.nome} {r.turno.istruttore?.cognome}</span>
           </label>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TAB 5 — Compensi: sola consultazione, stesso calcolo usato in
+// AreaSede.jsx (riepilogo_compensi + lista_lezioni). Le modifiche alle
+// singole lezioni (assenze, sostituzioni, lezioni extra) restano
+// esclusivamente nell'Area SEDE di Sabina/istruttori — qui si guarda e
+// basta, niente pulsanti di modifica/eliminazione.
+// ─────────────────────────────────────────────────────────────────
+function CompensiSede() {
+  const oggi = new Date();
+  const [anno, setAnno] = useState(oggi.getFullYear());
+  const [mese, setMese] = useState(oggi.getMonth() + 1);
+  const [riepilogo, setRiepilogo] = useState([]);
+  const [lezioni, setLezioni] = useState([]);
+  const [caricando, setCaricando] = useState(true);
+  const [errore, setErrore] = useState("");
+  const [soloModifiche, setSoloModifiche] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      setCaricando(true); setErrore("");
+      try {
+        const [datiRiepilogo, datiLezioni] = await Promise.all([
+          chiamaAreaSede("riepilogo_compensi", { anno, mese }),
+          chiamaAreaSede("lista_lezioni", { anno, mese }),
+        ]);
+        setRiepilogo(datiRiepilogo.riepilogo || []);
+        setLezioni(datiLezioni.lezioni || []);
+      } catch (err) { setErrore(err.message); }
+      finally { setCaricando(false); }
+    })();
+  }, [anno, mese]);
+
+  const lezioniFiltrate = soloModifiche ? lezioni.filter((l) => !l.di_default) : lezioni;
+  const totaleMese = riepilogo.reduce((s, r) => s + (r.compenso_totale || 0), 0);
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 20, flexWrap: "wrap" }}>
+        <select value={mese} onChange={(e) => setMese(Number(e.target.value))}
+          style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", fontSize: 14 }}>
+          {MESI.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+        </select>
+        <select value={anno} onChange={(e) => setAnno(Number(e.target.value))}
+          style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", fontSize: 14 }}>
+          {[oggi.getFullYear() - 1, oggi.getFullYear(), oggi.getFullYear() + 1].map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <div style={{ flex: 1 }} />
+        {!caricando && (
+          <div style={{ fontSize: 13, color: "#777" }}>Totale mese: <strong style={{ color: C, fontSize: 15 }}>{euro(totaleMese)}</strong></div>
+        )}
+      </div>
+
+      {errore && <div style={{ background: "#fdecea", color: "#c0392b", padding: "10px 14px", borderRadius: 8, marginBottom: 16 }}>{errore}</div>}
+
+      <div style={{ background: "#fff", borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+        <h3 style={{ margin: "0 0 12px", fontSize: 15, color: "#333" }}>Riepilogo compensi — {MESI[mese - 1]} {anno}</h3>
+        {caricando ? (
+          <div style={{ color: "#999", fontSize: 13 }}>Caricamento…</div>
+        ) : riepilogo.length === 0 ? (
+          <div style={{ color: "#999", fontSize: 13 }}>Nessuna lezione registrata per questo mese.</div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ textAlign: "left", color: "#888", borderBottom: "1px solid #eee" }}>
+                <th style={{ padding: "6px 8px" }}>Istruttore</th>
+                <th style={{ padding: "6px 8px" }}>Lezioni</th>
+                <th style={{ padding: "6px 8px" }}>Ore totali</th>
+                <th style={{ padding: "6px 8px" }}>Compenso</th>
+              </tr>
+            </thead>
+            <tbody>
+              {riepilogo.map((r) => (
+                <tr key={r.istruttore_id} style={{ borderBottom: "1px solid #f2f2f2" }}>
+                  <td style={{ padding: "8px" }}>{r.nome} {r.cognome}</td>
+                  <td style={{ padding: "8px" }}>{r.lezioni_totali}</td>
+                  <td style={{ padding: "8px" }}>{r.ore_totali}</td>
+                  <td style={{ padding: "8px", fontWeight: 600 }}>
+                    {euro(r.compenso_totale)}
+                    {r.tariffa_mancante && <span title="Tariffa non impostata per almeno uno scaglione" style={{ color: "#c0392b", marginLeft: 6, fontSize: 12 }}>⚠️ tariffa mancante</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
+          <h3 style={{ margin: 0, fontSize: 15, color: "#333" }}>Lezioni registrate</h3>
+          <button onClick={() => setSoloModifiche((v) => !v)}
+            style={{ background: soloModifiche ? C : "#fff", color: soloModifiche ? "#fff" : C, border: `1px solid ${C}`, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+            {soloModifiche ? "✓ Solo modifiche/eccezioni" : "Mostra solo modifiche/eccezioni"}
+          </button>
+        </div>
+        {caricando ? (
+          <div style={{ color: "#999", fontSize: 13 }}>Caricamento…</div>
+        ) : lezioniFiltrate.length === 0 ? (
+          <div style={{ color: "#999", fontSize: 13 }}>{soloModifiche ? "Nessuna modifica/eccezione registrata per questo mese." : "Nessuna lezione registrata per questo mese."}</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {lezioniFiltrate.map((l) => {
+              const stato = STATI.find((s) => s.value === l.stato);
+              const chiave = l.id || `${l.istruttore_id}-${l.orario}-${l.data}`;
+              return (
+                <div key={chiave} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: CL, borderRadius: 8, fontSize: 13 }}>
+                  <div style={{ width: 90, color: "#555" }}>{new Date(l.data).toLocaleDateString("it-IT")}{l.orario ? ` · ${l.orario.slice(0, 5)}` : ""}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600 }}>{l.titolare?.nome} {l.titolare?.cognome}
+                      {l.sostituto && <span style={{ color: "#777", fontWeight: 400 }}> → sostituito da {l.sostituto.nome} {l.sostituto.cognome}</span>}
+                      {l.extra && <span style={{ color: "#1f8a52", fontWeight: 400 }}> (lezione extra)</span>}
+                      {l.di_default && <span style={{ color: "#aaa", fontWeight: 400 }}> (automatica, come da programma)</span>}
+                    </div>
+                    <div style={{ color: "#777" }}>{l.ore} ore · {l.numero_persone} {l.numero_persone === 1 ? "persona" : "persone"}{l.note ? ` · ${l.note}` : ""}{l.inserito_da ? ` · inserita da ${l.inserito_da}` : ""}</div>
+                  </div>
+                  <div style={{ padding: "3px 8px", borderRadius: 6, fontSize: 12, color: "#fff", background: stato?.badge || "#999" }}>{stato?.label || l.stato}</div>
+                  <div style={{ fontWeight: 700, width: 80, textAlign: "right" }}>{l.compenso !== null && l.compenso !== undefined ? euro(l.compenso) : "—"}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
