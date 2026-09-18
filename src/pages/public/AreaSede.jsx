@@ -46,6 +46,20 @@ async function chiamaAreaSede(action, payload) {
   return data;
 }
 
+// Su schermi larghi (desktop/tablet) mostriamo la vista completa; sotto i
+// 700px — uso reale: dal telefono, principalmente per segnalare assenze,
+// sostituzioni o lezioni singole via testo libero — Dashboard e
+// PianificazioneSettimanale mostrano solo l'essenziale.
+function useIsAmpio() {
+  const [isAmpio, setIsAmpio] = useState(() => window.innerWidth >= 700);
+  useEffect(() => {
+    const aggiorna = () => setIsAmpio(window.innerWidth >= 700);
+    window.addEventListener('resize', aggiorna);
+    return () => window.removeEventListener('resize', aggiorna);
+  }, []);
+  return isAmpio;
+}
+
 export default function AreaSede() {
   const [sessione, setSessione] = useState(null);
   const [caricamentoIniziale, setCaricamentoIniziale] = useState(true);
@@ -140,6 +154,7 @@ function Login({ onLogin }) {
 }
 
 function Dashboard({ sessione }) {
+  const isAmpio = useIsAmpio();
   const oggi = new Date();
   const [anno, setAnno] = useState(oggi.getFullYear());
   const [mese, setMese] = useState(oggi.getMonth() + 1);
@@ -186,109 +201,130 @@ function Dashboard({ sessione }) {
 
   return (
     <div>
-      {/* Selettore mese */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20 }}>
-        <select value={mese} onChange={(e) => setMese(Number(e.target.value))}
-          style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14 }}>
-          {MESI.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
-        </select>
-        <select value={anno} onChange={(e) => setAnno(Number(e.target.value))}
-          style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14 }}>
-          {[oggi.getFullYear() - 1, oggi.getFullYear(), oggi.getFullYear() + 1].map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
-        <div style={{ flex: 1 }} />
-        <button onClick={() => setModaleAssenzeAperta(true)}
-          style={{ background: '#fff', color: C, border: `1px solid ${C}`, borderRadius: 8, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          ✍️ Assenze/sostituzioni da testo
-        </button>
-        <button onClick={() => setMostraCalendario((v) => !v)}
-          style={{ background: mostraCalendario ? C : '#fff', color: mostraCalendario ? '#fff' : C, border: `1px solid ${C}`, borderRadius: 8, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          📅 Calendario turni
-        </button>
-        <button onClick={() => { setLezioneInModifica(null); setModaleAperta(true); }}
-          style={{ background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-          + Aggiungi lezione
-        </button>
-      </div>
+      {/* Selettore mese — vista completa solo su desktop/tablet */}
+      {isAmpio ? (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
+          <select value={mese} onChange={(e) => setMese(Number(e.target.value))}
+            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14 }}>
+            {MESI.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+          </select>
+          <select value={anno} onChange={(e) => setAnno(Number(e.target.value))}
+            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14 }}>
+            {[oggi.getFullYear() - 1, oggi.getFullYear(), oggi.getFullYear() + 1].map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <div style={{ flex: 1 }} />
+          <button onClick={() => setModaleAssenzeAperta(true)}
+            style={{ background: '#fff', color: C, border: `1px solid ${C}`, borderRadius: 8, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            ✍️ Assenze/sostituzioni da testo
+          </button>
+          <button onClick={() => setMostraCalendario((v) => !v)}
+            style={{ background: mostraCalendario ? C : '#fff', color: mostraCalendario ? '#fff' : C, border: `1px solid ${C}`, borderRadius: 8, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            📅 Calendario turni
+          </button>
+          <button onClick={() => { setLezioneInModifica(null); setModaleAperta(true); }}
+            style={{ background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+            + Aggiungi lezione
+          </button>
+        </div>
+      ) : (
+        // Vista telefono: solo le due azioni che servono davvero sul campo —
+        // segnalare un'eccezione via testo libero, o aggiungere una lezione
+        // singola (es. recupero in un buco d'orario). Niente compensi, niente
+        // elenco lezioni, niente selettore mese: quella parte resta su PC.
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
+          <button onClick={() => setModaleAssenzeAperta(true)}
+            style={{ background: C, color: '#fff', border: 'none', borderRadius: 10, padding: '14px 16px', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
+            ✍️ Segnala assenza / sostituzione / recupero
+          </button>
+          <button onClick={() => { setLezioneInModifica(null); setModaleAperta(true); }}
+            style={{ background: '#fff', color: C, border: `1px solid ${C}`, borderRadius: 10, padding: '10px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            + Aggiungi lezione singola
+          </button>
+        </div>
+      )}
 
       {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '10px 14px', borderRadius: 8, marginBottom: 16 }}>{errore}</div>}
 
-      {mostraCalendario && (
+      {(isAmpio ? mostraCalendario : true) && (
         <PianificazioneSettimanale sessione={sessione} istruttoriSede={istruttoriSede} onCambiamenti={caricaTutto} />
       )}
 
-      {/* Riepilogo compensi del mese */}
-      <div style={{ background: '#fff', borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-        <h3 style={{ margin: '0 0 12px', fontSize: 15, color: '#333' }}>Riepilogo compensi — {MESI[mese - 1]} {anno}</h3>
-        {caricando ? (
-          <div style={{ color: '#999', fontSize: 13 }}>Caricamento…</div>
-        ) : riepilogo.length === 0 ? (
-          <div style={{ color: '#999', fontSize: 13 }}>Nessuna lezione registrata per questo mese.</div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ textAlign: 'left', color: '#888', borderBottom: '1px solid #eee' }}>
-                <th style={{ padding: '6px 8px' }}>Istruttore</th>
-                <th style={{ padding: '6px 8px' }}>Lezioni</th>
-                <th style={{ padding: '6px 8px' }}>Ore totali</th>
-                <th style={{ padding: '6px 8px' }}>Compenso</th>
-              </tr>
-            </thead>
-            <tbody>
-              {riepilogo.map((r) => (
-                <tr key={r.istruttore_id} style={{ borderBottom: '1px solid #f2f2f2' }}>
-                  <td style={{ padding: '8px' }}>{r.nome} {r.cognome}</td>
-                  <td style={{ padding: '8px' }}>{r.lezioni_totali}</td>
-                  <td style={{ padding: '8px' }}>{r.ore_totali}</td>
-                  <td style={{ padding: '8px', fontWeight: 600 }}>
-                    {euro(r.compenso_totale)}
-                    {r.tariffa_mancante && <span title="Tariffa non impostata per almeno uno scaglione" style={{ color: '#c0392b', marginLeft: 6, fontSize: 12 }}>⚠️ tariffa mancante</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Elenco lezioni del mese */}
-      <div style={{ background: '#fff', borderRadius: 12, padding: 18, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-        <h3 style={{ margin: '0 0 12px', fontSize: 15, color: '#333' }}>Lezioni registrate</h3>
-        {caricando ? (
-          <div style={{ color: '#999', fontSize: 13 }}>Caricamento…</div>
-        ) : lezioni.length === 0 ? (
-          <div style={{ color: '#999', fontSize: 13 }}>Nessuna lezione ancora inserita per questo mese. Usa "+ Aggiungi lezione".</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {lezioni.map((l) => {
-              const stato = STATI.find((s) => s.value === l.stato);
-              const chiave = l.id || `${l.istruttore_id}-${l.orario}-${l.data}`;
-              return (
-                <div key={chiave} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: C_LIGHT, borderRadius: 8, fontSize: 13 }}>
-                  <div style={{ width: 90, color: '#555' }}>{new Date(l.data).toLocaleDateString('it-IT')}{l.orario ? ` · ${l.orario.slice(0,5)}` : ''}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600 }}>{l.titolare?.nome} {l.titolare?.cognome}
-                      {l.sostituto && <span style={{ color: '#777', fontWeight: 400 }}> → sostituito da {l.sostituto.nome} {l.sostituto.cognome}</span>}
-                      {l.di_default && <span style={{ color: '#aaa', fontWeight: 400 }}> (automatica, come da programma)</span>}
-                    </div>
-                    <div style={{ color: '#777' }}>{l.ore} ore · {l.numero_persone} {l.numero_persone === 1 ? 'persona' : 'persone'}{l.note ? ` · ${l.note}` : ''}</div>
-                  </div>
-                  <div style={{ padding: '3px 8px', borderRadius: 6, fontSize: 12, color: '#fff', background: stato?.badge || '#999' }}>{stato?.label || l.stato}</div>
-                  <div style={{ fontWeight: 700, width: 80, textAlign: 'right' }}>{l.compenso !== null ? euro(l.compenso) : '—'}</div>
-                  <button onClick={() => { setLezioneInModifica(l); setModaleAperta(true); }}
-                    style={{ background: 'transparent', border: '1px solid #ccc', borderRadius: 6, padding: '4px 8px', fontSize: 12, cursor: 'pointer' }}>
-                    {l.di_default ? 'Segnala eccezione' : 'Modifica'}
-                  </button>
-                  {l.id && (
-                    <button onClick={() => eliminaLezione(l.id)}
-                      style={{ background: 'transparent', border: '1px solid #e0b4b4', color: '#c0392b', borderRadius: 6, padding: '4px 8px', fontSize: 12, cursor: 'pointer' }}>Elimina</button>
-                  )}
-                </div>
-              );
-            })}
+      {isAmpio && (
+        <>
+          {/* Riepilogo compensi del mese — solo desktop/tablet */}
+          <div style={{ background: '#fff', borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: 15, color: '#333' }}>Riepilogo compensi — {MESI[mese - 1]} {anno}</h3>
+            {caricando ? (
+              <div style={{ color: '#999', fontSize: 13 }}>Caricamento…</div>
+            ) : riepilogo.length === 0 ? (
+              <div style={{ color: '#999', fontSize: 13 }}>Nessuna lezione registrata per questo mese.</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', color: '#888', borderBottom: '1px solid #eee' }}>
+                    <th style={{ padding: '6px 8px' }}>Istruttore</th>
+                    <th style={{ padding: '6px 8px' }}>Lezioni</th>
+                    <th style={{ padding: '6px 8px' }}>Ore totali</th>
+                    <th style={{ padding: '6px 8px' }}>Compenso</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {riepilogo.map((r) => (
+                    <tr key={r.istruttore_id} style={{ borderBottom: '1px solid #f2f2f2' }}>
+                      <td style={{ padding: '8px' }}>{r.nome} {r.cognome}</td>
+                      <td style={{ padding: '8px' }}>{r.lezioni_totali}</td>
+                      <td style={{ padding: '8px' }}>{r.ore_totali}</td>
+                      <td style={{ padding: '8px', fontWeight: 600 }}>
+                        {euro(r.compenso_totale)}
+                        {r.tariffa_mancante && <span title="Tariffa non impostata per almeno uno scaglione" style={{ color: '#c0392b', marginLeft: 6, fontSize: 12 }}>⚠️ tariffa mancante</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
-        )}
-      </div>
+
+          {/* Elenco lezioni del mese — solo desktop/tablet */}
+          <div style={{ background: '#fff', borderRadius: 12, padding: 18, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: 15, color: '#333' }}>Lezioni registrate</h3>
+            {caricando ? (
+              <div style={{ color: '#999', fontSize: 13 }}>Caricamento…</div>
+            ) : lezioni.length === 0 ? (
+              <div style={{ color: '#999', fontSize: 13 }}>Nessuna lezione ancora inserita per questo mese. Usa "+ Aggiungi lezione".</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {lezioni.map((l) => {
+                  const stato = STATI.find((s) => s.value === l.stato);
+                  const chiave = l.id || `${l.istruttore_id}-${l.orario}-${l.data}`;
+                  return (
+                    <div key={chiave} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: C_LIGHT, borderRadius: 8, fontSize: 13 }}>
+                      <div style={{ width: 90, color: '#555' }}>{new Date(l.data).toLocaleDateString('it-IT')}{l.orario ? ` · ${l.orario.slice(0,5)}` : ''}</div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600 }}>{l.titolare?.nome} {l.titolare?.cognome}
+                          {l.sostituto && <span style={{ color: '#777', fontWeight: 400 }}> → sostituito da {l.sostituto.nome} {l.sostituto.cognome}</span>}
+                          {l.di_default && <span style={{ color: '#aaa', fontWeight: 400 }}> (automatica, come da programma)</span>}
+                        </div>
+                        <div style={{ color: '#777' }}>{l.ore} ore · {l.numero_persone} {l.numero_persone === 1 ? 'persona' : 'persone'}{l.note ? ` · ${l.note}` : ''}</div>
+                      </div>
+                      <div style={{ padding: '3px 8px', borderRadius: 6, fontSize: 12, color: '#fff', background: stato?.badge || '#999' }}>{stato?.label || l.stato}</div>
+                      <div style={{ fontWeight: 700, width: 80, textAlign: 'right' }}>{l.compenso !== null ? euro(l.compenso) : '—'}</div>
+                      <button onClick={() => { setLezioneInModifica(l); setModaleAperta(true); }}
+                        style={{ background: 'transparent', border: '1px solid #ccc', borderRadius: 6, padding: '4px 8px', fontSize: 12, cursor: 'pointer' }}>
+                        {l.di_default ? 'Segnala eccezione' : 'Modifica'}
+                      </button>
+                      {l.id && (
+                        <button onClick={() => eliminaLezione(l.id)}
+                          style={{ background: 'transparent', border: '1px solid #e0b4b4', color: '#c0392b', borderRadius: 6, padding: '4px 8px', fontSize: 12, cursor: 'pointer' }}>Elimina</button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       {modaleAperta && (
         <ModaleLezione
@@ -458,7 +494,9 @@ function nLezioniDaNota(note) {
 }
 
 function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) {
+  const isAmpio = useIsAmpio();
   const [settimanaBase, setSettimanaBase] = useState(() => isoData(lunedìDi(isoData(new Date()))));
+  const [giornoSelezionato, setGiornoSelezionato] = useState(() => new Date().getDay());
   const [turni, setTurni] = useState([]);
   const [lezioni, setLezioni] = useState([]);
   const [caricando, setCaricando] = useState(true);
@@ -536,38 +574,43 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
     <div style={{ background: '#fff', borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
         <h3 style={{ margin: 0, fontSize: 15, color: '#333' }}>Pianificazione settimanale (reale)</h3>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => setModaleImportaGiornata(true)}
-            style={{ background: '#fff', color: '#1f8a52', border: '1px solid #1f8a52', borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-            📊 Importa settimana reale (paga)
-          </button>
-          <button onClick={() => setModaleImporta(true)}
-            style={{ background: '#fff', color: C, border: `1px solid ${C}`, borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-            📤 Importa modello (turni teorici)
-          </button>
-          <button onClick={() => setModaleGenera(true)}
-            style={{ background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-            Genera lezioni per un periodo →
-          </button>
-        </div>
+        {isAmpio && (
+          // Operazioni bulk/import — solo da PC, non servono sul campo dal telefono.
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setModaleImportaGiornata(true)}
+              style={{ background: '#fff', color: '#1f8a52', border: '1px solid #1f8a52', borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+              📊 Importa settimana reale (paga)
+            </button>
+            <button onClick={() => setModaleImporta(true)}
+              style={{ background: '#fff', color: C, border: `1px solid ${C}`, borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+              📤 Importa modello (turni teorici)
+            </button>
+            <button onClick={() => setModaleGenera(true)}
+              style={{ background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+              Genera lezioni per un periodo →
+            </button>
+          </div>
+        )}
       </div>
 
-      <p style={{ fontSize: 11, color: '#999', margin: '0 0 14px' }}>
-        Ogni lezione è considerata svolta automaticamente dall'insegnante titolare — non serve confermarla una per una. Clicca su una lezione SOLO per segnalare un'eccezione: sospesa, sostituita, o assente senza sostituto. I turni fissi (istruttore/giorno/orario, data di inizio) si modificano da Gestione SEDE.
-      </p>
+      {isAmpio && (
+        <p style={{ fontSize: 11, color: '#999', margin: '0 0 14px' }}>
+          Ogni lezione è considerata svolta automaticamente dall'insegnante titolare — non serve confermarla una per una. Clicca su una lezione SOLO per segnalare un'eccezione: sospesa, sostituita, o assente senza sostituto. I turni fissi (istruttore/giorno/orario, data di inizio) si modificano da Gestione SEDE.
+        </p>
+      )}
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginBottom: 14 }}>
-        <button onClick={() => cambiaSettimana(-1)} style={{ background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 14, cursor: 'pointer' }}>← Sett. prec.</button>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: isAmpio ? 14 : 8, marginBottom: 14 }}>
+        <button onClick={() => cambiaSettimana(-1)} style={{ background: '#f0f0f0', border: 'none', borderRadius: 8, padding: isAmpio ? '6px 12px' : '8px 14px', fontSize: isAmpio ? 14 : 16, cursor: 'pointer' }}>{isAmpio ? '← Sett. prec.' : '←'}</button>
         <div style={{ fontWeight: 700, fontSize: 14 }}>{dataEstesa(dateSettimana[0])} – {dataEstesa(dateSettimana[6])}</div>
         <button onClick={() => setSettimanaBase(isoData(lunedìDi(isoData(new Date()))))} style={{ background: '#fff', border: `1px solid ${C}`, color: C, borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>Oggi</button>
-        <button onClick={() => cambiaSettimana(1)} style={{ background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 14, cursor: 'pointer' }}>Sett. succ. →</button>
+        <button onClick={() => cambiaSettimana(1)} style={{ background: '#f0f0f0', border: 'none', borderRadius: 8, padding: isAmpio ? '6px 12px' : '8px 14px', fontSize: isAmpio ? 14 : 16, cursor: 'pointer' }}>{isAmpio ? 'Sett. succ. →' : '→'}</button>
       </div>
 
       {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{errore}</div>}
 
       {caricando ? (
         <div style={{ color: '#999', fontSize: 13 }}>Caricamento…</div>
-      ) : (
+      ) : isAmpio ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, overflowX: 'auto' }}>
           {GIORNI_CALENDARIO.map((g, idx) => {
             const label = GIORNI_SETTIMANA.find((gs) => gs.value === g)?.label;
@@ -614,6 +657,74 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
               </div>
             );
           })}
+        </div>
+      ) : (
+        // Vista telefono: un giorno alla volta con tab, card grandi facili da
+        // toccare — al posto della griglia a 7 colonne che su schermo stretto
+        // costringeva a scorrere orizzontalmente ed era illeggibile.
+        <div>
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 6, marginBottom: 12 }}>
+            {GIORNI_CALENDARIO.map((g, idx) => {
+              const label = GIORNI_SETTIMANA.find((gs) => gs.value === g)?.label;
+              const dataGiorno = dateSettimana[idx];
+              const dataGiornoIso = isoData(dataGiorno);
+              const eOggi = dataGiornoIso === oggiIso;
+              const attivo = giornoSelezionato === g;
+              return (
+                <button key={g} onClick={() => setGiornoSelezionato(g)}
+                  style={{
+                    flex: '0 0 auto', minWidth: 60, textAlign: 'center', padding: '8px 6px', borderRadius: 10,
+                    border: eOggi ? `2px solid ${C}` : '1px solid #ddd',
+                    background: attivo ? C : '#fff', color: attivo ? '#fff' : '#444', cursor: 'pointer',
+                  }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>{label?.slice(0, 3)}</div>
+                  <div style={{ fontSize: 11 }}>{dataEstesa(dataGiorno)}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          {(() => {
+            const idx = GIORNI_CALENDARIO.indexOf(giornoSelezionato);
+            const dataGiorno = dateSettimana[idx];
+            const dataGiornoIso = isoData(dataGiorno);
+            const turniDelGiorno = turni.filter((t) => t.giorno_settimana === giornoSelezionato && t.data_inizio && t.data_inizio <= dataGiornoIso);
+            if (turniDelGiorno.length === 0) {
+              return <div style={{ color: '#bbb', fontSize: 13, textAlign: 'center', padding: '30px 0' }}>Nessun turno questo giorno.</div>;
+            }
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {turniDelGiorno.map((t) => {
+                  const l = trovaLezione(t, dataGiornoIso);
+                  const statoInfo = l ? STATI.find((s) => s.value === l.stato) : STATI[0];
+                  const beneficiario = l?.istruttore_sostituto_id
+                    ? istruttoriSede.find((i) => i.id === l.istruttore_sostituto_id)
+                    : null;
+                  const nTot = nLezioniDaNota(t.note);
+                  const nCorrente = numeroLezione(t, dataGiornoIso);
+                  const oltreLimite = nTot && nCorrente > nTot;
+                  return (
+                    <div key={t.id} onClick={() => apriCella(t, dataGiornoIso)}
+                      style={{
+                        background: statoInfo.badge + '22', border: oltreLimite ? '1px solid #e67e22' : `1px solid ${statoInfo.badge}`,
+                        borderRadius: 10, padding: '12px 14px', fontSize: 14, cursor: 'pointer',
+                      }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                        <div style={{ fontWeight: 700 }}>{t.orario?.slice(0, 5)} · {t.istruttore?.nome} {t.istruttore?.cognome}</div>
+                        <div style={{ color: statoInfo.badge, fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' }}>
+                          {statoInfo.label}{!l && ' (auto)'}
+                        </div>
+                      </div>
+                      {beneficiario && <div style={{ color: '#777', fontSize: 13, marginTop: 2 }}>↔ sostituito da {beneficiario.nome} {beneficiario.cognome}</div>}
+                      <div style={{ color: oltreLimite ? '#e67e22' : '#aaa', fontSize: 12, fontWeight: oltreLimite ? 700 : 400, marginTop: 4 }}>
+                        {oltreLimite ? `⚠️ oltre le ${nTot} — da rinnovare` : `Lezione ${nCorrente}${nTot ? ` di ${nTot}` : ''}`}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
 
