@@ -1,5 +1,11 @@
 {
   "rewrites": [
+    { "source": "/iscriviti", "destination": "/iscriviti.html" },
+    { "source": "/prova", "destination": "/prova.html" },
+    { "source": "/area-tesserati", "destination": "/area-tesserati.html" },
+    { "source": "/area-istruttori", "destination": "/area-istruttori.html" },
+    { "source": "/area-sede", "destination": "/area-sede.html" },
+    { "source": "/admin", "destination": "/admin.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
