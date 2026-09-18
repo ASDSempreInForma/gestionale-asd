@@ -262,21 +262,27 @@ function Dashboard({ sessione }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {lezioni.map((l) => {
               const stato = STATI.find((s) => s.value === l.stato);
+              const chiave = l.id || `${l.istruttore_id}-${l.orario}-${l.data}`;
               return (
-                <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: C_LIGHT, borderRadius: 8, fontSize: 13 }}>
+                <div key={chiave} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: C_LIGHT, borderRadius: 8, fontSize: 13 }}>
                   <div style={{ width: 90, color: '#555' }}>{new Date(l.data).toLocaleDateString('it-IT')}{l.orario ? ` · ${l.orario.slice(0,5)}` : ''}</div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 600 }}>{l.titolare?.nome} {l.titolare?.cognome}
                       {l.sostituto && <span style={{ color: '#777', fontWeight: 400 }}> → sostituito da {l.sostituto.nome} {l.sostituto.cognome}</span>}
+                      {l.di_default && <span style={{ color: '#aaa', fontWeight: 400 }}> (automatica, come da programma)</span>}
                     </div>
                     <div style={{ color: '#777' }}>{l.ore} ore · {l.numero_persone} {l.numero_persone === 1 ? 'persona' : 'persone'}{l.note ? ` · ${l.note}` : ''}</div>
                   </div>
                   <div style={{ padding: '3px 8px', borderRadius: 6, fontSize: 12, color: '#fff', background: stato?.badge || '#999' }}>{stato?.label || l.stato}</div>
                   <div style={{ fontWeight: 700, width: 80, textAlign: 'right' }}>{l.compenso !== null ? euro(l.compenso) : '—'}</div>
                   <button onClick={() => { setLezioneInModifica(l); setModaleAperta(true); }}
-                    style={{ background: 'transparent', border: '1px solid #ccc', borderRadius: 6, padding: '4px 8px', fontSize: 12, cursor: 'pointer' }}>Modifica</button>
-                  <button onClick={() => eliminaLezione(l.id)}
-                    style={{ background: 'transparent', border: '1px solid #e0b4b4', color: '#c0392b', borderRadius: 6, padding: '4px 8px', fontSize: 12, cursor: 'pointer' }}>Elimina</button>
+                    style={{ background: 'transparent', border: '1px solid #ccc', borderRadius: 6, padding: '4px 8px', fontSize: 12, cursor: 'pointer' }}>
+                    {l.di_default ? 'Segnala eccezione' : 'Modifica'}
+                  </button>
+                  {l.id && (
+                    <button onClick={() => eliminaLezione(l.id)}
+                      style={{ background: 'transparent', border: '1px solid #e0b4b4', color: '#c0392b', borderRadius: 6, padding: '4px 8px', fontSize: 12, cursor: 'pointer' }}>Elimina</button>
+                  )}
                 </div>
               );
             })}
@@ -499,11 +505,17 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
     return lezioni.find((l) => l.istruttore_id === turno.istruttore_id && l.data === dataGiornoIso && (l.orario || '') === (turno.orario || ''));
   }
 
-  // Numero progressivo della lezione (1, 2, 3…) contando quante volte prima
-  // di questa data quel turno risulta già segnato "svolta" — così se una
-  // settimana viene saltata/sospesa non conta comunque come lezione fatta.
+  // Numero progressivo della lezione (1, 2, 3…): conta le settimane trascorse
+  // da quando il turno è iniziato (ogni settimana è considerata svolta di
+  // default dal titolare) meno le eventuali sospensioni registrate prima di
+  // questa data — una sostituzione conta comunque come lezione avvenuta.
   function numeroLezione(turno, dataGiornoIso) {
-    return lezioni.filter((l) => l.istruttore_id === turno.istruttore_id && (l.orario || '') === (turno.orario || '') && l.stato === 'svolta' && l.data < dataGiornoIso).length + 1;
+    if (!turno.data_inizio) return 1;
+    const inizio = new Date(turno.data_inizio + 'T00:00:00');
+    const corrente = new Date(dataGiornoIso + 'T00:00:00');
+    const settimaneTrascorse = Math.round((corrente - inizio) / (7 * 24 * 3600 * 1000)) + 1;
+    const sospensioniPrima = lezioni.filter((l) => l.istruttore_id === turno.istruttore_id && (l.orario || '') === (turno.orario || '') && l.stato === 'sospesa' && l.data < dataGiornoIso).length;
+    return Math.max(1, settimaneTrascorse - sospensioniPrima);
   }
 
   function apriCella(turno, dataGiornoIso) {
@@ -541,7 +553,7 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
       </div>
 
       <p style={{ fontSize: 11, color: '#999', margin: '0 0 14px' }}>
-        Mostra solo i turni già iniziati (in base alla "Data di inizio" impostata in Gestione SEDE) nella settimana selezionata. Clicca su una lezione per segnarla svolta, sospesa o sostituita — resta l'unico modo per registrare i compensi reali di quella settimana, insieme a "Importa settimana reale". I turni fissi (istruttore/giorno/orario) si modificano da Gestione SEDE.
+        Ogni lezione è considerata svolta automaticamente dall'insegnante titolare — non serve confermarla una per una. Clicca su una lezione SOLO per segnalare un'eccezione: sospesa, sostituita, o assente senza sostituto. I turni fissi (istruttore/giorno/orario, data di inizio) si modificano da Gestione SEDE.
       </p>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginBottom: 14 }}>
@@ -573,7 +585,7 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
                   )}
                   {turniDelGiorno.map((t) => {
                     const l = trovaLezione(t, dataGiornoIso);
-                    const statoInfo = l ? STATI.find((s) => s.value === l.stato) : null;
+                    const statoInfo = l ? STATI.find((s) => s.value === l.stato) : STATI[0]; // default: "Svolta" senza bisogno di conferma
                     const beneficiario = l?.istruttore_sostituto_id
                       ? istruttoriSede.find((i) => i.id === l.istruttore_sostituto_id)
                       : null;
@@ -583,14 +595,14 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
                     return (
                       <div key={t.id} onClick={() => apriCella(t, dataGiornoIso)}
                         style={{
-                          background: l ? (statoInfo?.badge + '22') : C_LIGHT, border: oltreLimite ? '1px solid #e67e22' : (l ? `1px solid ${statoInfo?.badge}` : '1px dashed #ccc'),
+                          background: statoInfo.badge + '22', border: oltreLimite ? '1px solid #e67e22' : `1px solid ${statoInfo.badge}`,
                           borderRadius: 8, padding: '6px 8px', fontSize: 11, cursor: 'pointer',
                         }}>
                         <div style={{ fontWeight: 700 }}>{t.orario?.slice(0, 5)}</div>
                         <div>{t.istruttore?.nome} {t.istruttore?.cognome}</div>
                         {beneficiario && <div style={{ color: '#777' }}>↔ {beneficiario.nome} {beneficiario.cognome}</div>}
-                        <div style={{ color: statoInfo ? statoInfo.badge : '#aaa', fontWeight: l ? 700 : 400 }}>
-                          {statoInfo ? statoInfo.label : 'Da segnare'}
+                        <div style={{ color: statoInfo.badge, fontWeight: 700 }}>
+                          {statoInfo.label}{!l && ' (automatica)'}
                         </div>
                         <div style={{ color: oltreLimite ? '#e67e22' : '#aaa', fontSize: 10, fontWeight: oltreLimite ? 700 : 400 }}>
                           {oltreLimite ? `⚠️ oltre le ${nTot} — da rinnovare` : `Lezione ${nCorrente}${nTot ? ` di ${nTot}` : ''}`}
