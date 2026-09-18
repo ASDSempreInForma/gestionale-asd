@@ -695,6 +695,22 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
     setSalvando(true); setErrore("");
     try {
       await chiamaAreaSede("salva_iscritto_turno", { id: persona?.id, turno_id: turnoId, ...form });
+
+      // Questa persona ha una copia dei dati SEPARATA per ogni turno a cui è
+      // iscritta (il gestionale non ha un archivio persone unico): se la
+      // stessa persona (stesso CF) risulta anche in altri turni, chiedo se
+      // aggiornare i dati anche lì — altrimenti resterebbero disallineati.
+      if (persona && form.cf && personeEsistenti) {
+        const cfNorm = form.cf.trim().toUpperCase();
+        const altre = personeEsistenti.filter((p) => p.id !== persona.id && (p.cf || "").trim().toUpperCase() === cfNorm);
+        if (altre.length > 0) {
+          const confermato = window.confirm(`${form.cognome} ${form.nome} risulta iscritta anche ad altri ${altre.length} turno${altre.length > 1 ? "i" : ""} (stesso codice fiscale). Vuoi aggiornare i dati anche lì?`);
+          if (confermato) {
+            await chiamaAreaSede("sincronizza_dati_persona", { cf: form.cf, escludi_id: persona.id, ...form });
+          }
+        }
+      }
+
       onSalvato();
     } catch (err) { setErrore(err.message); }
     finally { setSalvando(false); }
