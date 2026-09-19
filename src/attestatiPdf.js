@@ -105,7 +105,7 @@ export async function generaAttestatoPdf(dati) {
   const boxX = marginX - 10;
   const boxW = 195;
   const boxTop = height - 40;
-  const boxH = 148;
+  const boxH = 159; // 148 + una riga in più per i due codici di affiliazione (ASI, Libertas)
   page.drawRectangle({
     x: boxX, y: boxTop - boxH, width: boxW, height: boxH,
     borderColor: rgb(0.6, 0.6, 0.6), borderWidth: 0.75,
@@ -121,7 +121,8 @@ export async function generaAttestatoPdf(dati) {
   });
 
   const infoLines = [
-    'Codice affiliazione CONI 02500493',
+    'Codice affiliazione ASI BS0905',
+    'Codice affiliazione Libertas BS481',
     'Cod.fisc. 98087620179',
     'Email: info@asdsempreinforma.it',
     'Mobile: +39 3204128267',
