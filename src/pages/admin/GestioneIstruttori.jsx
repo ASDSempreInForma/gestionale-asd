@@ -388,12 +388,12 @@ export default function GestioneIstruttori(){
     if(error) alert("Errore nel salvataggio: "+error.message);
   }
 
-  // ── Rimuovi (disattiva) istruttore ────────────────────────────────
+  // ── Archivia istruttore ────────────────────────────────
   // Non cancelliamo la riga (resta per lo storico compensi/lezioni passate),
   // la segnamo solo come non più attiva: sparisce da qui e perde anche
   // l'accesso all'Area Istruttori (che controlla attivo=true al login).
   async function rimuoviIstruttore(id, nomeCompleto){
-    if(!window.confirm(`Rimuovere ${nomeCompleto} dagli istruttori attivi?\n\nNon perderà lo storico di lezioni/compensi passati, ma non comparirà più qui né potrà più accedere all'Area Istruttori. Le assegnazioni ai corsi correnti verranno rimosse.`)) return;
+    if(!window.confirm(`Archiviare ${nomeCompleto}?\n\nNon perderà lo storico di lezioni/compensi passati, ma non comparirà più tra gli istruttori attivi né potrà più accedere all'Area Istruttori. Le assegnazioni ai corsi correnti verranno rimosse. Potrai sempre riattivarlo da "Istruttori archiviati".`)) return;
     setSaving(p=>({...p,["rimuovi_"+id]:true}));
     await supabase.from("istruttori_corsi").delete().eq("istruttore_id",id);
     const {error}=await supabase.from("istruttori").update({attivo:false}).eq("id",id);
@@ -401,6 +401,38 @@ export default function GestioneIstruttori(){
     if(error){ alert("Errore: "+error.message); return; }
     setIstruttori(prev=>prev.filter(t=>t.id!==id));
     if(focusedInstr===id) setFocusedInstr(null);
+    if(mostraArchiviati) caricaArchiviati();
+  }
+
+  // ── Istruttori archiviati: elenco separato, caricato solo quando si apre
+  // il pannello (non serve tenerlo in memoria sempre) ──────────────────
+  const [archiviati,setArchiviati]=useState([]);
+  const [mostraArchiviati,setMostraArchiviati]=useState(false);
+  const [caricandoArchiviati,setCaricandoArchiviati]=useState(false);
+
+  async function caricaArchiviati(){
+    setCaricandoArchiviati(true);
+    const {data,error}=await supabase.from("istruttori")
+      .select("id,nome,cognome,tipo,compenso_lezione_default,tariffa_oraria")
+      .eq("attivo",false).order("cognome");
+    if(!error) setArchiviati(data||[]);
+    setCaricandoArchiviati(false);
+  }
+
+  async function toggleMostraArchiviati(){
+    const nuovoStato=!mostraArchiviati;
+    setMostraArchiviati(nuovoStato);
+    if(nuovoStato && archiviati.length===0) caricaArchiviati();
+  }
+
+  async function riattivaIstruttore(id, nomeCompleto){
+    if(!window.confirm(`Riattivare ${nomeCompleto}? Tornerà tra gli istruttori attivi — dovrai riassegnargli i corsi.`)) return;
+    setSaving(p=>({...p,["riattiva_"+id]:true}));
+    const {error}=await supabase.from("istruttori").update({attivo:true}).eq("id",id);
+    setSaving(p=>({...p,["riattiva_"+id]:false}));
+    if(error){ alert("Errore: "+error.message); return; }
+    setArchiviati(prev=>prev.filter(t=>t.id!==id));
+    caricaDati();
   }
 
   // ── Assegna/rimuovi corso a istruttore ──────────────────────────
@@ -492,12 +524,45 @@ export default function GestioneIstruttori(){
       <div>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <div style={{fontSize:13,color:C.textSub}}>{istruttori.length} istruttori attivi</div>
-          <button onClick={()=>setShowAddInstr(true)}
-            style={{padding:"6px 13px",background:C.green,border:"none",borderRadius:9,
-              fontSize:12,fontWeight:600,color:"white",cursor:"pointer"}}>
-            + Aggiungi
-          </button>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={toggleMostraArchiviati}
+              style={{padding:"6px 13px",background:"white",border:`1px solid ${C.border}`,borderRadius:9,
+                fontSize:12,fontWeight:600,color:C.textSub,cursor:"pointer"}}>
+              📦 Archiviati {mostraArchiviati?"▲":"▼"}
+            </button>
+            <button onClick={()=>setShowAddInstr(true)}
+              style={{padding:"6px 13px",background:C.green,border:"none",borderRadius:9,
+                fontSize:12,fontWeight:600,color:"white",cursor:"pointer"}}>
+              + Aggiungi
+            </button>
+          </div>
         </div>
+
+        {mostraArchiviati&&(
+          <div style={{background:"white",border:`1px solid ${C.border}`,borderRadius:13,padding:"15px",marginBottom:14}}>
+            <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:10}}>Istruttori archiviati</div>
+            {caricandoArchiviati?(
+              <div style={{fontSize:12,color:C.textSub}}>Caricamento…</div>
+            ):archiviati.length===0?(
+              <div style={{fontSize:12,color:C.textSub}}>Nessuno — tutti gli istruttori sono attivi.</div>
+            ):(
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {archiviati.map(t=>(
+                  <div key={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                    padding:"8px 10px",background:"#F8FAFC",borderRadius:8}}>
+                    <span style={{fontSize:12,color:C.text}}>{t.cognome} {t.nome} {t.tipo==="collaboratore"&&<span style={{color:C.textSub}}>(collaboratore)</span>}</span>
+                    <button onClick={()=>riattivaIstruttore(t.id,`${t.cognome} ${t.nome}`)}
+                      disabled={saving["riattiva_"+t.id]}
+                      style={{padding:"5px 12px",background:C.green+"18",border:`1px solid ${C.green}`,borderRadius:7,
+                        fontSize:11,fontWeight:600,color:C.greenD,cursor:"pointer"}}>
+                      {saving["riattiva_"+t.id]?"…":"↩ Riattiva"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {showAddInstr&&(
           <div style={{background:"white",border:`1px solid ${C.border}`,borderRadius:13,padding:"15px",marginBottom:14}}>
@@ -694,7 +759,7 @@ export default function GestioneIstruttori(){
                   disabled={saving["rimuovi_"+t.id]}
                   style={{width:"100%",marginTop:14,padding:"9px",background:C.redL,border:`1px solid ${C.red}44`,
                     borderRadius:9,fontSize:12,fontWeight:600,color:C.red,cursor:"pointer"}}>
-                  {saving["rimuovi_"+t.id]?"Rimuovo…":"🗑 Rimuovi istruttore"}
+                  {saving["rimuovi_"+t.id]?"Archivio…":"📦 Archivia istruttore"}
                 </button>
               </div>
             )}
