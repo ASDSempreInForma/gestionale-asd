@@ -119,8 +119,11 @@ export default function GestioneIstruttori(){
     setSospensioni(prev=>prev.filter(s=>s.id!==id));
   }
 
-  // Ore collaboratori del mese selezionato (ricaricate ad ogni cambio mese)
-  const [oreCollab,setOreCollab]=useState({}); // {istruttoreId: {ore, note}}
+  // Ore/forfait collaboratori del mese selezionato (ricaricati ad ogni cambio mese).
+  // Ogni collaboratore ha una modalità fissa (oraria/forfait, su istruttori),
+  // ma l'IMPORTO del forfait può cambiare di mese in mese — per questo vive
+  // qui insieme alle ore, nella stessa riga mensile.
+  const [oreCollab,setOreCollab]=useState({}); // {istruttoreId: {ore, forfait, note}}
   const [salvandoOre,setSalvandoOre]=useState({});
   useEffect(()=>{
     const m=MESI_STAGIONE[meseSelIdx];
@@ -128,7 +131,7 @@ export default function GestioneIstruttori(){
     supabase.from("ore_collaboratori").select("*").eq("anno",m.anno).eq("mese",m.mese)
       .then(({data})=>{
         const obj={};
-        (data||[]).forEach(r=>{ obj[r.istruttore_id]={ore:r.ore, note:r.note||""}; });
+        (data||[]).forEach(r=>{ obj[r.istruttore_id]={ore:r.ore, forfait:r.forfait, note:r.note||""}; });
         setOreCollab(obj);
       });
   },[meseSelIdx]);
@@ -153,11 +156,28 @@ export default function GestioneIstruttori(){
     const m=MESI_STAGIONE[meseSelIdx];
     setSalvandoOre(p=>({...p,[istruttoreId]:true}));
     await supabase.from("ore_collaboratori").upsert(
-      {istruttore_id:istruttoreId, anno:m.anno, mese:m.mese, ore},
+      {istruttore_id:istruttoreId, anno:m.anno, mese:m.mese, ore, forfait:oreCollab[istruttoreId]?.forfait??null},
       {onConflict:"istruttore_id,anno,mese"}
     );
     setOreCollab(prev=>({...prev,[istruttoreId]:{...prev[istruttoreId],ore}}));
     setSalvandoOre(p=>({...p,[istruttoreId]:false}));
+  }
+
+  async function salvaForfaitCollaboratore(istruttoreId, forfait){
+    const m=MESI_STAGIONE[meseSelIdx];
+    setSalvandoOre(p=>({...p,[istruttoreId]:true}));
+    await supabase.from("ore_collaboratori").upsert(
+      {istruttore_id:istruttoreId, anno:m.anno, mese:m.mese, ore:oreCollab[istruttoreId]?.ore??0, forfait},
+      {onConflict:"istruttore_id,anno,mese"}
+    );
+    setOreCollab(prev=>({...prev,[istruttoreId]:{...prev[istruttoreId],forfait}}));
+    setSalvandoOre(p=>({...p,[istruttoreId]:false}));
+  }
+
+  async function aggiornaModalitaPagamento(id, modalita){
+    setIstruttori(prev=>prev.map(t=>t.id===id?{...t,modalitaPagamento:modalita}:t));
+    const {error}=await supabase.from("istruttori").update({modalita_pagamento:modalita}).eq("id",id);
+    if(error) alert("Errore nel salvataggio: "+error.message);
   }
 
   async function caricaDati(){
@@ -177,7 +197,7 @@ export default function GestioneIstruttori(){
       const {data:istrDB}=await supabase
         .from("istruttori")
         .select(`
-          id,nome,cognome,telefono,email,compenso_lezione_default,attivo,tipo,tariffa_oraria,
+          id,nome,cognome,telefono,email,compenso_lezione_default,attivo,tipo,tariffa_oraria,modalita_pagamento,
           sede_attivo,accesso_sede,tariffa_sede_1,tariffa_sede_2_3,tariffa_sede_4_5,
           istruttori_corsi(
             id,
@@ -204,7 +224,7 @@ export default function GestioneIstruttori(){
         return {
           id:t.id,
           nome:t.nome, cognome:t.cognome, telefono:t.telefono, email:t.email,
-          tipo:t.tipo||"istruttore", tariffaOraria:t.tariffa_oraria||0,
+          tipo:t.tipo||"istruttore", tariffaOraria:t.tariffa_oraria||0, modalitaPagamento:t.modalita_pagamento||"oraria",
           compenso:t.compenso_lezione_default||0,
           sedeAttivo:t.sede_attivo||false, accessoSede:t.accesso_sede||false,
           tariffaSede1:t.tariffa_sede_1, tariffaSede23:t.tariffa_sede_2_3, tariffaSede45:t.tariffa_sede_4_5,
@@ -502,6 +522,7 @@ export default function GestioneIstruttori(){
 
   const totMese=istruttori.reduce((acc,t)=>{
     if(t.tipo==="collaboratore"){
+      if(t.modalitaPagamento==="forfait") return acc+(oreCollab[t.id]?.forfait||0);
       const o=oreCollab[t.id]?.ore||0;
       return acc+o*(t.tariffaOraria||0);
     }
@@ -660,12 +681,18 @@ export default function GestioneIstruttori(){
                   </div>
                 ) : (
                   <div style={{textAlign:"right"}}>
-                    <input type="number" value={t.tariffaOraria}
-                      onClick={e=>e.stopPropagation()}
-                      onChange={e=>setIstruttori(prev=>prev.map(x=>x.id===t.id?{...x,tariffaOraria:parseFloat(e.target.value)||0}:x))}
-                      onBlur={e=>aggiornaTariffaOraria(t.id,parseFloat(e.target.value)||0)}
-                      style={{width:60,padding:"3px 6px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:12,textAlign:"center"}}/>
-                    <div style={{fontSize:9,color:C.textSub,textAlign:"center"}}>€/ora</div>
+                    {t.modalitaPagamento==="forfait" ? (
+                      <span style={{fontSize:9,fontWeight:700,color:"#7C3AED",background:"#EDE9FE",padding:"3px 7px",borderRadius:5}}>FORFAIT</span>
+                    ) : (
+                      <>
+                        <input type="number" value={t.tariffaOraria}
+                          onClick={e=>e.stopPropagation()}
+                          onChange={e=>setIstruttori(prev=>prev.map(x=>x.id===t.id?{...x,tariffaOraria:parseFloat(e.target.value)||0}:x))}
+                          onBlur={e=>aggiornaTariffaOraria(t.id,parseFloat(e.target.value)||0)}
+                          style={{width:60,padding:"3px 6px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:12,textAlign:"center"}}/>
+                        <div style={{fontSize:9,color:C.textSub,textAlign:"center"}}>€/ora</div>
+                      </>
+                    )}
                   </div>
                 )}
                 <span style={{fontSize:13,color:C.gray}}>{focusedInstr===t.id?"▲":"▼"}</span>
@@ -690,9 +717,36 @@ export default function GestioneIstruttori(){
                       onClick={e=>e.stopPropagation()}
                       onBlur={e=>aggiornaContatto(t.id,"telefono",e.target.value)}
                       style={{width:"100%",padding:"7px 9px",border:`1px solid ${C.border}`,borderRadius:7,fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
-                    {saving["telefono_"+t.id]&&<div style={{fontSize:10,color:C.textSub,marginTop:2}}>Salvo…</div>}
+                                    {saving["telefono_"+t.id]&&<div style={{fontSize:10,color:C.textSub,marginTop:2}}>Salvo…</div>}
                   </div>
                 </div>
+
+                {t.tipo==="collaboratore" && (
+                  <div style={{marginBottom:14}}>
+                    <div style={{fontSize:11,fontWeight:700,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>
+                      Modalità di pagamento
+                    </div>
+                    <div style={{display:"flex",gap:8}} onClick={e=>e.stopPropagation()}>
+                      <button onClick={()=>aggiornaModalitaPagamento(t.id,"oraria")}
+                        style={{flex:1,padding:"7px",borderRadius:8,border:`1px solid ${t.modalitaPagamento==="oraria"?C.green:C.border}`,
+                          background:t.modalitaPagamento==="oraria"?C.green+"18":"white",fontSize:12,fontWeight:600,
+                          color:t.modalitaPagamento==="oraria"?C.greenD:C.textSub,cursor:"pointer"}}>
+                        A ore
+                      </button>
+                      <button onClick={()=>aggiornaModalitaPagamento(t.id,"forfait")}
+                        style={{flex:1,padding:"7px",borderRadius:8,border:`1px solid ${t.modalitaPagamento==="forfait"?"#7C3AED":C.border}`,
+                          background:t.modalitaPagamento==="forfait"?"#EDE9FE":"white",fontSize:12,fontWeight:600,
+                          color:t.modalitaPagamento==="forfait"?"#7C3AED":C.textSub,cursor:"pointer"}}>
+                        Forfait mensile
+                      </button>
+                    </div>
+                    <div style={{fontSize:10,color:C.textSub,marginTop:6}}>
+                      {t.modalitaPagamento==="forfait"
+                        ? "L'importo del forfait si imposta ogni mese nella tab Pagamenti — può cambiare di mese in mese."
+                        : "Tariffa oraria fissa (a fianco al nome) × ore dichiarate ogni mese nella tab Pagamenti."}
+                    </div>
+                  </div>
+                )}
 
                 <div style={{fontSize:11,fontWeight:700,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>
                   Corsi assegnati
@@ -1012,7 +1066,9 @@ export default function GestioneIstruttori(){
             <div style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:9}}>📋 Collaboratori — ore di segreteria</div>
             {istruttori.filter(t=>t.tipo==="collaboratore").map(t=>{
               const ore=oreCollab[t.id]?.ore||0;
-              const totale=ore*(t.tariffaOraria||0);
+              const forfait=oreCollab[t.id]?.forfait||0;
+              const aForfait=t.modalitaPagamento==="forfait";
+              const totale=aForfait?forfait:ore*(t.tariffaOraria||0);
               return(
                 <div key={t.id} style={{background:"white",border:`1px solid ${C.border}`,borderRadius:13,marginBottom:9,padding:"12px 15px"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
@@ -1021,23 +1077,38 @@ export default function GestioneIstruttori(){
                         fontSize:12,fontWeight:700,color:t.colore}}>{(t.nome[0]||"")}{(t.cognome[0]||"")}</div>
                       <div>
                         <div style={{fontSize:13,fontWeight:600,color:C.text}}>{t.cognome} {t.nome}</div>
-                        <div style={{fontSize:11,color:C.textSub}}>{fmtEuro(t.tariffaOraria||0)}/ora</div>
+                        <div style={{fontSize:11,color:C.textSub}}>{aForfait?"Forfait mensile":`${fmtEuro(t.tariffaOraria||0)}/ora`}</div>
                       </div>
                     </div>
                     <div style={{fontSize:18,fontWeight:700,color:C.greenD}}>{fmtEuro(totale)}</div>
                   </div>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <input type="number" step="0.5" placeholder="Ore nel mese" value={ore||""}
-                      onChange={e=>setOreCollab(prev=>({...prev,[t.id]:{...prev[t.id],ore:parseFloat(e.target.value)||0}}))}
-                      style={{width:110,padding:"7px 9px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
-                    <span style={{fontSize:11,color:C.textSub}}>ore in {meseSel.labelFull}</span>
-                    <button onClick={()=>salvaOreCollaboratore(t.id,oreCollab[t.id]?.ore||0)}
-                      disabled={salvandoOre[t.id]}
-                      style={{marginLeft:"auto",padding:"6px 13px",background:C.green,border:"none",borderRadius:8,
-                        fontSize:12,fontWeight:600,color:"white",cursor:"pointer"}}>
-                      {salvandoOre[t.id]?"Salvo…":"Salva"}
-                    </button>
-                  </div>
+                  {aForfait ? (
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <input type="number" step="1" placeholder="Importo forfait" value={forfait||""}
+                        onChange={e=>setOreCollab(prev=>({...prev,[t.id]:{...prev[t.id],forfait:parseFloat(e.target.value)||0}}))}
+                        style={{width:110,padding:"7px 9px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
+                      <span style={{fontSize:11,color:C.textSub}}>€ forfait in {meseSel.labelFull}</span>
+                      <button onClick={()=>salvaForfaitCollaboratore(t.id,oreCollab[t.id]?.forfait||0)}
+                        disabled={salvandoOre[t.id]}
+                        style={{marginLeft:"auto",padding:"6px 13px",background:"#7C3AED",border:"none",borderRadius:8,
+                          fontSize:12,fontWeight:600,color:"white",cursor:"pointer"}}>
+                        {salvandoOre[t.id]?"Salvo…":"Salva"}
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <input type="number" step="0.5" placeholder="Ore nel mese" value={ore||""}
+                        onChange={e=>setOreCollab(prev=>({...prev,[t.id]:{...prev[t.id],ore:parseFloat(e.target.value)||0}}))}
+                        style={{width:110,padding:"7px 9px",border:`1px solid ${C.border}`,borderRadius:8,fontSize:12}}/>
+                      <span style={{fontSize:11,color:C.textSub}}>ore in {meseSel.labelFull}</span>
+                      <button onClick={()=>salvaOreCollaboratore(t.id,oreCollab[t.id]?.ore||0)}
+                        disabled={salvandoOre[t.id]}
+                        style={{marginLeft:"auto",padding:"6px 13px",background:C.green,border:"none",borderRadius:8,
+                          fontSize:12,fontWeight:600,color:"white",cursor:"pointer"}}>
+                        {salvandoOre[t.id]?"Salvo…":"Salva"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
