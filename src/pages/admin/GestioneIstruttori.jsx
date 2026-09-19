@@ -200,7 +200,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
           id,nome,cognome,telefono,email,compenso_lezione_default,attivo,tipo,tariffa_oraria,modalita_pagamento,
           sede_attivo,accesso_sede,tariffa_sede_1,tariffa_sede_2_3,tariffa_sede_4_5,
           istruttori_corsi(
-            id,
+            id, giorno_settimana,
             corsi(id,disciplina,giorni_orari,sedi(nome))
           )
         `)
@@ -232,22 +232,26 @@ export default function GestioneIstruttori({ onVaiAContratto }){
           corsi_nomi:corsiNomi,
           corsi_ids:corsiAssegnati.map(c=>c.id),
           istruttori_corsi_ids:t.istruttori_corsi.map(ic=>ic.id),
+          corsi_giorno:t.istruttori_corsi.map(ic=>ic.giorno_settimana), // null = tutti i giorni del corso
           giorniLezione:[...giorniSet].sort(),
         };
       });
       setIstruttori(formatted);
 
-      // Mappa corso_id -> {nome, giorni_orari, istruttore assegnato}, usata per generare/sincronizzare le lezioni reali
+      // Mappa corso_id -> {nome, giorni_orari, istruttori: [{istruttoreId, giornoSettimana}]}.
+      // Un corso può avere PIÙ istruttori (es. CrossTraining: Sabina+Michela
+      // insegnano insieme ogni volta, entrambe pagate intere — giornoSettimana
+      // null per entrambe; oppure Ginnastica Dolce Urago Mella: Michela solo
+      // il lunedì, Nadia solo il giovedì — giornoSettimana valorizzato per
+      // ciascuna). Prima teneva un solo istruttore per corso e il secondo
+      // sovrascriveva silenziosamente il primo — bug corretto il 19/09/2026.
       // I collaboratori sono esclusi: controllano un corso ma non lo insegnano, non generano lezioni/compensi a lezione
       const corsiInfoObj={};
       formatted.filter(t=>t.tipo==="istruttore").forEach(t=>{
         t.corsi_ids.forEach((cid,i)=>{
           const corsoDB=(corsiDB||[]).find(c=>c.id===cid);
-          corsiInfoObj[cid]={
-            nome:t.corsi_nomi[i],
-            giorniOrari:corsoDB?.giorni_orari,
-            istruttoreId:t.id,
-          };
+          if(!corsiInfoObj[cid]) corsiInfoObj[cid]={ nome:t.corsi_nomi[i], giorniOrari:corsoDB?.giorni_orari, istruttori:[] };
+          corsiInfoObj[cid].istruttori.push({ istruttoreId:t.id, giornoSettimana:t.corsi_giorno[i] });
         });
       });
       setCorsiInfoMap(corsiInfoObj);
@@ -279,27 +283,34 @@ export default function GestioneIstruttori({ onVaiAContratto }){
     const primoGiorno=`${anno}-${String(mese).padStart(2,'0')}-01`;
     const ultimoGiorno=`${anno}-${String(mese).padStart(2,'0')}-${String(ultimoGiornoNum).padStart(2,'0')}`;
 
+    // Per ogni corso, per ogni giorno in cui si tiene, genera una riga PER
+    // CIASCUN istruttore assegnato a quel corso — filtrato al suo giorno
+    // specifico se ne ha uno (es. Ginnastica Dolce Urago Mella), altrimenti
+    // per tutti i giorni del corso (es. CrossTraining: entrambe insegnano
+    // sempre, entrambe pagate intere per ogni lezione).
     const dateAttese=[];
     corsoIds.forEach(corsoId=>{
       const giorni=giorniSettimanaDaOrario(corsiInfo[corsoId].giorniOrari);
+      const istruttoriCorso=corsiInfo[corsoId].istruttori||[];
       for(let g=1; g<=ultimoGiornoNum; g++){
         const d=new Date(anno,mese-1,g);
-        if(giorni.includes(d.getDay())){
-          const dataStr=`${anno}-${String(mese).padStart(2,'0')}-${String(g).padStart(2,'0')}`;
-          const sosp=sospensioni.find(s=>dateInRange(dataStr,s.dal,s.al));
-          dateAttese.push({corsoId,data:dataStr,sospesaDesc:sosp?.desc||null});
-        }
+        if(!giorni.includes(d.getDay())) continue;
+        const dataStr=`${anno}-${String(mese).padStart(2,'0')}-${String(g).padStart(2,'0')}`;
+        const sosp=sospensioni.find(s=>dateInRange(dataStr,s.dal,s.al));
+        istruttoriCorso
+          .filter(ic=>ic.giornoSettimana==null || ic.giornoSettimana===d.getDay())
+          .forEach(ic=>dateAttese.push({corsoId,data:dataStr,sospesaDesc:sosp?.desc||null,istruttoreId:ic.istruttoreId}));
       }
     });
 
     const {data:esistenti}=await supabase.from("lezioni").select("*")
       .in("corso_id",corsoIds).gte("data",primoGiorno).lte("data",ultimoGiorno);
-    const setEsistenti=new Set((esistenti||[]).map(l=>`${l.corso_id}_${l.data}`));
+    const setEsistenti=new Set((esistenti||[]).map(l=>`${l.corso_id}_${l.data}_${l.istruttore_id}`));
 
     const oggiStr=new Date().toISOString().slice(0,10);
 
     const daInserire=dateAttese
-      .filter(d=>!setEsistenti.has(`${d.corsoId}_${d.data}`))
+      .filter(d=>!setEsistenti.has(`${d.corsoId}_${d.data}_${d.istruttoreId}`))
       // Le sospensioni (festività) si segnano sempre, in qualunque data.
       // Le lezioni "fatta" invece si pre-creano SOLO per le date già passate
       // (assunzione ragionevole per i compensi); oggi e le date future restano
@@ -308,7 +319,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
       .filter(d=>d.sospesaDesc || d.data<oggiStr)
       .map(d=>({
         corso_id:d.corsoId,
-        istruttore_id:corsiInfo[d.corsoId].istruttoreId,
+        istruttore_id:d.istruttoreId,
         data:d.data,
         stato:d.sospesaDesc?"sospesa":"fatta",
         motivo_sospensione:d.sospesaDesc,
@@ -388,7 +399,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
         email:data.email, telefono:data.telefono,
         tipo:data.tipo, tariffaOraria:data.tariffa_oraria||0,
         compenso:data.compenso_lezione_default||0,
-        colore:newInstr.colore, corsi_nomi:[], corsi_ids:[],
+        colore:newInstr.colore, corsi_nomi:[], corsi_ids:[], corsi_giorno:[],
         istruttori_corsi_ids:[], giorniLezione:[],
       }]);
       setNewInstr({nome:"",cognome:"",email:"",telefono:"",compenso:"",tariffaOraria:"",tipo:"istruttore",colore:COLORI_DISPONIBILI[0]});
@@ -465,15 +476,34 @@ export default function GestioneIstruttori({ onVaiAContratto }){
         .eq("istruttore_id",istrId).eq("corso_id",corsoId);
       setIstruttori(prev=>prev.map(x=>x.id===istrId
         ?{...x,corsi_ids:x.corsi_ids.filter(c=>c!==corsoId),
-          corsi_nomi:x.corsi_nomi.filter((_,i)=>x.corsi_ids[i]!==corsoId)}:x));
+          corsi_nomi:x.corsi_nomi.filter((_,i)=>x.corsi_ids[i]!==corsoId),
+          corsi_giorno:x.corsi_giorno.filter((_,i)=>x.corsi_ids[i]!==corsoId)}:x));
     }else{
       // Aggiungi
       const corso=corsiDisponibili.find(c=>c.id===corsoId);
       await supabase.from("istruttori_corsi").insert({istruttore_id:istrId,corso_id:corsoId});
       setIstruttori(prev=>prev.map(x=>x.id===istrId
         ?{...x,corsi_ids:[...x.corsi_ids,corsoId],
-          corsi_nomi:[...x.corsi_nomi,`${corso?.disciplina||""} ${corso?.sedi?.nome||""}`]}:x));
+          corsi_nomi:[...x.corsi_nomi,`${corso?.disciplina||""} ${corso?.sedi?.nome||""}`],
+          corsi_giorno:[...x.corsi_giorno,null]}:x));
     }
+  }
+
+  // Limita (o toglie il limite a) un istruttore a un solo giorno della
+  // settimana per un corso specifico — serve quando più persone si
+  // dividono lo stesso corso su giorni diversi (es. Ginnastica Dolce
+  // Urago Mella: Michela il lunedì, Nadia il giovedì). Lasciato "Tutti i
+  // giorni" (null) l'istruttore conta per ogni data del corso — il caso
+  // di chi co-insegna sempre insieme a un'altra persona (es. CrossTraining).
+  async function aggiornaGiornoCorso(istrId, corsoId, giorno){
+    await supabase.from("istruttori_corsi").update({giorno_settimana:giorno}).eq("istruttore_id",istrId).eq("corso_id",corsoId);
+    setIstruttori(prev=>prev.map(x=>x.id===istrId
+      ?{...x,corsi_giorno:x.corsi_ids.map((cid,i)=>cid===corsoId?giorno:x.corsi_giorno[i])}:x));
+    setCorsiInfoMap(prev=>{
+      const info=prev[corsoId];
+      if(!info) return prev;
+      return {...prev,[corsoId]:{...info,istruttori:info.istruttori.map(ic=>ic.istruttoreId===istrId?{...ic,giornoSettimana:giorno}:ic)}};
+    });
   }
 
   // ── Cambia/sincronizza mese ──────────────────────────────────────
@@ -753,9 +783,21 @@ export default function GestioneIstruttori({ onVaiAContratto }){
                 </div>
                 {/* Corsi assegnati */}
                 {t.corsi_nomi.map((nome,i)=>(
-                  <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+                  <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,
                     padding:"5px 9px",background:C.greenL,borderRadius:7,marginBottom:5}}>
-                    <span style={{fontSize:12,color:C.greenD}}>{nome}</span>
+                    <span style={{fontSize:12,color:C.greenD,flex:1}}>{nome}</span>
+                    <select value={t.corsi_giorno?.[i]??""} onChange={e=>aggiornaGiornoCorso(t.id,t.corsi_ids[i],e.target.value===""?null:Number(e.target.value))}
+                      title="Se il corso ha più istruttori, limita questa persona a un solo giorno della settimana"
+                      style={{fontSize:11,padding:"3px 5px",borderRadius:6,border:`1px solid ${C.green}66`,background:"white",color:C.greenD}}>
+                      <option value="">Tutti i giorni</option>
+                      <option value="1">Solo Lunedì</option>
+                      <option value="2">Solo Martedì</option>
+                      <option value="3">Solo Mercoledì</option>
+                      <option value="4">Solo Giovedì</option>
+                      <option value="5">Solo Venerdì</option>
+                      <option value="6">Solo Sabato</option>
+                      <option value="0">Solo Domenica</option>
+                    </select>
                     <button onClick={()=>toggleCorsoIstruttore(t.id,t.corsi_ids[i],true)}
                       style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:0}}>×</button>
                   </div>
