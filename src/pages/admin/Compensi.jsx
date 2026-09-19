@@ -90,6 +90,8 @@ export default function Compensi() {
   const [periodoLabel, setPeriodoLabel] = useState("");
 
   const [risultato, setRisultato] = useState(null);
+  const [aggiustamentoImporto, setAggiustamentoImporto] = useState("");
+  const [aggiustamentoNota, setAggiustamentoNota] = useState("");
   const [calcolando, setCalcolando] = useState(false);
   const [errore, setErrore] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -146,6 +148,16 @@ export default function Compensi() {
   }
 
   const istruttore = istruttori.find((i) => i.id === istruttoreId) || null;
+
+  // Rimanenza manuale (es. sostituzione non attribuita in un periodo
+  // precedente) — si somma al totale calcolato PRIMA di stampare o
+  // segnare come pagato, così cumulativo e scaglione fiscale la tengono
+  // in conto.
+  const aggiustamentoNum = Number(aggiustamentoImporto) || 0;
+  const importoFinale = risultato ? risultato.importoTotale + aggiustamentoNum : 0;
+  const cumulativoDopoFinale = risultato ? risultato.cumulativoPrima + importoFinale : 0;
+  const scDopoFinale = risultato ? scaglioneDi(cumulativoDopoFinale) : null;
+  const avvisoCambioScaglioneFinale = risultato ? risultato.scPrima.riga !== scDopoFinale.riga : false;
 
   useEffect(() => {
     if (istruttore) {
@@ -214,6 +226,7 @@ export default function Compensi() {
   async function calcola() {
     if (!istruttoreId) return;
     setCalcolando(true); setErrore(""); setRisultato(null); setMessaggio("");
+    setAggiustamentoImporto(""); setAggiustamentoNota("");
     try {
       // ── SEDE ──
       const [{ data: turni, error: errT }, { data: eccTutte, error: errE }] = await Promise.all([
@@ -322,8 +335,9 @@ export default function Compensi() {
       const { error } = await supabase.from("compensi_pagamenti").insert({
         istruttore_id: istruttoreId, anno: Number(dataFine.slice(0, 4)), data_inizio: dataInizio, data_fine: dataFine,
         periodo_label: periodoLabel, ore_sede: risultato.oreSedeTotali, ore_palestra: risultato.orePalestraTotali,
-        importo_sede: risultato.importoSede, importo_palestra: risultato.importoPalestra, importo_totale: risultato.importoTotale,
-        cumulativo_annuo_dopo: risultato.cumulativoDopo, data_pagamento: isoData(new Date()), pagato: true,
+        importo_sede: risultato.importoSede, importo_palestra: risultato.importoPalestra, importo_totale: importoFinale,
+        aggiustamento_importo: aggiustamentoNum, aggiustamento_nota: aggiustamentoNota || null,
+        cumulativo_annuo_dopo: cumulativoDopoFinale, data_pagamento: isoData(new Date()), pagato: true,
         dettaglio: { righeSede: risultato.righeSede, righePalestra: risultato.righePalestra },
       });
       if (error) throw new Error(error.message);
@@ -337,8 +351,8 @@ export default function Compensi() {
     if (!risultato || !anagraficaCompleta) return;
     generaAutocertificazione({
       nome: istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
-      periodoLabel, dataPagamento: isoData(new Date()), importoCumulativo: risultato.cumulativoDopo,
-      scaglioneRiga: risultato.scDopo.riga,
+      periodoLabel, dataPagamento: isoData(new Date()), importoCumulativo: cumulativoDopoFinale,
+      scaglioneRiga: scDopoFinale.riga,
     });
   }
 
@@ -422,13 +436,24 @@ export default function Compensi() {
               <tbody>
                 <tr style={{ borderBottom: "1px solid #f2f2f2" }}><td style={{ padding: "6px 8px" }}>Studio (SEDE) — {risultato.oreSedeTotali} ore</td><td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{euro(risultato.importoSede)}</td></tr>
                 <tr style={{ borderBottom: "1px solid #f2f2f2" }}><td style={{ padding: "6px 8px" }}>Palestra — {risultato.orePalestraTotali} ore</td><td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{euro(risultato.importoPalestra)}</td></tr>
-                <tr><td style={{ padding: "6px 8px", fontWeight: 700 }}>Totale periodo</td><td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: C }}>{euro(risultato.importoTotale)}</td></tr>
+                <tr style={{ borderBottom: "1px solid #f2f2f2" }}>
+                  <td style={{ padding: "6px 8px" }}>
+                    Aggiustamento manuale (rimanenza, bonus, correzione…)
+                    <input type="text" value={aggiustamentoNota} onChange={(e) => setAggiustamentoNota(e.target.value)} placeholder="Descrizione (facoltativa) — es. Bonus, sostituzione non attribuita…"
+                      style={{ display: "block", marginTop: 4, width: "90%", padding: "4px 6px", borderRadius: 5, border: "1px solid #ddd", fontSize: 11 }} />
+                  </td>
+                  <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                    <input type="number" step="0.01" value={aggiustamentoImporto} onChange={(e) => setAggiustamentoImporto(e.target.value)} placeholder="0,00"
+                      style={{ width: 90, padding: "4px 6px", borderRadius: 5, border: "1px solid #ddd", fontSize: 13, textAlign: "right" }} />
+                  </td>
+                </tr>
+                <tr><td style={{ padding: "6px 8px", fontWeight: 700 }}>Totale periodo</td><td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: C }}>{euro(importoFinale)}</td></tr>
               </tbody>
             </table>
             <div style={{ background: CL, borderRadius: 8, padding: 12, fontSize: 13 }}>
               <div>Totale {dataFine.slice(0, 4)} già pagato prima di questo periodo: <strong>{euro(risultato.cumulativoPrima)}</strong></div>
-              <div>Totale {dataFine.slice(0, 4)} DOPO questo pagamento: <strong>{euro(risultato.cumulativoDopo)}</strong> — scaglione: {risultato.scDopo.label}</div>
-              {risultato.avvisoCambioScaglione && (
+              <div>Totale {dataFine.slice(0, 4)} DOPO questo pagamento: <strong>{euro(cumulativoDopoFinale)}</strong> — scaglione: {scDopoFinale.label}</div>
+              {avvisoCambioScaglioneFinale && (
                 <div style={{ color: "#c0392b", fontWeight: 600, marginTop: 6 }}>⚠️ Questo pagamento fa passare l'istruttore da uno scaglione all'altro nel corso dell'anno — verifica con il commercialista come ripartire l'importo tra i due scaglioni prima di far firmare l'autocertificazione.</div>
               )}
             </div>
@@ -450,7 +475,7 @@ export default function Compensi() {
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {storico.map((p) => (
               <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", background: CL, borderRadius: 8, fontSize: 13 }}>
-                <span>{p.periodo_label} ({dataItaliana(p.data_inizio)} – {dataItaliana(p.data_fine)})</span>
+                <span>{p.periodo_label} ({dataItaliana(p.data_inizio)} – {dataItaliana(p.data_fine)}){p.aggiustamento_importo ? ` · rimanenza ${euro(p.aggiustamento_importo)}${p.aggiustamento_nota ? ` (${p.aggiustamento_nota})` : ""}` : ""}</span>
                 <span style={{ fontWeight: 600 }}>{euro(p.importo_totale)} · cumulativo dopo: {euro(p.cumulativo_annuo_dopo)}</span>
               </div>
             ))}
