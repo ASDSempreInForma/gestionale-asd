@@ -108,7 +108,7 @@ export default function Compensi() {
       .select(`id, nome, cognome, tipo, attivo, compenso_lezione_default,
         tariffa_sede_1, tariffa_sede_2_3, tariffa_sede_4_5,
         data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza,
-        indirizzo_residenza, cap, cf, data_contratto, qualifica, sesso`)
+        indirizzo_residenza, cap, cf, data_contratto, qualifica, sesso, tipo_contratto, partita_iva`)
       .eq("attivo", true).eq("tipo", "istruttore").order("cognome");
     if (!error) {
       setIstruttori((data || []).map((t) => ({
@@ -118,6 +118,7 @@ export default function Compensi() {
         comuneResidenza: t.comune_residenza, provinciaResidenza: t.provincia_residenza,
         indirizzoResidenza: t.indirizzo_residenza, cap: t.cap, cf: t.cf,
         dataContratto: t.data_contratto, qualifica: t.qualifica || "TECNICO/ISTRUTTORE", sesso: t.sesso,
+        tipoContratto: t.tipo_contratto || "collaborazione", partitaIva: t.partita_iva,
       })));
     }
     setCaricandoIstr(false);
@@ -167,18 +168,24 @@ export default function Compensi() {
         provinciaResidenza: istruttore.provinciaResidenza || "", indirizzoResidenza: istruttore.indirizzoResidenza || "",
         cap: istruttore.cap || "", cf: istruttore.cf || "", dataContratto: istruttore.dataContratto || "",
         qualifica: istruttore.qualifica || "TECNICO/ISTRUTTORE", sesso: istruttore.sesso || "",
+        tipoContratto: istruttore.tipoContratto || "collaborazione", partitaIva: istruttore.partitaIva || "",
       });
     } else setAnagrafica(null);
     setRisultato(null); setMessaggio("");
   }, [istruttoreId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const anagraficaCompleta = anagrafica && anagrafica.dataNascita && anagrafica.comuneNascita && anagrafica.provinciaNascita
-    && anagrafica.comuneResidenza && anagrafica.provinciaResidenza && anagrafica.indirizzoResidenza && anagrafica.cap && anagrafica.cf && anagrafica.sesso;
+  const anagraficaCompleta = anagrafica && (
+    anagrafica.tipoContratto === "partita_iva"
+      ? !!(anagrafica.cf && anagrafica.partitaIva)
+      : !!(anagrafica.dataNascita && anagrafica.comuneNascita && anagrafica.provinciaNascita
+        && anagrafica.comuneResidenza && anagrafica.provinciaResidenza && anagrafica.indirizzoResidenza && anagrafica.cap && anagrafica.cf && anagrafica.sesso)
+  );
 
   async function salvaAnagrafica() {
     if (!istruttoreId) return;
     setSalvandoAnagrafica(true);
     const { error } = await supabase.from("istruttori").update({
+      tipo_contratto: anagrafica.tipoContratto, partita_iva: anagrafica.tipoContratto === "partita_iva" ? (anagrafica.partitaIva || null) : null,
       data_nascita: anagrafica.dataNascita || null, comune_nascita: anagrafica.comuneNascita || null,
       provincia_nascita: anagrafica.provinciaNascita || null, comune_residenza: anagrafica.comuneResidenza || null,
       provincia_residenza: anagrafica.provinciaResidenza || null, indirizzo_residenza: anagrafica.indirizzoResidenza || null,
@@ -348,7 +355,7 @@ export default function Compensi() {
   }
 
   function stampaAutocertificazione() {
-    if (!risultato || !anagraficaCompleta) return;
+    if (!risultato || !anagraficaCompleta || anagrafica.tipoContratto === "partita_iva") return;
     generaAutocertificazione({
       nome: istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
       periodoLabel, dataPagamento: isoData(new Date()), importoCumulativo: cumulativoDopoFinale,
@@ -392,25 +399,44 @@ export default function Compensi() {
 
       {istruttoreId && anagrafica && !anagraficaCompleta && (
         <div style={{ background: "#fff4e5", borderRadius: 12, padding: 16, marginBottom: 20 }}>
-          <div style={{ fontWeight: 700, color: "#b9770e", marginBottom: 10 }}>⚠️ Dati anagrafici incompleti per {istruttore.nome} {istruttore.cognome}</div>
+          <div style={{ fontWeight: 700, color: "#b9770e", marginBottom: 10 }}>⚠️ Dati contrattuali incompleti per {istruttore.nome} {istruttore.cognome}</div>
           <p style={{ fontSize: 12, color: "#8a5a10", margin: "0 0 12px" }}>Servono per generare l'autocertificazione (una volta sola, poi restano salvati). Il riepilogo ore/compenso funziona comunque anche senza.</p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
-            <div><label style={{ fontSize: 11, color: "#888" }}>Sesso</label>
-              <select value={anagrafica.sesso} onChange={(e) => setAnagrafica({ ...anagrafica, sesso: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }}>
-                <option value="">—</option><option value="F">F</option><option value="M">M</option>
-              </select>
-            </div>
-            <div><label style={{ fontSize: 11, color: "#888" }}>Data di nascita</label><input type="date" value={anagrafica.dataNascita} onChange={(e) => setAnagrafica({ ...anagrafica, dataNascita: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
-            <div><label style={{ fontSize: 11, color: "#888" }}>Comune di nascita</label><input type="text" value={anagrafica.comuneNascita} onChange={(e) => setAnagrafica({ ...anagrafica, comuneNascita: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
-            <div><label style={{ fontSize: 11, color: "#888" }}>Prov. nascita</label><input type="text" maxLength={2} value={anagrafica.provinciaNascita} onChange={(e) => setAnagrafica({ ...anagrafica, provinciaNascita: e.target.value.toUpperCase() })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
-            <div><label style={{ fontSize: 11, color: "#888" }}>Codice fiscale</label><input type="text" value={anagrafica.cf} onChange={(e) => setAnagrafica({ ...anagrafica, cf: e.target.value.toUpperCase() })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
-            <div><label style={{ fontSize: 11, color: "#888" }}>Indirizzo di residenza</label><input type="text" value={anagrafica.indirizzoResidenza} onChange={(e) => setAnagrafica({ ...anagrafica, indirizzoResidenza: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
-            <div><label style={{ fontSize: 11, color: "#888" }}>CAP</label><input type="text" value={anagrafica.cap} onChange={(e) => setAnagrafica({ ...anagrafica, cap: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
-            <div><label style={{ fontSize: 11, color: "#888" }}>Comune di residenza</label><input type="text" value={anagrafica.comuneResidenza} onChange={(e) => setAnagrafica({ ...anagrafica, comuneResidenza: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
-            <div><label style={{ fontSize: 11, color: "#888" }}>Prov. residenza</label><input type="text" maxLength={2} value={anagrafica.provinciaResidenza} onChange={(e) => setAnagrafica({ ...anagrafica, provinciaResidenza: e.target.value.toUpperCase() })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
-            <div><label style={{ fontSize: 11, color: "#888" }}>Data contratto/incarico</label><input type="date" value={anagrafica.dataContratto} onChange={(e) => setAnagrafica({ ...anagrafica, dataContratto: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
-            <div><label style={{ fontSize: 11, color: "#888" }}>Qualifica</label><input type="text" value={anagrafica.qualifica} onChange={(e) => setAnagrafica({ ...anagrafica, qualifica: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            <button onClick={() => setAnagrafica({ ...anagrafica, tipoContratto: "collaborazione" })}
+              style={{ flex: 1, padding: "8px", borderRadius: 8, border: `1px solid ${anagrafica.tipoContratto === "collaborazione" ? "#b9770e" : "#ddd"}`, background: anagrafica.tipoContratto === "collaborazione" ? "#b9770e18" : "#fff", fontSize: 12, fontWeight: 600, color: anagrafica.tipoContratto === "collaborazione" ? "#b9770e" : "#888", cursor: "pointer" }}>
+              Collaborazione (autocertificazione)
+            </button>
+            <button onClick={() => setAnagrafica({ ...anagrafica, tipoContratto: "partita_iva" })}
+              style={{ flex: 1, padding: "8px", borderRadius: 8, border: `1px solid ${anagrafica.tipoContratto === "partita_iva" ? "#b9770e" : "#ddd"}`, background: anagrafica.tipoContratto === "partita_iva" ? "#b9770e18" : "#fff", fontSize: 12, fontWeight: 600, color: anagrafica.tipoContratto === "partita_iva" ? "#b9770e" : "#888", cursor: "pointer" }}>
+              Partita IVA (fattura)
+            </button>
           </div>
+
+          {anagrafica.tipoContratto === "partita_iva" ? (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Partita IVA</label><input type="text" value={anagrafica.partitaIva} onChange={(e) => setAnagrafica({ ...anagrafica, partitaIva: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Codice fiscale</label><input type="text" value={anagrafica.cf} onChange={(e) => setAnagrafica({ ...anagrafica, cf: e.target.value.toUpperCase() })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Sesso</label>
+                <select value={anagrafica.sesso} onChange={(e) => setAnagrafica({ ...anagrafica, sesso: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }}>
+                  <option value="">—</option><option value="F">F</option><option value="M">M</option>
+                </select>
+              </div>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Data di nascita</label><input type="date" value={anagrafica.dataNascita} onChange={(e) => setAnagrafica({ ...anagrafica, dataNascita: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Comune di nascita</label><input type="text" value={anagrafica.comuneNascita} onChange={(e) => setAnagrafica({ ...anagrafica, comuneNascita: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Prov. nascita (EE se estero)</label><input type="text" maxLength={2} value={anagrafica.provinciaNascita} onChange={(e) => setAnagrafica({ ...anagrafica, provinciaNascita: e.target.value.toUpperCase() })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Codice fiscale</label><input type="text" value={anagrafica.cf} onChange={(e) => setAnagrafica({ ...anagrafica, cf: e.target.value.toUpperCase() })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Indirizzo di residenza</label><input type="text" value={anagrafica.indirizzoResidenza} onChange={(e) => setAnagrafica({ ...anagrafica, indirizzoResidenza: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              <div><label style={{ fontSize: 11, color: "#888" }}>CAP</label><input type="text" value={anagrafica.cap} onChange={(e) => setAnagrafica({ ...anagrafica, cap: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Comune di residenza</label><input type="text" value={anagrafica.comuneResidenza} onChange={(e) => setAnagrafica({ ...anagrafica, comuneResidenza: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Prov. residenza</label><input type="text" maxLength={2} value={anagrafica.provinciaResidenza} onChange={(e) => setAnagrafica({ ...anagrafica, provinciaResidenza: e.target.value.toUpperCase() })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Data contratto/incarico</label><input type="date" value={anagrafica.dataContratto} onChange={(e) => setAnagrafica({ ...anagrafica, dataContratto: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Qualifica</label><input type="text" value={anagrafica.qualifica} onChange={(e) => setAnagrafica({ ...anagrafica, qualifica: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+            </div>
+          )}
           <button onClick={salvaAnagrafica} disabled={salvandoAnagrafica} style={{ marginTop: 12, background: "#b9770e", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
             {salvandoAnagrafica ? "Salvo…" : "Salva dati anagrafici"}
           </button>
@@ -459,10 +485,14 @@ export default function Compensi() {
             </div>
             <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
               <button onClick={segnaComePagato} disabled={salvando} style={{ background: "#1f8a52", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{salvando ? "Salvo…" : "✓ Segna come pagato"}</button>
-              <button onClick={stampaAutocertificazione} disabled={!anagraficaCompleta} title={!anagraficaCompleta ? "Completa prima i dati anagrafici" : ""}
-                style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: anagraficaCompleta ? "pointer" : "default", opacity: anagraficaCompleta ? 1 : 0.5 }}>
-                🖨️ Genera autocertificazione (PDF)
-              </button>
+              {anagrafica?.tipoContratto === "partita_iva" ? (
+                <div style={{ fontSize: 12, color: "#888", alignSelf: "center" }}>Partita IVA — fattura direttamente lui/lei, nessuna autocertificazione da generare.</div>
+              ) : (
+                <button onClick={stampaAutocertificazione} disabled={!anagraficaCompleta} title={!anagraficaCompleta ? "Completa prima i dati anagrafici" : ""}
+                  style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: anagraficaCompleta ? "pointer" : "default", opacity: anagraficaCompleta ? 1 : 0.5 }}>
+                  🖨️ Genera autocertificazione (PDF)
+                </button>
+              )}
             </div>
           </div>
         </>
