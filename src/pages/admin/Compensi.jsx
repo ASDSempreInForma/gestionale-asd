@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { generaAutocertificazione } from "./generaAutocertificazione.js";
+import { generaContrattoCollaborazione, generaContrattoPartitaIva } from "./generaContratto.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -108,7 +109,9 @@ export default function Compensi() {
       .select(`id, nome, cognome, nome_legale, tipo, attivo, compenso_lezione_default,
         tariffa_sede_1, tariffa_sede_2_3, tariffa_sede_4_5,
         data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza,
-        indirizzo_residenza, cap, cf, data_contratto, qualifica, sesso, tipo_contratto, partita_iva`)
+        indirizzo_residenza, cap, cf, data_contratto, qualifica, sesso, tipo_contratto, partita_iva,
+        disciplina_contratto, disponibilita_oraria, compenso_orario_contratto, data_fine_contratto,
+        compenso_annuo_lordo, scadenza_pagamento_iva`)
       .eq("attivo", true).eq("tipo", "istruttore").order("cognome");
     if (!error) {
       setIstruttori((data || []).map((t) => ({
@@ -119,6 +122,9 @@ export default function Compensi() {
         indirizzoResidenza: t.indirizzo_residenza, cap: t.cap, cf: t.cf,
         dataContratto: t.data_contratto, qualifica: t.qualifica || "TECNICO/ISTRUTTORE", sesso: t.sesso,
         tipoContratto: t.tipo_contratto || "collaborazione", partitaIva: t.partita_iva,
+        disciplinaContratto: t.disciplina_contratto, disponibilitaOraria: t.disponibilita_oraria,
+        compensoOrarioContratto: t.compenso_orario_contratto, dataFineContratto: t.data_fine_contratto,
+        compensoAnnuoLordo: t.compenso_annuo_lordo, scadenzaPagamentoIva: t.scadenza_pagamento_iva,
       })));
     }
     setCaricandoIstr(false);
@@ -173,6 +179,57 @@ export default function Compensi() {
     } else setAnagrafica(null);
     setRisultato(null); setMessaggio("");
   }, [istruttoreId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [contratto, setContratto] = useState(null);
+  const [salvandoContratto, setSalvandoContratto] = useState(false);
+  useEffect(() => {
+    if (istruttore) {
+      setContratto({
+        disciplinaContratto: istruttore.disciplinaContratto || "Ginnastica Finalizzata Alla Salute Ed Al Fitness",
+        disponibilitaOraria: istruttore.disponibilitaOraria || "",
+        compensoOrarioContratto: istruttore.compensoOrarioContratto || "",
+        dataFineContratto: istruttore.dataFineContratto || "",
+        compensoAnnuoLordo: istruttore.compensoAnnuoLordo || "",
+        scadenzaPagamentoIva: istruttore.scadenzaPagamentoIva || "MENSILMENTE",
+        clausolaAggiuntiva: "",
+      });
+    } else setContratto(null);
+  }, [istruttoreId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function salvaContratto() {
+    if (!istruttoreId || !contratto) return;
+    setSalvandoContratto(true);
+    const { error } = await supabase.from("istruttori").update({
+      disciplina_contratto: contratto.disciplinaContratto || null,
+      disponibilita_oraria: contratto.disponibilitaOraria || null,
+      compenso_orario_contratto: contratto.compensoOrarioContratto === "" ? null : Number(contratto.compensoOrarioContratto),
+      data_fine_contratto: contratto.dataFineContratto || null,
+      compenso_annuo_lordo: contratto.compensoAnnuoLordo === "" ? null : Number(contratto.compensoAnnuoLordo),
+      scadenza_pagamento_iva: contratto.scadenzaPagamentoIva || null,
+    }).eq("id", istruttoreId);
+    setSalvandoContratto(false);
+    if (error) { setErrore(error.message); return; }
+    setMessaggio("Dati contratto salvati.");
+    caricaIstruttori();
+  }
+
+  async function generaContratto() {
+    if (!istruttoreId || !contratto || !anagraficaCompleta) return;
+    if (anagrafica.tipoContratto === "partita_iva") {
+      await generaContrattoPartitaIva({
+        nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
+        partitaIva: anagrafica.partitaIva, compensoAnnuoLordo: contratto.compensoAnnuoLordo,
+        scadenzaPagamentoIva: contratto.scadenzaPagamentoIva, clausolaAggiuntiva: contratto.clausolaAggiuntiva,
+      });
+    } else {
+      await generaContrattoCollaborazione({
+        nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
+        disciplinaContratto: contratto.disciplinaContratto, disponibilitaOraria: contratto.disponibilitaOraria,
+        compensoOrarioContratto: contratto.compensoOrarioContratto, dataFineContratto: contratto.dataFineContratto,
+        clausolaAggiuntiva: contratto.clausolaAggiuntiva,
+      });
+    }
+  }
 
   const anagraficaCompleta = anagrafica && (
     anagrafica.tipoContratto === "partita_iva"
@@ -445,6 +502,52 @@ export default function Compensi() {
 
       {errore && <div style={{ background: "#fdecea", color: "#c0392b", padding: "10px 14px", borderRadius: 8, marginBottom: 16 }}>{errore}</div>}
       {messaggio && <div style={{ background: "#eafaf0", color: "#1f8a52", padding: "10px 14px", borderRadius: 8, marginBottom: 16 }}>{messaggio}</div>}
+
+      {istruttoreId && contratto && (
+        <div style={{ background: "#fff", borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+          <h3 style={{ margin: "0 0 4px", fontSize: 15, color: "#333" }}>📄 Contratto</h3>
+          <p style={{ margin: "0 0 14px", fontSize: 12, color: "#888" }}>
+            {anagrafica?.tipoContratto === "partita_iva"
+              ? "Incarico per collaborazione sportiva con partita IVA."
+              : "Contratto di collaborazione coordinata e continuativa."}
+            {" "}I campi sono precompilati con l'ultimo valore salvato — modificali liberamente prima di generare il PDF.
+          </p>
+
+          {anagrafica?.tipoContratto === "partita_iva" ? (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, marginBottom: 12 }}>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Compenso annuo lordo (€)</label><input type="number" value={contratto.compensoAnnuoLordo} onChange={(e) => setContratto({ ...contratto, compensoAnnuoLordo: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Scadenza pagamento</label><input type="text" value={contratto.scadenzaPagamentoIva} onChange={(e) => setContratto({ ...contratto, scadenzaPagamentoIva: e.target.value })} placeholder="es. MENSILMENTE, TRIMESTRALMENTE" style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, marginBottom: 12 }}>
+              <div style={{ gridColumn: "span 2" }}><label style={{ fontSize: 11, color: "#888" }}>Disciplina</label><input type="text" value={contratto.disciplinaContratto} onChange={(e) => setContratto({ ...contratto, disciplinaContratto: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              <div style={{ gridColumn: "span 2" }}>
+                <label style={{ fontSize: 11, color: "#888" }}>Giorni/orari di disponibilità (una voce per riga o separati da ;)</label>
+                <textarea value={contratto.disponibilitaOraria} onChange={(e) => setContratto({ ...contratto, disponibilitaOraria: e.target.value })} rows={3}
+                  placeholder="es. Martedì dalle ore 19,15 alle ore 20,15; Venerdì dalle ore 18,00 alle ore 19,00"
+                  style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd", fontFamily: "inherit", boxSizing: "border-box" }} />
+              </div>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Compenso orario contrattuale (€)</label><input type="number" value={contratto.compensoOrarioContratto} onChange={(e) => setContratto({ ...contratto, compensoOrarioContratto: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Data fine contratto (l'inizio è la Data contratto/incarico qui sopra)</label><input type="date" value={contratto.dataFineContratto} onChange={(e) => setContratto({ ...contratto, dataFineContratto: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+            </div>
+          )}
+
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 11, color: "#888" }}>Clausola aggiuntiva (facoltativa — per una piccola modifica specifica a questo contratto)</label>
+            <textarea value={contratto.clausolaAggiuntiva} onChange={(e) => setContratto({ ...contratto, clausolaAggiuntiva: e.target.value })} rows={2}
+              style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd", fontFamily: "inherit", boxSizing: "border-box" }} />
+          </div>
+
+          {!anagraficaCompleta && <div style={{ fontSize: 12, color: "#c0392b", marginBottom: 10 }}>Completa prima i dati anagrafici qui sopra — servono anche per il contratto.</div>}
+
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={salvaContratto} disabled={salvandoContratto} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{salvandoContratto ? "Salvo…" : "Salva questi dati"}</button>
+            <button onClick={generaContratto} disabled={!anagraficaCompleta} style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: anagraficaCompleta ? "pointer" : "default", opacity: anagraficaCompleta ? 1 : 0.5 }}>
+              🖨️ Genera contratto (PDF)
+            </button>
+          </div>
+        </div>
+      )}
 
       {risultato && (
         <>
