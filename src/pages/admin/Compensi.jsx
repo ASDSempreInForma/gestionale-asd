@@ -105,14 +105,14 @@ export default function Compensi() {
   const caricaIstruttori = useCallback(async () => {
     setCaricandoIstr(true);
     const { data, error } = await supabase.from("istruttori")
-      .select(`id, nome, cognome, tipo, attivo, compenso_lezione_default,
+      .select(`id, nome, cognome, nome_legale, tipo, attivo, compenso_lezione_default,
         tariffa_sede_1, tariffa_sede_2_3, tariffa_sede_4_5,
         data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza,
         indirizzo_residenza, cap, cf, data_contratto, qualifica, sesso, tipo_contratto, partita_iva`)
       .eq("attivo", true).eq("tipo", "istruttore").order("cognome");
     if (!error) {
       setIstruttori((data || []).map((t) => ({
-        id: t.id, nome: t.nome, cognome: t.cognome, compensoLezione: t.compenso_lezione_default || 0,
+        id: t.id, nome: t.nome, cognome: t.cognome, nomeLegale: t.nome_legale, compensoLezione: t.compenso_lezione_default || 0,
         tariffaSede1: t.tariffa_sede_1, tariffaSede23: t.tariffa_sede_2_3, tariffaSede45: t.tariffa_sede_4_5,
         dataNascita: t.data_nascita, comuneNascita: t.comune_nascita, provinciaNascita: t.provincia_nascita,
         comuneResidenza: t.comune_residenza, provinciaResidenza: t.provincia_residenza,
@@ -357,7 +357,7 @@ export default function Compensi() {
   function stampaAutocertificazione() {
     if (!risultato || !anagraficaCompleta || anagrafica.tipoContratto === "partita_iva") return;
     generaAutocertificazione({
-      nome: istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
+      nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
       periodoLabel, dataPagamento: isoData(new Date()), importoCumulativo: cumulativoDopoFinale,
       scaglioneRiga: scDopoFinale.riga,
     });
