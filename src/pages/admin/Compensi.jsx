@@ -213,6 +213,8 @@ export default function Compensi({ istruttoreIniziale } = {}) {
       data_fine_contratto: contratto.dataFineContratto || null,
       compenso_annuo_lordo: contratto.compensoAnnuoLordo === "" ? null : Number(contratto.compensoAnnuoLordo),
       scadenza_pagamento_iva: contratto.scadenzaPagamentoIva || null,
+      // La data di inizio contratto vive in `anagrafica` ma va salvata anche da qui; per la P.IVA non c'è.
+      ...(anagrafica && anagrafica.tipoContratto !== "partita_iva" ? { data_contratto: anagrafica.dataContratto || null } : {}),
     }).eq("id", istruttoreId);
     setSalvandoContratto(false);
     if (error) { setErrore(error.message); return; }
@@ -552,8 +554,9 @@ export default function Compensi({ istruttoreIniziale } = {}) {
                   placeholder="es. Martedì dalle ore 19,15 alle ore 20,15; Venerdì dalle ore 18,00 alle ore 19,00"
                   style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd", fontFamily: "inherit", boxSizing: "border-box" }} />
               </div>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Data inizio contratto (è anche la data del contratto scritta nell'autocertificazione)</label><input type="date" value={anagrafica?.dataContratto || ""} onChange={(e) => setAnagrafica({ ...anagrafica, dataContratto: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              <div><label style={{ fontSize: 11, color: "#888" }}>Data fine contratto</label><input type="date" value={contratto.dataFineContratto} onChange={(e) => setContratto({ ...contratto, dataFineContratto: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
               <div><label style={{ fontSize: 11, color: "#888" }}>Compenso orario contrattuale (€)</label><input type="number" value={contratto.compensoOrarioContratto} onChange={(e) => setContratto({ ...contratto, compensoOrarioContratto: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
-              <div><label style={{ fontSize: 11, color: "#888" }}>Data fine contratto (l'inizio è la Data contratto/incarico qui sopra)</label><input type="date" value={contratto.dataFineContratto} onChange={(e) => setContratto({ ...contratto, dataFineContratto: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
             </div>
           )}
 
