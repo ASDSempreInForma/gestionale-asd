@@ -18,6 +18,7 @@ import CalcolatorePrezzi from './CalcolatorePrezzi.jsx'
 import GenerazioneAttestati from './GenerazioneAttestati.jsx'
 import Note from './Note.jsx'
 import GestioneSede from './GestioneSede.jsx'
+import Compensi from './Compensi.jsx'
 
 // Voci raggruppate in sezioni pieghevoli (14/09/2026) — la sidebar era diventata
 // una lista piatta di 18 voci, difficile da scorrere. Il raggruppamento è solo
@@ -55,6 +56,7 @@ const SEZIONI = [
       { id: 'gestione-corsi', icon: '🎯', label: 'Gestione corsi' },
       { id: 'gestione-sede', icon: '🏢', label: 'Gestione SEDE' },
       { id: 'istruttori',   icon: '👨‍🏫', label: 'Istruttori' },
+      { id: 'compensi',     icon: '💶', label: 'Compensi' },
       { id: 'gestione-stagioni', icon: '🗓️', label: 'Stagioni' },
       { id: 'calcolatore-prezzi', icon: '🧮', label: 'Calcolatore prezzi' },
     ],
@@ -202,6 +204,7 @@ export default function AdminLayout({ user, onLogout }) {
         {pagina === 'istruttori'  && <GestioneIstruttori />}
         {pagina === 'gestione-corsi' && <GestioneCorsi />}
         {pagina === 'gestione-sede' && <GestioneSede />}
+        {pagina === 'compensi' && <Compensi />}
         {pagina === 'calcolatore-prezzi' && <CalcolatorePrezzi />}
         {pagina === 'gestione-stagioni' && <GestioneStagioni />}
         {pagina === 'corsi'       && <VistaCorsomobile />}
