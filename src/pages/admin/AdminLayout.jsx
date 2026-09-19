@@ -112,6 +112,11 @@ function MenuSezioni({ pagina, sezioniAperte, onToggleSezione, onNavigate, mobil
 export default function AdminLayout({ user, onLogout }) {
   const [pagina, setPagina] = useState('note')
   const [menuAperto, setMenuAperto] = useState(false)
+  // Istruttore da aprire subito in Compensi quando ci si arriva da un link
+  // rapido (es. "📄 Contratto" nella scheda di un istruttore) invece che
+  // dalla selezione manuale nella tendina di Compensi.
+  const [istruttoreCompensi, setIstruttoreCompensi] = useState(null)
+  const vaiAContratto = (istruttoreId) => { setIstruttoreCompensi(istruttoreId); setPagina('compensi') }
   // Tutte le sezioni aperte di default: il raggruppamento serve a orientarsi
   // meglio nella lista, non a nascondere voci — chi vuole può chiudere quelle
   // che usa meno spesso.
@@ -201,10 +206,10 @@ export default function AdminLayout({ user, onLogout }) {
         {pagina === 'anagrafica-soci' && <AnagraficaSoci />}
         {pagina === 'import-tessere' && <ImportTessere />}
         {pagina === 'prove'       && <GestioneProve />}
-        {pagina === 'istruttori'  && <GestioneIstruttori />}
+        {pagina === 'istruttori'  && <GestioneIstruttori onVaiAContratto={vaiAContratto} />}
         {pagina === 'gestione-corsi' && <GestioneCorsi />}
         {pagina === 'gestione-sede' && <GestioneSede />}
-        {pagina === 'compensi' && <Compensi />}
+        {pagina === 'compensi' && <Compensi istruttoreIniziale={istruttoreCompensi} />}
         {pagina === 'calcolatore-prezzi' && <CalcolatorePrezzi />}
         {pagina === 'gestione-stagioni' && <GestioneStagioni />}
         {pagina === 'corsi'       && <VistaCorsomobile />}

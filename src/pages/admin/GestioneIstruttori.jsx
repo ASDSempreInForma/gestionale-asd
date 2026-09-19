@@ -77,7 +77,7 @@ function StatoBadge({stato,small}){
 }
 
 // ── Componente principale ───────────────────────────────────────────────────────
-export default function GestioneIstruttori(){
+export default function GestioneIstruttori({ onVaiAContratto }){
   const [tab,setTab]=useState("istruttori");
   const [istruttori,setIstruttori]=useState([]);
   const [corsiDisponibili,setCorsiDisponibili]=useState([]);
@@ -809,9 +809,15 @@ export default function GestioneIstruttori(){
                   </div>
                 );})()}
 
+                <button onClick={()=>onVaiAContratto?.(t.id)}
+                  style={{width:"100%",marginTop:14,padding:"9px",background:C.green+"18",border:`1px solid ${C.green}`,
+                    borderRadius:9,fontSize:12,fontWeight:600,color:C.greenD,cursor:"pointer"}}>
+                  📄 Contratto / Autocertificazione
+                </button>
+
                 <button onClick={()=>rimuoviIstruttore(t.id,`${t.cognome} ${t.nome}`)}
                   disabled={saving["rimuovi_"+t.id]}
-                  style={{width:"100%",marginTop:14,padding:"9px",background:C.redL,border:`1px solid ${C.red}44`,
+                  style={{width:"100%",marginTop:8,padding:"9px",background:C.redL,border:`1px solid ${C.red}44`,
                     borderRadius:9,fontSize:12,fontWeight:600,color:C.red,cursor:"pointer"}}>
                   {saving["rimuovi_"+t.id]?"Archivio…":"📦 Archivia istruttore"}
                 </button>

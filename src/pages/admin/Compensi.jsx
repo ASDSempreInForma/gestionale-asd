@@ -77,13 +77,20 @@ function generaOccorrenzeSede(turni, eccezioni, dataInizio, dataFine) {
   return risultato;
 }
 
-export default function Compensi() {
+export default function Compensi({ istruttoreIniziale } = {}) {
   const [istruttori, setIstruttori] = useState([]);
-  const [istruttoreId, setIstruttoreId] = useState("");
+  const [istruttoreId, setIstruttoreId] = useState(istruttoreIniziale || "");
   const [caricandoIstr, setCaricandoIstr] = useState(true);
   const [festivitaPalestra, setFestivitaPalestra] = useState([]);
   const [festivitaSede, setFestivitaSede] = useState([]);
   const [nuovaFestivita, setNuovaFestivita] = useState({ sistema: "palestra", dal: "", al: "", descrizione: "" });
+
+  // Se si arriva da un link rapido (es. "📄 Contratto" in Gestione
+  // Istruttori) mentre questa pagina è già montata, aggiorna la selezione.
+  useEffect(() => {
+    if (istruttoreIniziale) setIstruttoreId(istruttoreIniziale);
+  }, [istruttoreIniziale]);
+
 
   const oggi = new Date();
   const [dataInizio, setDataInizio] = useState(isoData(new Date(oggi.getFullYear(), oggi.getMonth(), 1)));
@@ -178,7 +185,7 @@ export default function Compensi() {
       });
     } else setAnagrafica(null);
     setRisultato(null); setMessaggio("");
-  }, [istruttoreId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [istruttoreId, istruttori]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [contratto, setContratto] = useState(null);
   const [salvandoContratto, setSalvandoContratto] = useState(false);
@@ -194,7 +201,7 @@ export default function Compensi() {
         clausolaAggiuntiva: "",
       });
     } else setContratto(null);
-  }, [istruttoreId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [istruttoreId, istruttori]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function salvaContratto() {
     if (!istruttoreId || !contratto) return;
