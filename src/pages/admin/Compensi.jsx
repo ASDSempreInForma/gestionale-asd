@@ -12,21 +12,13 @@ const CL = "#EEF0F1";
 const GIORNI_LABEL = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
 const MESI = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"];
 
-// Festività/sospensioni Palestra — STESSA lista hardcoded usata in
-// GestioneIstruttori.jsx (non persistita su DB in nessuno dei due file:
-// se la cambi in Calendario aggiornala anche qui, altrimenti i conteggi
-// dei due pannelli divergono silenziosamente).
-const FESTIVITA = [
-  { dal: "2026-11-01", al: "2026-11-01" },
-  { dal: "2026-12-08", al: "2026-12-08" },
-  { dal: "2026-12-22", al: "2027-01-07" },
-  { dal: "2027-01-06", al: "2027-01-06" },
-  { dal: "2027-03-25", al: "2027-04-03" },
-  { dal: "2027-04-25", al: "2027-04-25" },
-  { dal: "2027-05-01", al: "2027-05-01" },
-];
+// Festività/sospensioni: ora vivono nella tabella "festivita" (fetchate
+// più sotto), non più hardcoded qui — vedi anche GestioneIstruttori.jsx,
+// che scrive/legge la stessa tabella per il sistema "palestra". Il
+// sistema "sede" è un elenco indipendente e tipicamente più corto (la
+// SEDE fa molte meno sospensioni della Palestra).
 function dateInRange(d, dal, al) { return d >= dal && d <= al; }
-function isDateSospesa(d) { return FESTIVITA.some((s) => dateInRange(d, s.dal, s.al)); }
+function isDataSospesa(d, elenco) { return elenco.some((s) => dateInRange(d, s.dal, s.al)); }
 
 function isoData(d) {
   // MAI toISOString() su una data locale: sposta indietro di un giorno nei
@@ -88,6 +80,9 @@ export default function Compensi() {
   const [istruttori, setIstruttori] = useState([]);
   const [istruttoreId, setIstruttoreId] = useState("");
   const [caricandoIstr, setCaricandoIstr] = useState(true);
+  const [festivitaPalestra, setFestivitaPalestra] = useState([]);
+  const [festivitaSede, setFestivitaSede] = useState([]);
+  const [nuovaFestivita, setNuovaFestivita] = useState({ sistema: "palestra", dal: "", al: "", descrizione: "" });
 
   const oggi = new Date();
   const [dataInizio, setDataInizio] = useState(isoData(new Date(oggi.getFullYear(), oggi.getMonth(), 1)));
@@ -125,7 +120,30 @@ export default function Compensi() {
     }
     setCaricandoIstr(false);
   }, []);
-  useEffect(() => { caricaIstruttori(); }, [caricaIstruttori]);
+  useEffect(() => { caricaIstruttori(); caricaFestivita(); }, [caricaIstruttori]);
+
+  async function caricaFestivita() {
+    const { data, error } = await supabase.from("festivita").select("*").order("dal");
+    if (error) return;
+    const righe = data || [];
+    setFestivitaPalestra(righe.filter((r) => r.sistema === "palestra").map((r) => ({ id: r.id, dal: r.dal, al: r.al, desc: r.descrizione })));
+    setFestivitaSede(righe.filter((r) => r.sistema === "sede").map((r) => ({ id: r.id, dal: r.dal, al: r.al, desc: r.descrizione })));
+  }
+
+  async function aggiungiFestivita() {
+    if (!nuovaFestivita.dal || !nuovaFestivita.descrizione) return;
+    const riga = { sistema: nuovaFestivita.sistema, dal: nuovaFestivita.dal, al: nuovaFestivita.al || nuovaFestivita.dal, descrizione: nuovaFestivita.descrizione };
+    const { error } = await supabase.from("festivita").insert(riga);
+    if (error) { setErrore(error.message); return; }
+    setNuovaFestivita({ sistema: nuovaFestivita.sistema, dal: "", al: "", descrizione: "" });
+    caricaFestivita();
+  }
+
+  async function eliminaFestivita(id) {
+    const { error } = await supabase.from("festivita").delete().eq("id", id);
+    if (error) { setErrore(error.message); return; }
+    caricaFestivita();
+  }
 
   const istruttore = istruttori.find((i) => i.id === istruttoreId) || null;
 
@@ -208,6 +226,7 @@ export default function Compensi() {
       const occorrenze = generaOccorrenzeSede(turni || [], eccTutte || [], dataInizio, dataFine);
       const mieSede = occorrenze.filter((o) => {
         if (o.stato !== "svolta") return false;
+        if (isDataSospesa(o.data, festivitaSede)) return false;
         const beneficiario = o.istruttore_sostituto_id || o.istruttore_id;
         return beneficiario === istruttoreId;
       });
@@ -243,7 +262,7 @@ export default function Compensi() {
 
       const contaPerMese = new Map(); // "AAAA-MM" -> ore (1 lezione = 1 ora)
       for (const l of lezPalestra || []) {
-        const conta = (l.stato === "fatta" || l.stato === "recupero") && !isDateSospesa(l.data);
+        const conta = (l.stato === "fatta" || l.stato === "recupero") && !isDataSospesa(l.data, festivitaPalestra);
         if (!conta) continue;
         const chiaveMese = l.data.slice(0, 7);
         contaPerMese.set(chiaveMese, (contaPerMese.get(chiaveMese) || 0) + 1);
@@ -425,7 +444,7 @@ export default function Compensi() {
       )}
 
       {istruttoreId && storico.length > 0 && (
-        <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+        <div style={{ background: "#fff", borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
           <h3 style={{ margin: "0 0 12px", fontSize: 15, color: "#333" }}>Storico pagamenti {dataFine.slice(0, 4)}</h3>
           {saldoIniziale > 0 && <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>+ {euro(saldoIniziale)} di saldo iniziale (pagamenti fuori sistema)</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -438,6 +457,38 @@ export default function Compensi() {
           </div>
         </div>
       )}
+
+      <div style={{ background: "#fff", borderRadius: 12, padding: 18, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+        <h3 style={{ margin: "0 0 4px", fontSize: 15, color: "#333" }}>Festività / sospensioni</h3>
+        <p style={{ margin: "0 0 12px", fontSize: 12, color: "#888" }}>Elenchi separati — una lezione in questi giorni non viene mai conteggiata come svolta/pagata, anche se segnata "fatta". La SEDE ne ha tipicamente molte meno della Palestra.</p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+          {[{ chiave: "palestra", titolo: "Palestra", elenco: festivitaPalestra }, { chiave: "sede", titolo: "SEDE", elenco: festivitaSede }].map(({ chiave, titolo, elenco }) => (
+            <div key={chiave}>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{titolo}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+                {elenco.length === 0 && <div style={{ fontSize: 12, color: "#bbb" }}>Nessuna.</div>}
+                {elenco.map((f) => (
+                  <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px", background: CL, borderRadius: 6, fontSize: 12 }}>
+                    <span>{f.desc} <span style={{ color: "#999" }}>({f.dal === f.al ? dataItaliana(f.dal) : `${dataItaliana(f.dal)} → ${dataItaliana(f.al)}`})</span></span>
+                    <button onClick={() => eliminaFestivita(f.id)} style={{ background: "none", border: "none", color: "#c0392b", cursor: "pointer", fontSize: 13 }}>×</button>
+                  </div>
+                ))}
+              </div>
+              {nuovaFestivita.sistema === chiave && (
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  <input type="date" value={nuovaFestivita.dal} onChange={(e) => setNuovaFestivita({ ...nuovaFestivita, dal: e.target.value })} style={{ padding: 5, borderRadius: 5, border: "1px solid #ddd", fontSize: 11, width: 120 }} />
+                  <input type="date" value={nuovaFestivita.al} onChange={(e) => setNuovaFestivita({ ...nuovaFestivita, al: e.target.value })} placeholder="Al (opz.)" style={{ padding: 5, borderRadius: 5, border: "1px solid #ddd", fontSize: 11, width: 120 }} />
+                  <input type="text" value={nuovaFestivita.descrizione} onChange={(e) => setNuovaFestivita({ ...nuovaFestivita, descrizione: e.target.value })} placeholder="Descrizione" style={{ padding: 5, borderRadius: 5, border: "1px solid #ddd", fontSize: 11, flex: 1, minWidth: 100 }} />
+                  <button onClick={aggiungiFestivita} style={{ background: "#1f8a52", color: "#fff", border: "none", borderRadius: 5, padding: "5px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+</button>
+                </div>
+              )}
+              {nuovaFestivita.sistema !== chiave && (
+                <button onClick={() => setNuovaFestivita({ sistema: chiave, dal: "", al: "", descrizione: "" })} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 5, padding: "5px 10px", fontSize: 11, cursor: "pointer" }}>+ Aggiungi</button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

@@ -26,16 +26,11 @@ const C = {
   text:"#1A1A1A",textSub:"#6B7280",
 };
 
-const FESTIVITA_INIT = [
-  {dal:"2026-11-01",al:"2026-11-01",desc:"Ognissanti"},
-  {dal:"2026-12-08",al:"2026-12-08",desc:"Immacolata"},
-  {dal:"2026-12-22",al:"2027-01-07",desc:"Sospensione Natale/Capodanno"},
-  {dal:"2027-01-06",al:"2027-01-06",desc:"Epifania"},
-  {dal:"2027-03-25",al:"2027-04-03",desc:"Sospensione Pasqua"},
-  {dal:"2027-04-25",al:"2027-04-25",desc:"Liberazione"},
-  {dal:"2027-05-01",al:"2027-05-01",desc:"Festa del Lavoro"},
-];
-// Date indicative — verifica/correggi le sospensioni dalla schermata Calendario appena confermate.
+// Le festività/sospensioni Palestra ora vivono nella tabella "festivita"
+// (sistema='palestra'), condivisa con la pagina Compensi — caricate al
+// montaggio del componente, vedi useEffect più sotto. Non più hardcoded
+// qui: due copie hardcoded (questa + quella in Compensi.jsx) si erano
+// già disallineate una volta, non deve succedere di nuovo.
 
 const MESI_STAGIONE = [
   {anno:2026,mese:9, label:"Set. 2026", labelFull:"Settembre 2026",  tipo:"extra",    opzionale:true,  minAdesioni:12},
@@ -86,7 +81,7 @@ export default function GestioneIstruttori(){
   const [tab,setTab]=useState("istruttori");
   const [istruttori,setIstruttori]=useState([]);
   const [corsiDisponibili,setCorsiDisponibili]=useState([]);
-  const [sospensioni,setSospensioni]=useState(FESTIVITA_INIT);
+  const [sospensioni,setSospensioni]=useState([]);
   const [meseSelIdx,setMeseSelIdx]=useState(2);
   const [lezioni,setLezioni]=useState([]);
   const [mesiGenerati,setMesiGenerati]=useState(new Set());
@@ -102,7 +97,27 @@ export default function GestioneIstruttori(){
   const [sincronizzando,setSincronizzando]=useState(false);
 
   // ── Caricamento da Supabase ──────────────────────────────────────
-  useEffect(()=>{ caricaDati(); },[]);
+  useEffect(()=>{ caricaDati(); caricaFestivita(); },[]);
+
+  async function caricaFestivita(){
+    const {data,error}=await supabase.from("festivita").select("*").eq("sistema","palestra").order("dal");
+    if(!error) setSospensioni((data||[]).map(r=>({id:r.id, dal:r.dal, al:r.al, desc:r.descrizione})));
+  }
+
+  async function aggiungiSospensione(){
+    if(!newPeriodo.dal||!newPeriodo.desc) return;
+    const riga={sistema:"palestra", dal:newPeriodo.dal, al:newPeriodo.al||newPeriodo.dal, descrizione:newPeriodo.desc};
+    const {data,error}=await supabase.from("festivita").insert(riga).select().single();
+    if(error){ alert("Errore nel salvataggio: "+error.message); return; }
+    setSospensioni(prev=>[...prev,{id:data.id, dal:data.dal, al:data.al, desc:data.descrizione}]);
+    setNewPeriodo({dal:"",al:"",desc:""});
+  }
+
+  async function eliminaSospensione(id){
+    const {error}=await supabase.from("festivita").delete().eq("id",id);
+    if(error){ alert("Errore nell'eliminazione: "+error.message); return; }
+    setSospensioni(prev=>prev.filter(s=>s.id!==id));
+  }
 
   // Ore collaboratori del mese selezionato (ricaricate ad ogni cambio mese)
   const [oreCollab,setOreCollab]=useState({}); // {istruttoreId: {ore, note}}
@@ -731,13 +746,13 @@ export default function GestioneIstruttori(){
         {/* Sospensioni */}
         <div style={{background:"white",border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",marginBottom:12}}>
           <div style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:8}}>Periodi di sospensione</div>
-          {sospensioni.map((s,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+          {sospensioni.map((s)=>(
+            <div key={s.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
               padding:"4px 8px",background:"#E0E7FF",borderRadius:6,marginBottom:4}}>
               <span style={{fontSize:11,color:"#3730A3"}}>{s.desc}</span>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <span style={{fontSize:10,color:"#3730A3"}}>{s.dal===s.al?s.dal:`${s.dal} → ${s.al}`}</span>
-                <button onClick={()=>setSospensioni(prev=>prev.filter((_,j)=>j!==i))}
+                <button onClick={()=>eliminaSospensione(s.id)}
                   style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:13,padding:0}}>×</button>
               </div>
             </div>
@@ -750,9 +765,7 @@ export default function GestioneIstruttori(){
             <div style={{display:"flex",gap:5}}>
               <input value={newPeriodo.desc} onChange={e=>setNewPeriodo(p=>({...p,desc:e.target.value}))}
                 placeholder="Descrizione" style={{flex:1,padding:"6px 8px",border:`1px solid ${C.border}`,borderRadius:7,fontSize:11,fontFamily:"inherit"}}/>
-              <button onClick={()=>{if(newPeriodo.dal&&newPeriodo.desc){
-                setSospensioni(prev=>[...prev,{dal:newPeriodo.dal,al:newPeriodo.al||newPeriodo.dal,desc:newPeriodo.desc}]);
-                setNewPeriodo({dal:"",al:"",desc:""});}}}
+              <button onClick={aggiungiSospensione}
                 style={{padding:"6px 10px",background:C.green,border:"none",borderRadius:7,
                   fontSize:11,fontWeight:600,color:"white",cursor:"pointer"}}>+</button>
             </div>
