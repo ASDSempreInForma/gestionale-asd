@@ -286,6 +286,18 @@ export default function Compensi({ istruttoreIniziale } = {}) {
   }, [istruttoreId, dataFine]);
   useEffect(() => { caricaStorico(); }, [caricaStorico]);
 
+  const [salvandoSaldo, setSalvandoSaldo] = useState(false);
+  async function salvaSaldoIniziale() {
+    if (!istruttoreId) return;
+    setSalvandoSaldo(true);
+    const anno = Number(dataFine.slice(0, 4));
+    const { error } = await supabase.from("compensi_saldo_iniziale")
+      .upsert({ istruttore_id: istruttoreId, anno, importo: Number(saldoIniziale) || 0 }, { onConflict: "istruttore_id,anno" });
+    setSalvandoSaldo(false);
+    if (error) { setErrore(error.message); return; }
+    setMessaggio("Saldo iniziale salvato.");
+  }
+
   const cumulativoPrima = saldoIniziale + storico.reduce((s, p) => s + Number(p.importo_totale || 0), 0);
 
   function scaglioneDi(importo) {
@@ -608,18 +620,30 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         </>
       )}
 
-      {istruttoreId && storico.length > 0 && (
+      {istruttoreId && (
         <div style={{ background: "#fff", borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-          <h3 style={{ margin: "0 0 12px", fontSize: 15, color: "#333" }}>Storico pagamenti {dataFine.slice(0, 4)}</h3>
-          {saldoIniziale > 0 && <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>+ {euro(saldoIniziale)} di saldo iniziale (pagamenti fuori sistema)</div>}
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {storico.map((p) => (
-              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", background: CL, borderRadius: 8, fontSize: 13 }}>
-                <span>{p.periodo_label} ({dataItaliana(p.data_inizio)} – {dataItaliana(p.data_fine)}){p.aggiustamento_importo ? ` · rimanenza ${euro(p.aggiustamento_importo)}${p.aggiustamento_nota ? ` (${p.aggiustamento_nota})` : ""}` : ""}</span>
-                <span style={{ fontWeight: 600 }}>{euro(p.importo_totale)} · cumulativo dopo: {euro(p.cumulativo_annuo_dopo)}</span>
-              </div>
-            ))}
+          <h3 style={{ margin: "0 0 4px", fontSize: 15, color: "#333" }}>Storico pagamenti {dataFine.slice(0, 4)}</h3>
+          <p style={{ margin: "0 0 12px", fontSize: 12, color: "#888" }}>
+            Se questa persona aveva già ricevuto compensi da questa ASD nel {dataFine.slice(0, 4)} PRIMA di iniziare a usare questo sistema (es. pagamenti fatti a mano, senza un'autocertificazione registrata qui), inserisci qui il totale lordo già percepito — serve per calcolare correttamente lo scaglione fiscale da questo punto in avanti.
+          </p>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: "#888" }}>Totale già percepito nel {dataFine.slice(0, 4)} prima di questo sistema (€)</label>
+            <input type="number" step="0.01" value={saldoIniziale} onChange={(e) => setSaldoIniziale(Number(e.target.value) || 0)}
+              style={{ width: 120, padding: "6px 9px", borderRadius: 6, border: "1px solid #ddd", fontSize: 13 }} />
+            <button onClick={salvaSaldoIniziale} disabled={salvandoSaldo} style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+              {salvandoSaldo ? "Salvo…" : "Salva saldo iniziale"}
+            </button>
           </div>
+          {storico.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {storico.map((p) => (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", background: CL, borderRadius: 8, fontSize: 13 }}>
+                  <span>{p.periodo_label} ({dataItaliana(p.data_inizio)} – {dataItaliana(p.data_fine)}){p.aggiustamento_importo ? ` · rimanenza ${euro(p.aggiustamento_importo)}${p.aggiustamento_nota ? ` (${p.aggiustamento_nota})` : ""}` : ""}</span>
+                  <span style={{ fontWeight: 600 }}>{euro(p.importo_totale)} · cumulativo dopo: {euro(p.cumulativo_annuo_dopo)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
