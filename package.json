@@ -18,7 +18,8 @@
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^4.0.379",
     "jsqr": "^1.4.0",
-    "heic2any": "^0.0.4"
+    "heic2any": "^0.0.4",
+    "jszip": "^3.10.2"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",

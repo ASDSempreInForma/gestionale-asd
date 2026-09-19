@@ -222,20 +222,23 @@ export default function Compensi({ istruttoreIniziale } = {}) {
 
   async function generaContratto() {
     if (!istruttoreId || !contratto || !anagraficaCompleta) return;
-    if (anagrafica.tipoContratto === "partita_iva") {
-      await generaContrattoPartitaIva({
-        nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
-        partitaIva: anagrafica.partitaIva, compensoAnnuoLordo: contratto.compensoAnnuoLordo,
-        scadenzaPagamentoIva: contratto.scadenzaPagamentoIva, clausolaAggiuntiva: contratto.clausolaAggiuntiva,
-      });
-    } else {
-      await generaContrattoCollaborazione({
-        nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
-        disciplinaContratto: contratto.disciplinaContratto, disponibilitaOraria: contratto.disponibilitaOraria,
-        compensoOrarioContratto: contratto.compensoOrarioContratto, dataFineContratto: contratto.dataFineContratto,
-        clausolaAggiuntiva: contratto.clausolaAggiuntiva,
-      });
-    }
+    setErrore("");
+    try {
+      if (anagrafica.tipoContratto === "partita_iva") {
+        await generaContrattoPartitaIva({
+          nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
+          partitaIva: anagrafica.partitaIva, compensoAnnuoLordo: contratto.compensoAnnuoLordo,
+          scadenzaPagamentoIva: contratto.scadenzaPagamentoIva, clausolaAggiuntiva: contratto.clausolaAggiuntiva,
+        });
+      } else {
+        await generaContrattoCollaborazione({
+          nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
+          disciplinaContratto: contratto.disciplinaContratto, disponibilitaOraria: contratto.disponibilitaOraria,
+          compensoOrarioContratto: contratto.compensoOrarioContratto, dataFineContratto: contratto.dataFineContratto,
+          clausolaAggiuntiva: contratto.clausolaAggiuntiva,
+        });
+      }
+    } catch (err) { setErrore("Contratto non generato: " + err.message); }
   }
 
   const anagraficaCompleta = anagrafica && (
@@ -430,13 +433,16 @@ export default function Compensi({ istruttoreIniziale } = {}) {
     finally { setSalvando(false); }
   }
 
-  function stampaAutocertificazione() {
+  async function stampaAutocertificazione() {
     if (!risultato || !anagraficaCompleta || anagrafica.tipoContratto === "partita_iva") return;
-    generaAutocertificazione({
-      nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
-      periodoLabel, dataPagamento: isoData(new Date()), importoCumulativo: cumulativoDopoFinale,
-      scaglioneRiga: scDopoFinale.riga,
-    });
+    setErrore("");
+    try {
+      await generaAutocertificazione({
+        nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
+        periodoLabel, dataPagamento: isoData(new Date()), importoCumulativo: cumulativoDopoFinale,
+        scaglioneRiga: scDopoFinale.riga,
+      });
+    } catch (err) { setErrore("Autocertificazione non generata: " + err.message); }
   }
 
   return (
@@ -529,7 +535,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
             {anagrafica?.tipoContratto === "partita_iva"
               ? "Incarico per collaborazione sportiva con partita IVA."
               : "Contratto di collaborazione coordinata e continuativa."}
-            {" "}I campi sono precompilati con l'ultimo valore salvato — modificali liberamente prima di generare il PDF.
+            {" "}I campi sono precompilati con l'ultimo valore salvato — modificali liberamente prima di generare il documento Word.
           </p>
 
           {anagrafica?.tipoContratto === "partita_iva" ? (
@@ -562,7 +568,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
           <div style={{ display: "flex", gap: 10 }}>
             <button onClick={salvaContratto} disabled={salvandoContratto} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{salvandoContratto ? "Salvo…" : "Salva questi dati"}</button>
             <button onClick={generaContratto} disabled={!anagraficaCompleta} style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: anagraficaCompleta ? "pointer" : "default", opacity: anagraficaCompleta ? 1 : 0.5 }}>
-              🖨️ Genera contratto (PDF)
+              📄 Genera contratto (Word)
             </button>
           </div>
         </div>
@@ -612,7 +618,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
               ) : (
                 <button onClick={stampaAutocertificazione} disabled={!anagraficaCompleta} title={!anagraficaCompleta ? "Completa prima i dati anagrafici" : ""}
                   style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: anagraficaCompleta ? "pointer" : "default", opacity: anagraficaCompleta ? 1 : 0.5 }}>
-                  🖨️ Genera autocertificazione (PDF)
+                  📄 Genera autocertificazione (Word)
                 </button>
               )}
             </div>
