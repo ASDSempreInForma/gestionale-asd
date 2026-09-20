@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { generaAutocertificazione } from "./generaAutocertificazione.js";
+import { generaAutocertificazioneAnnuale } from "./generaAutocertificazioneAnnuale.js";
 import { generaContrattoCollaborazione, generaContrattoPartitaIva } from "./generaContratto.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
@@ -435,6 +436,36 @@ export default function Compensi({ istruttoreIniziale } = {}) {
     finally { setSalvando(false); }
   }
 
+  // ── Autocertificazione annuale (da generare a dicembre) ─────────────────────
+  // Importo = totale lordo dell'anno: saldo iniziale + pagamenti registrati (stessa fonte dello "Storico pagamenti").
+  const [annoAnnuale, setAnnoAnnuale] = useState(new Date().getFullYear());
+  const [importoAnnuale, setImportoAnnuale] = useState("");
+  useEffect(() => {
+    if (!istruttoreId || !annoAnnuale) { setImportoAnnuale(""); return; }
+    let annullato = false;
+    (async () => {
+      const [{ data: pagamenti }, { data: saldo }] = await Promise.all([
+        supabase.from("compensi_pagamenti").select("importo_totale").eq("istruttore_id", istruttoreId).eq("anno", Number(annoAnnuale)).eq("pagato", true),
+        supabase.from("compensi_saldo_iniziale").select("importo").eq("istruttore_id", istruttoreId).eq("anno", Number(annoAnnuale)).maybeSingle(),
+      ]);
+      if (annullato) return;
+      const tot = Number(saldo?.importo || 0) + (pagamenti || []).reduce((t, p) => t + Number(p.importo_totale || 0), 0);
+      setImportoAnnuale(String(Math.round(tot * 100) / 100));
+    })();
+    return () => { annullato = true; };
+  }, [istruttoreId, annoAnnuale, storico]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function generaAnnuale() {
+    if (!anagraficaCompleta || anagrafica.tipoContratto === "partita_iva") return;
+    setErrore("");
+    try {
+      await generaAutocertificazioneAnnuale({
+        nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
+        anno: Number(annoAnnuale), importo: Number(importoAnnuale),
+      });
+    } catch (err) { setErrore("Autocertificazione annuale non generata: " + err.message); }
+  }
+
   async function stampaAutocertificazione() {
     if (!risultato || !anagraficaCompleta || anagrafica.tipoContratto === "partita_iva") return;
     setErrore("");
@@ -572,6 +603,31 @@ export default function Compensi({ istruttoreIniziale } = {}) {
             <button onClick={salvaContratto} disabled={salvandoContratto} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{salvandoContratto ? "Salvo…" : "Salva questi dati"}</button>
             <button onClick={generaContratto} disabled={!anagraficaCompleta} style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: anagraficaCompleta ? "pointer" : "default", opacity: anagraficaCompleta ? 1 : 0.5 }}>
               📄 Genera contratto (Word)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {istruttoreId && anagrafica && anagrafica.tipoContratto !== "partita_iva" && (
+        <div style={{ background: "#fff", borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+          <h3 style={{ margin: "0 0 4px", fontSize: 15, color: "#333" }}>📄 Autocertificazione annuale</h3>
+          <p style={{ margin: "0 0 14px", fontSize: 12, color: "#888" }}>
+            Da generare a dicembre per chi ha percepito compensi nell'anno. L'importo è il totale lordo dell'anno (saldo iniziale + pagamenti registrati): puoi correggerlo prima di generare il documento Word.
+          </p>
+          {!anagraficaCompleta && <div style={{ fontSize: 12, color: "#c0392b", marginBottom: 10 }}>Completa prima i dati anagrafici — servono anche per questo documento.</div>}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div>
+              <label style={{ display: "block", fontSize: 11, color: "#888", marginBottom: 4 }}>Anno</label>
+              <input type="number" value={annoAnnuale} onChange={(e) => setAnnoAnnuale(e.target.value)} style={{ width: 90, padding: 7, borderRadius: 6, border: "1px solid #ddd" }} />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 11, color: "#888", marginBottom: 4 }}>Importo lordo percepito nell'anno (€)</label>
+              <input type="number" step="0.01" value={importoAnnuale} onChange={(e) => setImportoAnnuale(e.target.value)} style={{ width: 200, padding: 7, borderRadius: 6, border: "1px solid #ddd" }} />
+            </div>
+            <button onClick={generaAnnuale} disabled={!anagraficaCompleta || !(Number(importoAnnuale) > 0)}
+              title={!(Number(importoAnnuale) > 0) ? "Nessun compenso registrato per quest'anno: inserisci l'importo" : ""}
+              style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: anagraficaCompleta && Number(importoAnnuale) > 0 ? 1 : 0.5 }}>
+              📄 Genera autocertificazione annuale (Word)
             </button>
           </div>
         </div>
