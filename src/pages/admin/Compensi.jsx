@@ -613,7 +613,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         <div style={{ background: "#fff", borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
           <h3 style={{ margin: "0 0 4px", fontSize: 15, color: "#333" }}>📄 Autocertificazione annuale</h3>
           <p style={{ margin: "0 0 14px", fontSize: 12, color: "#888" }}>
-            Da generare a dicembre per chi ha percepito compensi nell'anno. L'importo è il totale lordo dell'anno (saldo iniziale + pagamenti registrati): puoi correggerlo prima di generare il documento Word.
+            Da generare a dicembre per chi ha percepito compensi nell'anno. Segue l'anno SOLARE (gennaio-dicembre), quindi comprende anche i compensi di gennaio-agosto della stagione precedente. L'importo è il totale lordo dell'anno (saldo iniziale + pagamenti registrati): i compensi pagati prima di usare questo sistema devono essere inseriti nel "saldo iniziale" dello Storico pagamenti qui sotto. Puoi correggere l'importo prima di generare il documento Word.
           </p>
           {!anagraficaCompleta && <div style={{ fontSize: 12, color: "#c0392b", marginBottom: 10 }}>Completa prima i dati anagrafici — servono anche per questo documento.</div>}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
