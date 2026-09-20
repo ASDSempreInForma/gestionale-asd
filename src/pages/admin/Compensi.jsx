@@ -302,6 +302,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
     setSalvandoSaldo(false);
     if (error) { setErrore(error.message); return; }
     setMessaggio("Saldo iniziale salvato.");
+    caricaStorico(); // ricarica anche l'importo dell'autocertificazione annuale
   }
 
   const cumulativoPrima = saldoIniziale + storico.reduce((s, p) => s + Number(p.importo_totale || 0), 0);
