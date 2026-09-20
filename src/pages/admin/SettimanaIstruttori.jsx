@@ -3,6 +3,7 @@ import { supabase } from "../../supabase.js";
 import { slotSettimanali } from "./lezioniPreviste.js";
 import { GIORNI_BREVI, GIORNI_LUNGHI, costruisciColoriSedi, COLORE_STUDIO, shortSede, unisciTurniStudio, minuti } from "./calendarioUtil.js";
 import { CalendarioSettimanale, MatriceSettimanale, LegendaSedi } from "./calendarioComponenti.jsx";
+import { generaPdfMatrice, generaPdfGriglia, mostraPdf } from "./calendarioPdf.js";
 
 /* =====================================================================
    SETTIMANA DEGLI ISTRUTTORI — richiesto da Solomon il 20/09/2026
@@ -17,6 +18,8 @@ import { CalendarioSettimanale, MatriceSettimanale, LegendaSedi } from "./calend
 export default function SettimanaIstruttori({ istruttori, corsiDisponibili, selezioneIniziale = "tutti", turniIniziali = [] }) {
   const [sel, setSel] = useState(selezioneIniziale);
   const [turniStudio, setTurniStudio] = useState(turniIniziali);
+  const [erroreStampa, setErroreStampa] = useState("");
+  const [stampando, setStampando] = useState(false);
 
   useEffect(() => {
     supabase.from("sede_turni").select("istruttore_id, giorno_settimana, orario, ore")
@@ -78,6 +81,24 @@ export default function SettimanaIstruttori({ istruttori, corsiDisponibili, sele
   const t = sel === "tutti" ? null : docenti.find((x) => x.id === sel);
   const singolo = t ? appuntamentiDi(t) : null;
 
+  // PDF a colori in A4 orizzontale di ciò che si vede a schermo. La scheda si apre subito al click
+  // (poi riceve il PDF) per non essere bloccata dal browser.
+  async function stampaPdf() {
+    const finestra = window.open("", "_blank");
+    setStampando(true); setErroreStampa("");
+    try {
+      const legenda = [...Object.entries(colori).map(([nome, colore]) => ({ nome, colore })), { nome: "SEDE (Via del Brolo)", colore: COLORE_STUDIO }];
+      const nota = "da set. = il corso inizia a settembre; tutti gli altri iniziano a ottobre.";
+      const bytes = !t
+        ? await generaPdfMatrice({ titolo: "Settimana degli istruttori", sottotitolo: "Settimana tipo della stagione in corso · Tutti gli istruttori", righe: righeMatrice, legenda, nota })
+        : await generaPdfGriglia({ titolo: "Settimana di lavoro", sottotitolo: `${t.nome} ${t.cognome} · settimana tipo della stagione in corso`, eventi: singolo.ev, legenda });
+      mostraPdf(bytes, finestra);
+    } catch (err) {
+      if (finestra) finestra.close();
+      setErroreStampa("PDF non generato: " + (err.message || err));
+    } finally { setStampando(false); }
+  }
+
   return (
     <div>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
@@ -86,10 +107,15 @@ export default function SettimanaIstruttori({ istruttori, corsiDisponibili, sele
           <option value="tutti">Tutti gli istruttori (riepilogo)</option>
           {docenti.map((x) => <option key={x.id} value={x.id}>{x.cognome} {x.nome}</option>)}
         </select>
-        <span style={{ fontSize: 12, color: "#6B7280" }}>
+        <span style={{ fontSize: 12, color: "#6B7280", flex: 1 }}>
           Settimana tipo della stagione in corso · ogni palestra ha il suo colore. Passa il mouse su una lezione per i dettagli.
         </span>
+        <button onClick={stampaPdf} disabled={stampando}
+          style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #2D6A4F", background: "#2D6A4F", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: stampando ? 0.6 : 1 }}>
+          {stampando ? "Preparo il PDF…" : "🖨 Stampa / PDF"}
+        </button>
       </div>
+      {erroreStampa && <div style={{ color: "#991B1B", fontSize: 12, marginBottom: 8 }}>{erroreStampa}</div>}
 
       <LegendaSedi colori={colori} conStudio />
 

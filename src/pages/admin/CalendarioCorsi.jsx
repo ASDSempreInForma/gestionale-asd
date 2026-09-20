@@ -3,6 +3,7 @@ import { supabase } from "../../supabase.js";
 import { slotSettimanali } from "./lezioniPreviste.js";
 import { GIORNI_LUNGHI, costruisciColoriSedi, COLORE_STUDIO, shortSede, minuti } from "./calendarioUtil.js";
 import { CalendarioSettimanale, MatriceSettimanale, LegendaSedi } from "./calendarioComponenti.jsx";
+import { generaPdfMatrice, generaPdfGriglia, mostraPdf } from "./calendarioPdf.js";
 
 /* =====================================================================
    CALENDARIO SETTIMANALE DEI CORSI — richiesto da Solomon il 20/09/2026
@@ -20,12 +21,16 @@ export default function CalendarioCorsi() {
   const [errore, setErrore] = useState("");
   const [sede, setSede] = useState("");
   const [disciplina, setDisciplina] = useState("");
+  const [nomeStagione, setNomeStagione] = useState("");
+  const [erroreStampa, setErroreStampa] = useState("");
+  const [stampando, setStampando] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
-        const { data: stag, error: e1 } = await supabase.from("stagioni").select("id").eq("attiva", true).single();
+        const { data: stag, error: e1 } = await supabase.from("stagioni").select("id, nome").eq("attiva", true).single();
         if (e1) throw e1;
+        setNomeStagione(stag.nome || "");
         const { data, error: e2 } = await supabase.from("corsi")
           .select("id, disciplina, giorni_orari, mese_inizio, sedi(nome), istruttori_corsi(giorno_settimana, istruttori(nome, cognome, tipo, attivo))")
           .eq("stagione_id", stag.id);
@@ -78,6 +83,26 @@ export default function CalendarioCorsi() {
     });
   }, [eventi, colori]);
 
+  // PDF a colori in A4 orizzontale, di ciò che si vede a schermo (rispetta i filtri).
+  // La scheda si apre subito al click, poi riceve il PDF: aprirla dopo l'attesa la farebbe bloccare dal browser.
+  async function stampaPdf() {
+    const finestra = window.open("", "_blank");
+    setStampando(true); setErroreStampa("");
+    try {
+      const filtri = [sede ? sede : "Tutte le palestre", disciplina ? disciplina : "Tutte le discipline"].join(" · ");
+      const sottotitolo = `${nomeStagione ? "Stagione " + nomeStagione + " · " : ""}${filtri}`;
+      const legenda = Object.entries(colori).filter(([nome]) => !sede || nome === sede).map(([nome, colore]) => ({ nome, colore }));
+      const bytes = sede === ""
+        ? await generaPdfMatrice({ titolo: "Calendario settimanale dei corsi", sottotitolo, righe: righeMatrice, legenda,
+            nota: "da set. = il corso inizia a settembre; tutti gli altri iniziano a ottobre." })
+        : await generaPdfGriglia({ titolo: "Calendario settimanale dei corsi", sottotitolo, eventi, legenda });
+      mostraPdf(bytes, finestra);
+    } catch (err) {
+      if (finestra) finestra.close();
+      setErroreStampa("PDF non generato: " + (err.message || err));
+    } finally { setStampando(false); }
+  }
+
   if (errore) return <div style={{ color: "#991B1B", fontSize: 13 }}>{errore}</div>;
   if (!corsi) return <div style={{ color: "#6B7280", fontSize: 13 }}>Carico il calendario…</div>;
 
@@ -89,10 +114,15 @@ export default function CalendarioCorsi() {
           <option value="">Tutte le discipline</option>
           {discipline.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
-        <span style={{ fontSize: 12, color: "#6B7280" }}>
+        <span style={{ fontSize: 12, color: "#6B7280", flex: 1 }}>
           Settimana tipo della stagione in corso. Clicca una palestra per vederla ora per ora; passa il mouse su un corso per i dettagli.
         </span>
+        <button onClick={stampaPdf} disabled={stampando}
+          style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #2D6A4F", background: "#2D6A4F", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: stampando ? 0.6 : 1 }}>
+          {stampando ? "Preparo il PDF…" : "🖨 Stampa / PDF"}
+        </button>
       </div>
+      {erroreStampa && <div style={{ color: "#991B1B", fontSize: 12, marginBottom: 8 }}>{erroreStampa}</div>}
 
       <LegendaSedi colori={colori} selezionata={sede} onSeleziona={setSede} />
 
