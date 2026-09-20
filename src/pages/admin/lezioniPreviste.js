@@ -34,6 +34,27 @@ export function giorniSettimanaDaOrario(giorniOrari) {
 }
 
 const due = (n) => String(n).padStart(2, "0");
+
+// Slot settimanali di un corso: un elemento per giorno, con il SUO orario.
+//   "Lunedì/Venerdì 20:10-21:05"                 -> Lun 20:10-21:05, Ven 20:10-21:05
+//   "Lunedì 17:15-18:15 e Giovedì 17:00-18:00"   -> Lun 17:15-18:15, Gio 17:00-18:00
+// Restituisce [{ giorno (0=dom … 6=sab), inizio: "HH:MM", fine: "HH:MM" }]. Vuoto se non riconosce nulla.
+const GG = "(?:domenica|luned[iì]|marted[iì]|mercoled[iì]|gioved[iì]|venerd[iì]|sabato)";
+const RE_SLOT = new RegExp(`(${GG}(?:\\s*[/,]\\s*${GG})*)\\s+(\\d{1,2})[:.](\\d{2})\\s*-\\s*(\\d{1,2})[:.](\\d{2})`, "gi");
+export function slotSettimanali(giorniOrari) {
+  const out = [];
+  if (!giorniOrari) return out;
+  const testo = String(giorniOrari);
+  RE_SLOT.lastIndex = 0;
+  let m;
+  while ((m = RE_SLOT.exec(testo))) {
+    const inizio = `${due(m[2])}:${m[3]}`;
+    const fine = `${due(m[4])}:${m[5]}`;
+    for (const g of m[1].match(RE_GIORNI) || []) out.push({ giorno: GIORNI_MAP[g.toLowerCase()], inizio, fine });
+  }
+  return out;
+}
+
 export function isoLocale(d) {
   return `${d.getFullYear()}-${due(d.getMonth() + 1)}-${due(d.getDate())}`;
 }

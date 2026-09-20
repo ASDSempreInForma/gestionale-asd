@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../../supabase.js";
+import CalendarioCorsi from "./CalendarioCorsi.jsx";
 
 /* =====================================================================
    GESTIONE CORSI — A.S.D. Sempre In Forma
@@ -44,6 +45,7 @@ export default function GestioneCorsi() {
   const [errore, setErrore] = useState(null);
   const [filtroSede, setFiltroSede] = useState("");
   const [filtroStato, setFiltroStato] = useState("tutti"); // tutti | pieni | quasi
+  const [vista, setVista] = useState("capienze"); // capienze | calendario
   const [salvataggio, setSalvataggio] = useState({}); // "corsoId:campo" -> "salvando" | "ok" | "errore"
   const [valoriModificati, setValoriModificati] = useState({});
   // Riepilogo numerico della stagione, richiesto da Solomon il 16/09/2026 —
@@ -223,6 +225,38 @@ export default function GestioneCorsi() {
     });
   }, [corsi, filtroSede, filtroStato]);
 
+  const barraVista = (
+    <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+      {[["capienze", "📋 Capienze e iscritti"], ["calendario", "🗓 Calendario settimanale"]].map(([k, l]) => (
+        <button
+          key={k}
+          onClick={() => setVista(k)}
+          style={{
+            padding: "8px 14px", borderRadius: 8, fontSize: 13, cursor: "pointer",
+            border: `1px solid ${vista === k ? C.green : C.border}`,
+            background: vista === k ? C.greenL : C.card, color: vista === k ? C.greenD : C.textSub,
+            fontWeight: vista === k ? 600 : 400,
+          }}
+        >
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (vista === "calendario") {
+    return (
+      <div style={{ background: C.bg, minHeight: "100vh", padding: "24px 20px 60px" }}>
+        <div style={{ maxWidth: 1240, margin: "0 auto" }}>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: C.greenD, marginBottom: 4 }}>Gestione Corsi</h1>
+          <p style={{ fontSize: 13, color: C.textSub, marginBottom: 16 }}>Tutti i corsi delle palestre in una settimana tipo: un colore per palestra.</p>
+          {barraVista}
+          <CalendarioCorsi />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ background: C.bg, minHeight: "100vh", padding: "24px 20px 60px" }}>
       <div style={{ maxWidth: 1080, margin: "0 auto" }}>
@@ -232,6 +266,8 @@ export default function GestioneCorsi() {
           separatamente per ciascun giorno (utile es. se il venerdì ha storicamente più assenze). Lascia
           vuoto per nessun limite. Il modulo di iscrizione pubblico si aggiorna automaticamente.
         </p>
+
+        {barraVista}
 
         {riepilogo && (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>

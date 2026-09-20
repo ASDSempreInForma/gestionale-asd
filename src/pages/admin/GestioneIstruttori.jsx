@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { dataInizioCorso, dateAttese } from "./lezioniPreviste.js";
+import SettimanaIstruttori from "./SettimanaIstruttori.jsx";
 
 /* =====================================================================
    GESTIONE ISTRUTTORI — A.S.D. Sempre In Forma
@@ -1212,7 +1213,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
       )}
 
       <div style={{background:"white",borderBottom:`1px solid ${C.border}`,padding:"0 17px",display:"flex",gap:0}}>
-        {[["istruttori","👥 Istruttori"],["calendario","📅 Calendario"],["pagamenti","💳 Pagamenti"]].map(([k,l])=>(
+        {[["istruttori","👥 Istruttori"],["settimana","🗓 Settimana"],["calendario","📅 Calendario"],["pagamenti","💳 Pagamenti"]].map(([k,l])=>(
           <button key={k} onClick={()=>setTab(k)}
             style={{padding:"11px 15px",border:"none",borderBottom:`2.5px solid ${tab===k?C.green:"transparent"}`,
               background:"transparent",fontSize:12,fontWeight:tab===k?600:400,
@@ -1221,8 +1222,9 @@ export default function GestioneIstruttori({ onVaiAContratto }){
           </button>
         ))}
       </div>
-      <div style={{maxWidth:800,margin:"0 auto",padding:"14px 13px"}}>
+      <div style={{maxWidth:tab==="settimana"?1180:800,margin:"0 auto",padding:"14px 13px"}}>
         {tab==="istruttori"&&renderIstruttori()}
+        {tab==="settimana"&&<SettimanaIstruttori istruttori={istruttori} corsiDisponibili={corsiDisponibili}/>}
         {tab==="calendario"&&renderCalendario()}
         {tab==="pagamenti"&&renderPagamenti()}
       </div>
