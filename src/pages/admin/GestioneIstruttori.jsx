@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { dataInizioCorso, dateAttese } from "./lezioniPreviste.js";
 
 /* =====================================================================
    GESTIONE ISTRUTTORI — A.S.D. Sempre In Forma
@@ -46,18 +47,6 @@ const MESI_STAGIONE = [
 ];
 
 const COLORI_DISPONIBILI = ["#2D6A4F","#1E3A5F","#7C3AED","#B45309","#0F766E","#BE185D","#C2410C"];
-
-const GIORNI_MAP = {
-  "domenica":0,"lunedì":1,"lunedi":1,"martedì":2,"martedi":2,"mercoledì":3,"mercoledi":3,
-  "giovedì":4,"giovedi":4,"venerdì":5,"venerdi":5,"sabato":6,
-};
-// "Lunedì/Venerdì 20:10-21:00" -> [1,5]   ·   "Martedì 17:00-18:00" -> [2]
-function giorniSettimanaDaOrario(giorniOrari){
-  if(!giorniOrari) return [];
-  const match=giorniOrari.match(/^(.+?)\s\d{1,2}[:.]\d{2}-\d{1,2}[:.]\d{2}$/);
-  const giorniParte=match?match[1]:giorniOrari;
-  return giorniParte.split("/").map(g=>GIORNI_MAP[g.trim().toLowerCase()]).filter(n=>n!==undefined);
-}
 
 function dateInRange(dataStr, dal, al){ return dataStr >= dal && dataStr <= al; }
 function isDateSospesa(dataStr, sospensioni){ return sospensioni.some(s => dateInRange(dataStr, s.dal, s.al)); }
@@ -183,12 +172,12 @@ export default function GestioneIstruttori({ onVaiAContratto }){
   async function caricaDati(){
     try{
       // Stagione attiva
-      const {data:stag}=await supabase.from("stagioni").select("id").eq("attiva",true).single();
+      const {data:stag}=await supabase.from("stagioni").select("id,data_inizio").eq("attiva",true).single();
 
       // Corsi disponibili per assegnazione
       const {data:corsiDB}=await supabase
         .from("corsi")
-        .select("id,codice_corso,disciplina,giorni_orari,sedi(nome)")
+        .select("id,codice_corso,disciplina,giorni_orari,mese_inizio,data_inizio_effettiva,sedi(nome)")
         .eq("stagione_id",stag.id)
         .order("codice_corso");
       setCorsiDisponibili(corsiDB||[]);
@@ -250,7 +239,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
       formatted.filter(t=>t.tipo==="istruttore").forEach(t=>{
         t.corsi_ids.forEach((cid,i)=>{
           const corsoDB=(corsiDB||[]).find(c=>c.id===cid);
-          if(!corsiInfoObj[cid]) corsiInfoObj[cid]={ nome:t.corsi_nomi[i], giorniOrari:corsoDB?.giorni_orari, istruttori:[] };
+          if(!corsiInfoObj[cid]) corsiInfoObj[cid]={ nome:t.corsi_nomi[i], giorniOrari:corsoDB?.giorni_orari, inizio:dataInizioCorso(corsoDB,stag?.data_inizio), istruttori:[] };
           corsiInfoObj[cid].istruttori.push({ istruttoreId:t.id, giornoSettimana:t.corsi_giorno[i] });
         });
       });
@@ -283,25 +272,13 @@ export default function GestioneIstruttori({ onVaiAContratto }){
     const primoGiorno=`${anno}-${String(mese).padStart(2,'0')}-01`;
     const ultimoGiorno=`${anno}-${String(mese).padStart(2,'0')}-${String(ultimoGiornoNum).padStart(2,'0')}`;
 
-    // Per ogni corso, per ogni giorno in cui si tiene, genera una riga PER
-    // CIASCUN istruttore assegnato a quel corso — filtrato al suo giorno
-    // specifico se ne ha uno (es. Ginnastica Dolce Urago Mella), altrimenti
-    // per tutti i giorni del corso (es. CrossTraining: entrambe insegnano
-    // sempre, entrambe pagate intere per ogni lezione).
-    const dateAttese=[];
-    corsoIds.forEach(corsoId=>{
-      const giorni=giorniSettimanaDaOrario(corsiInfo[corsoId].giorniOrari);
-      const istruttoriCorso=corsiInfo[corsoId].istruttori||[];
-      for(let g=1; g<=ultimoGiornoNum; g++){
-        const d=new Date(anno,mese-1,g);
-        if(!giorni.includes(d.getDay())) continue;
-        const dataStr=`${anno}-${String(mese).padStart(2,'0')}-${String(g).padStart(2,'0')}`;
-        const sosp=sospensioni.find(s=>dateInRange(dataStr,s.dal,s.al));
-        istruttoriCorso
-          .filter(ic=>ic.giornoSettimana==null || ic.giornoSettimana===d.getDay())
-          .forEach(ic=>dateAttese.push({corsoId,data:dataStr,sospesaDesc:sosp?.desc||null,istruttoreId:ic.istruttoreId}));
-      }
-    });
+    // Per ogni corso, per ogni giorno in cui si tiene, una riga PER CIASCUN
+    // istruttore assegnato — filtrata al suo giorno specifico se ne ha uno
+    // (es. Ginnastica Dolce Urago Mella), altrimenti per tutti i giorni del corso
+    // (es. CrossTraining: entrambe insegnano sempre, entrambe pagate intere).
+    // Le date prima dell'inizio del corso (mese_inizio / data_inizio_effettiva) non
+    // esistono: un corso che parte a ottobre non ha lezioni a settembre.
+    const dateAtt=dateAttese({corsiInfo,dal:primoGiorno,al:ultimoGiorno,sospensioni});
 
     const {data:esistenti}=await supabase.from("lezioni").select("*")
       .in("corso_id",corsoIds).gte("data",primoGiorno).lte("data",ultimoGiorno);
@@ -309,7 +286,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
 
     const oggiStr=new Date().toISOString().slice(0,10);
 
-    const daInserire=dateAttese
+    const daInserire=dateAtt
       .filter(d=>!setEsistenti.has(`${d.corsoId}_${d.data}_${d.istruttoreId}`))
       // Le sospensioni (festività) si segnano sempre, in qualunque data.
       // Le lezioni "fatta" invece si pre-creano SOLO per le date già passate
@@ -332,7 +309,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
       else nuoveRighe=inserite||[];
     }
 
-    return [...(esistenti||[]),...nuoveRighe].map(l=>({
+    const reali=[...(esistenti||[]),...nuoveRighe].map(l=>({
       id:l.id,
       istruttoreId:l.istruttore_id,
       sostitutoId:l.istruttore_sostituto_id,
@@ -343,6 +320,27 @@ export default function GestioneIstruttori({ onVaiAContratto }){
       isRecupero:l.stato==="recupero",
       motivoSospensione:l.motivo_sospensione,
     }));
+
+    // Lezioni PREVISTE (oggi e date future senza riga): si mostrano subito, così i compensi
+    // del mese si possono calcolare in anticipo. NON si scrivono nel database — altrimenti
+    // il check-in degli istruttori le troverebbe "già segnate" prima che la lezione si tenga.
+    // Contano come "fatta" finché non le si modifica qui o l'istruttore non fa il check-in.
+    const previste=dateAtt
+      .filter(d=>!d.sospesaDesc && d.data>=oggiStr && !setEsistenti.has(`${d.corsoId}_${d.data}_${d.istruttoreId}`))
+      .map(d=>({
+        id:`prev|${d.corsoId}|${d.data}|${d.istruttoreId}`,
+        istruttoreId:d.istruttoreId,
+        sostitutoId:null,
+        corso:corsiInfo[d.corsoId]?.nome||"Corso",
+        corsoId:d.corsoId,
+        data:d.data,
+        stato:"fatta",
+        isRecupero:false,
+        motivoSospensione:null,
+        prevista:true,
+      }));
+
+    return [...reali,...previste];
   }
 
   // ── Aggiorna compenso su Supabase ───────────────────────────────
@@ -529,6 +527,17 @@ export default function GestioneIstruttori({ onVaiAContratto }){
   const mesePfx=`${meseSel.anno}-${String(meseSel.mese).padStart(2,'0')}`;
 
   async function setStatoLezione(id, stato, sostitutoId=null){
+    // Lezione prevista (non ancora nel database): "fatta" è già il suo stato; ogni altra scelta
+    // (assente, sospesa, sostituto) crea la riga vera.
+    if(String(id).startsWith("prev|")){
+      if(stato==="fatta") return;
+      const [,corsoId,data,istruttoreId]=String(id).split("|");
+      const {data:riga,error}=await supabase.from("lezioni")
+        .insert({corso_id:corsoId,istruttore_id:istruttoreId,data,stato,istruttore_sostituto_id:sostitutoId}).select().single();
+      if(error){ alert("Errore nel salvataggio: "+error.message); return; }
+      setLezioni(prev=>prev.map(l=>l.id===id?{...l,id:riga.id,stato,sostitutoId,isRecupero:stato==="recupero",prevista:false}:l));
+      return;
+    }
     setLezioni(prev=>prev.map(l=>l.id===id?{...l,stato,sostitutoId,isRecupero:stato==="recupero"}:l));
     const {error}=await supabase.from("lezioni")
       .update({stato, istruttore_sostituto_id:sostitutoId}).eq("id",id);
@@ -946,14 +955,21 @@ export default function GestioneIstruttori({ onVaiAContratto }){
           const lz=lezMese.filter(l=>l.istruttoreId===t.id||l.sostitutoId===t.id);
           return(
             <div>
+              {lz.some(l=>l.prevista)&&(
+                <div style={{fontSize:11,color:C.blue,background:C.blueL,border:`1px solid ${C.blue}22`,borderRadius:8,padding:"7px 11px",marginBottom:8}}>
+                  🗓 Le lezioni <b>previste</b> (tratteggiate) non sono ancora state svolte: contano già come svolte nei compensi del mese, finché non le modifichi qui o l'istruttore non fa il check-in.
+                </div>
+              )}
               {lz.sort((a,b)=>a.data.localeCompare(b.data)).map(l=>{
                 const sospesa=isDateSospesa(l.data,sospensioni);
                 return(
-                  <div key={l.id} style={{background:"white",border:`1px solid ${C.border}`,borderRadius:10,
+                  <div key={l.id} style={{background:l.prevista?"#FBFBF9":"white",border:`1px ${l.prevista?"dashed":"solid"} ${C.border}`,borderRadius:10,
                     padding:"11px 13px",marginBottom:7}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
                       <div>
-                        <div style={{fontSize:12,fontWeight:500,color:C.text}}>{fmtData(l.data)} — {l.corso}</div>
+                        <div style={{fontSize:12,fontWeight:500,color:C.text}}>{fmtData(l.data)} — {l.corso}
+                          {l.prevista&&!sospesa&&<span style={{marginLeft:8,fontSize:10,fontWeight:600,color:C.blue,background:C.blueL,borderRadius:10,padding:"1px 7px"}}>🗓 prevista</span>}
+                        </div>
                         {sospesa&&<div style={{fontSize:10,color:"#3730A3",marginTop:1}}>— Giorno sospeso (festività)</div>}
                       </div>
                       {!sospesa&&(

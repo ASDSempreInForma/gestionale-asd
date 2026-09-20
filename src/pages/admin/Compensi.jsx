@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { generaAutocertificazione } from "./generaAutocertificazione.js";
 import { generaAutocertificazioneAnnuale } from "./generaAutocertificazioneAnnuale.js";
+import { dataInizioCorso, dateAttese } from "./lezioniPreviste.js";
 import { generaContrattoCollaborazione, generaContrattoPartitaIva } from "./generaContratto.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
@@ -358,7 +359,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
 
       // ── PALESTRA ──
       const { data: lezPalestra, error: errL } = await supabase.from("lezioni")
-        .select("id, data, stato, istruttore_id, istruttore_sostituto_id")
+        .select("id, corso_id, data, stato, istruttore_id, istruttore_sostituto_id")
         .gte("data", dataInizio).lte("data", dataFine)
         .or(`istruttore_id.eq.${istruttoreId},istruttore_sostituto_id.eq.${istruttoreId}`);
       if (errL) throw new Error(errL.message);
@@ -369,6 +370,39 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         if (!conta) continue;
         const chiaveMese = l.data.slice(0, 7);
         contaPerMese.set(chiaveMese, (contaPerMese.get(chiaveMese) || 0) + 1);
+      }
+
+      // Lezioni PREVISTE: date in cui, secondo giorni/orari dei suoi corsi, l'istruttore fa lezione ma
+      // non c'è ancora una riga in "lezioni" (lezioni future, oppure mesi mai aperti in Gestione Istruttori).
+      // Contano come svolte — così il compenso si calcola e si paga in anticipo. Se poi una lezione
+      // viene segnata assente/sospesa/sostituto, la riga vera prende il posto della previsione.
+      // Non prima dell'inizio del corso (mese_inizio / data_inizio_effettiva), non nelle festività.
+      const [{ data: stag }, { data: assegn }] = await Promise.all([
+        supabase.from("stagioni").select("id, data_inizio, data_fine").eq("attiva", true).maybeSingle(),
+        supabase.from("istruttori_corsi")
+          .select("giorno_settimana, corsi(id, giorni_orari, stagione_id, mese_inizio, data_inizio_effettiva)")
+          .eq("istruttore_id", istruttoreId),
+      ]);
+      let lezioniFuture = 0;
+      if (stag) {
+        const corsiInfo = {};
+        for (const a of assegn || []) {
+          const c = a.corsi;
+          if (!c || c.stagione_id !== stag.id) continue;
+          if (!corsiInfo[c.id]) corsiInfo[c.id] = { giorniOrari: c.giorni_orari, inizio: dataInizioCorso(c, stag.data_inizio), istruttori: [] };
+          corsiInfo[c.id].istruttori.push({ istruttoreId, giornoSettimana: a.giorno_settimana });
+        }
+        const dal = dataInizio > stag.data_inizio ? dataInizio : stag.data_inizio;
+        const al = dataFine < stag.data_fine ? dataFine : stag.data_fine;
+        // Date già coperte da una riga vera (qualunque stato: fatta, assente, sospesa, sostituto…)
+        const righeCorso = new Set((lezPalestra || []).filter((l) => l.istruttore_id === istruttoreId).map((l) => `${l.corso_id}|${l.data}`));
+        const oggiStr = isoData(new Date());
+        for (const d of dateAttese({ corsiInfo, dal, al, sospensioni: festivitaPalestra })) {
+          if (d.sospesaDesc || righeCorso.has(`${d.corsoId}|${d.data}`)) continue;
+          const chiaveMese = d.data.slice(0, 7);
+          contaPerMese.set(chiaveMese, (contaPerMese.get(chiaveMese) || 0) + 1);
+          if (d.data >= oggiStr) lezioniFuture++;
+        }
       }
       const righePalestra = Array.from(contaPerMese.entries())
         .sort(([a], [b]) => (a < b ? -1 : 1))
@@ -404,7 +438,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
       const testoWhatsapp = righeTesto.join("\n");
 
       setRisultato({
-        righeSede, righePalestra, oreSedeTotali, orePalestraTotali, importoSede, importoPalestra, importoTotale,
+        righeSede, righePalestra, oreSedeTotali, orePalestraTotali, importoSede, importoPalestra, importoTotale, lezioniFuture,
         cumulativoPrima, cumulativoDopo, scPrima, scDopo, testoWhatsapp, nomeCompleto,
         avvisoCambioScaglione: scPrima.riga !== scDopo.riga,
       });
@@ -649,7 +683,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 14 }}>
               <tbody>
                 <tr style={{ borderBottom: "1px solid #f2f2f2" }}><td style={{ padding: "6px 8px" }}>Studio (SEDE) — {risultato.oreSedeTotali} ore</td><td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{euro(risultato.importoSede)}</td></tr>
-                <tr style={{ borderBottom: "1px solid #f2f2f2" }}><td style={{ padding: "6px 8px" }}>Palestra — {risultato.orePalestraTotali} ore</td><td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{euro(risultato.importoPalestra)}</td></tr>
+                <tr style={{ borderBottom: "1px solid #f2f2f2" }}><td style={{ padding: "6px 8px" }}>Palestra — {risultato.orePalestraTotali} ore{risultato.lezioniFuture > 0 && <div style={{ fontSize: 11, color: "#1E3A5F", marginTop: 2 }}>🗓 di cui {risultato.lezioniFuture} {risultato.lezioniFuture === 1 ? "lezione prevista" : "lezioni previste"}, non ancora svolte (contate come svolte)</div>}</td><td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{euro(risultato.importoPalestra)}</td></tr>
                 <tr style={{ borderBottom: "1px solid #f2f2f2" }}>
                   <td style={{ padding: "6px 8px" }}>
                     Aggiustamento manuale (rimanenza, bonus, correzione…)
