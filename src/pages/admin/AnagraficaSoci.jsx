@@ -1489,7 +1489,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
         id, corso_id, stagione_id, tipo_pagamento, stato_pagamento, importo_dichiarato, ricevuta_url,
         stato_certificato, data_scadenza_certificato, certificato_url, certificato_ereditato,
         data_iscrizione, note, nota_socio, firma_url, firma_genitore_url, modulo_cartaceo_url,
-        frequenza, giorno_scelto,
+        frequenza, giorno_scelto, data_pagamento, verificato_il, stato_pagamento_prima_annullamento,
         corso_extra_settembre_id, frequenza_extra_settembre, sovrapprezzo_extra_settembre,
         corsi!iscrizioni_corso_id_fkey ( codice_corso, disciplina, nome_visualizzato, giorni_orari, ha_variante_frequenza, sedi ( nome ) ),
         stagioni ( nome, attiva )
@@ -1518,7 +1518,50 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
   // ha altre iscrizioni collegate, per non perdere lo storico).
   const annullaIscrizione = async (iscrizioneId, descrizioneCorso) => {
     if (!window.confirm(`Annullare l'iscrizione a "${descrizioneCorso}"?\n\nNon viene eliminata dallo storico — resta consultabile — ma libera subito il posto nel corso e non conta più nei limiti o nel calcolo prezzi.`)) return
-    const { error } = await supabase.from('iscrizioni').update({ stato_pagamento: 'annullata' }).eq('id', iscrizioneId)
+    // Dal 23/09/2026 si salva anche lo stato di pagamento precedente, così il
+    // pulsante "↩ Ripristina" può rimettere esattamente com'era.
+    const precedente = (iscrizioni || []).find(x => x.id === iscrizioneId)?.stato_pagamento || null
+    const { error } = await supabase.from('iscrizioni').update({
+      stato_pagamento: 'annullata',
+      stato_pagamento_prima_annullamento: precedente,
+      data_annullamento: new Date().toISOString(),
+    }).eq('id', iscrizioneId)
+    if (error) alert('Errore: ' + error.message)
+    else caricaIscrizioni()
+  }
+
+  // Ripristina un'iscrizione annullata per errore (aggiunto il 23/09/2026, caso
+  // reale: iscrizione annullata invece che corretta nei giorni). Firma, dati,
+  // importo e documenti non vengono mai toccati dall'annullamento, quindi basta
+  // riportare lo stato di pagamento a quello di prima.
+  // Stato da ripristinare: quello salvato al momento dell'annullamento; per le
+  // iscrizioni annullate prima di questa funzione (nessuno stato salvato) lo si
+  // ricava dai dati presenti (ricevuta verificata → confermato, ricevuta caricata
+  // → dichiarato, altrimenti in attesa).
+  // Come tutti gli strumenti admin NON applica il limite di capienza.
+  const ripristinaIscrizione = async (isc) => {
+    const descrizione = `${isc.corsi?.disciplina} — ${isc.corsi?.giorni_orari || ''} (${isc.corsi?.sedi?.nome || ''})`
+    const doppione = (iscrizioni || []).find(x => x.id !== isc.id && x.corso_id === isc.corso_id &&
+      x.stagione_id === isc.stagione_id && x.stato_pagamento !== 'annullata')
+    if (doppione) {
+      alert(`Non posso ripristinare: ${socio.nome} risulta già iscritto/a a "${descrizione}" in questa stagione con un'altra iscrizione attiva.`)
+      return
+    }
+    let stato = isc.stato_pagamento_prima_annullamento
+    if (!stato || stato === 'annullata') {
+      if (isc.verificato_il && (isc.ricevuta_url || isc.data_pagamento)) stato = 'confermato'
+      else if (isc.ricevuta_url) stato = 'dichiarato'
+      else stato = 'in_attesa'
+    }
+    const etichette = { in_attesa: 'in attesa di pagamento', dichiarato: 'ricevuta da verificare', confermato: 'pagamento confermato' }
+    if (!window.confirm(`Ripristinare l'iscrizione a "${descrizione}"?\n\nTorna attiva con lo stato "${etichette[stato] || stato}". Firma, dati, importo e documenti restano quelli di prima.\n\nAttenzione: il ripristino non controlla la capienza del corso.`)) return
+    const notaAggiunta = `Ripristinata dalla segreteria il ${new Date().toLocaleDateString('it-IT')}.`
+    const { error } = await supabase.from('iscrizioni').update({
+      stato_pagamento: stato,
+      stato_pagamento_prima_annullamento: null,
+      data_annullamento: null,
+      note: isc.note ? `${isc.note} | ${notaAggiunta}` : notaAggiunta,
+    }).eq('id', isc.id)
     if (error) alert('Errore: ' + error.message)
     else caricaIscrizioni()
   }
@@ -1924,7 +1967,12 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
               <ModificaPagamento iscrizione={i} onAggiornato={caricaIscrizioni} />
               <AggiungiExtraSettembre iscrizione={i} onAggiornato={caricaIscrizioni} />
               {i.stato_pagamento === 'annullata' ? (
-                <span style={{ fontSize: 12, color: SUB, padding: '6px 10px' }}>✓ Annullata</span>
+                <button
+                  onClick={() => ripristinaIscrizione(i)}
+                  title="Riporta attiva questa iscrizione annullata per errore"
+                  style={{ fontSize: 12, background: GL, color: G, border: 'none', borderRadius: 8, padding: '6px 10px', fontWeight: 600, cursor: 'pointer' }}>
+                  ↩ Ripristina iscrizione
+                </button>
               ) : (
                 <button
                   onClick={() => annullaIscrizione(i.id, `${i.corsi?.disciplina} — ${i.corsi?.sedi?.nome || ''}`)}
