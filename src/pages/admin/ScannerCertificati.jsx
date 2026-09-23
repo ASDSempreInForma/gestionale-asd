@@ -1,5 +1,7 @@
 import { useState, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
+import RitaglioDocumento from "../../RitaglioDocumento.jsx";
+import { eImmagine, senzaScansione, fileToBase64, caricaSuStorage } from "../../scansioneDocumento.js";
 
 /* =====================================================================
    SCANNER CERTIFICATI — A.S.D. Sempre In Forma
@@ -15,33 +17,8 @@ const SUPABASE_ANON_KEY =
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const FUNCTION_URL_AI = "https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/genera-testo-ai";
 
-// Comprime la foto prima di inviarla all'AI e prima di mostrarla: le foto da
-// fotocamera pesano spesso 3-5 MB, qui si riducono a poche centinaia di KB.
-function comprimiImmagine(file, maxLato = 1600, qualita = 0.75) {
-  return new Promise((resolve) => {
-    if (!file.type.startsWith("image/")) { resolve(file); return; }
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      let { width, height } = img;
-      if (width > maxLato || height > maxLato) {
-        const scala = maxLato / Math.max(width, height);
-        width = Math.round(width * scala);
-        height = Math.round(height * scala);
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = width; canvas.height = height;
-      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-      canvas.toBlob((blob) => {
-        URL.revokeObjectURL(url);
-        if (!blob || blob.size >= file.size) resolve(file);
-        else resolve(new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" }));
-      }, "image/jpeg", qualita);
-    };
-    img.onerror = () => resolve(file);
-    img.src = url;
-  });
-}
+// Ritaglio, raddrizzamento e compressione della foto: vedi scansioneDocumento.js.
+// All'AI va la versione ritagliata a colori (legge meglio), in archivio quella "scansionata".
 
 const G = "#2D6A4F", GL = "#D8F3DC", GD = "#1B4332";
 const A = "#B45309", AL = "#FEF3C7";
@@ -65,7 +42,8 @@ function parseItalianDate(s) {
 export default function ScannerCertificati() {
   const [stato, setStato] = useState("idle"); // idle | caricamento | analisi | risultato | confermato | errore
   const [immagine, setImmagine] = useState(null);
-  const [fileDaSalvare, setFileDaSalvare] = useState(null);
+  const [fileDaSalvare, setFileDaSalvare] = useState(null); // risultato di scansioneDocumento
+  const [fileDaRitagliare, setFileDaRitagliare] = useState(null);
   const [datiEstratti, setDatiEstratti] = useState(null);
   const [iscrittoTrovato, setIscrittoTrovato] = useState(null);
   const [socioList, setSocioList] = useState([]); // lista per selezione manuale
@@ -112,23 +90,26 @@ export default function ScannerCertificati() {
   }
 
   // ── Elabora immagine con AI ───────────────────────────────────────
-  async function elaboraImmagine(file) {
+  // Scelta del file: le foto passano prima dal ritaglio, i PDF vanno diretti
+  async function fileScelto(file, input) {
+    if (input) input.value = "";
     if (!file) return;
+    if (eImmagine(file)) setFileDaRitagliare(file);
+    else elaboraImmagine(await senzaScansione(file));
+  }
+
+  async function elaboraImmagine(risultato) {
+    setFileDaRitagliare(null);
+    if (!risultato) return;
     setStato("caricamento");
     setDatiEstratti(null);
     setIscrittoTrovato(null);
     setErrore("");
 
-    const fileCompresso = await comprimiImmagine(file);
-
-    const base64 = await new Promise((res, rej) => {
-      const r = new FileReader();
-      r.onload = () => res(r.result.split(",")[1]);
-      r.onerror = rej;
-      r.readAsDataURL(fileCompresso);
-    });
-    setImmagine(`data:${fileCompresso.type};base64,${base64}`);
-    setFileDaSalvare(fileCompresso);
+    const fileCompresso = risultato.ritagliatoColore;
+    const base64 = await fileToBase64(fileCompresso);
+    setImmagine(risultato.anteprima || `data:${fileCompresso.type};base64,${base64}`);
+    setFileDaSalvare(risultato);
     setStato("analisi");
     addLog("Immagine caricata — invio all'AI per analisi...");
 
@@ -198,12 +179,10 @@ Rispondi SOLO con il JSON, senza testo aggiuntivo.`,
     // Carica la copia digitale del certificato nello storage privato, se presente
     let certificatoUrl = null;
     if (fileDaSalvare) {
-      const percorso = `${iscrittoTrovato.cf}/certificato_scanner_${Date.now()}.jpg`;
-      const { error: errUpload } = await supabase.storage
-        .from("documenti-soci")
-        .upload(percorso, fileDaSalvare, { contentType: fileDaSalvare.type });
-      if (!errUpload) certificatoUrl = percorso;
-      else addLog("⚠️ Impossibile salvare la copia del certificato: " + errUpload.message);
+      const up = await caricaSuStorage(supabase, `${iscrittoTrovato.cf}/certificato_scanner_${Date.now()}`, fileDaSalvare);
+      if (up.percorso) certificatoUrl = up.percorso;
+      else addLog("⚠️ Impossibile salvare la copia del certificato: " + up.errore);
+      if (up.avvisoOriginale) addLog("⚠️ Copia originale non salvata: " + up.avvisoOriginale);
     }
 
     // Aggiorna soci
@@ -233,7 +212,7 @@ Rispondi SOLO con il JSON, senza testo aggiuntivo.`,
   }
 
   function reset() {
-    setStato("idle"); setImmagine(null); setFileDaSalvare(null); setDatiEstratti(null);
+    setStato("idle"); setImmagine(null); setFileDaSalvare(null); setFileDaRitagliare(null); setDatiEstratti(null);
     setIscrittoTrovato(null); setErrore(""); setSocioList([]);
   }
 
@@ -256,6 +235,11 @@ Rispondi SOLO con il JSON, senza testo aggiuntivo.`,
         </div>
       </div>
 
+      {fileDaRitagliare && (
+        <RitaglioDocumento file={fileDaRitagliare} colore={G}
+          onConferma={elaboraImmagine} onAnnulla={() => setFileDaRitagliare(null)} />
+      )}
+
       <div style={{ maxWidth: 540, margin: "0 auto", padding: "16px 14px 48px" }}>
 
         {/* STATO: IDLE */}
@@ -271,13 +255,13 @@ Rispondi SOLO con il JSON, senza testo aggiuntivo.`,
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <input ref={cameraRef} type="file" accept="image/*" capture="environment"
-                  style={{ display: "none" }} onChange={e => elaboraImmagine(e.target.files[0])} />
+                  style={{ display: "none" }} onChange={e => fileScelto(e.target.files[0], e.target)} />
                 <button onClick={() => cameraRef.current?.click()}
                   style={{ width: "100%", padding: "13px", background: G, border: "none", borderRadius: 12, fontSize: 14, fontWeight: 600, color: "white", cursor: "pointer" }}>
                   📷 Fotografa il certificato
                 </button>
-                <input ref={fileRef} type="file" accept="image/*,application/pdf"
-                  style={{ display: "none" }} onChange={e => elaboraImmagine(e.target.files[0])} />
+                <input ref={fileRef} type="file" accept="image/*,application/pdf,.heic,.heif"
+                  style={{ display: "none" }} onChange={e => fileScelto(e.target.files[0], e.target)} />
                 <button onClick={() => fileRef.current?.click()}
                   style={{ width: "100%", padding: "13px", background: "white", border: `1px solid ${BD}`, borderRadius: 12, fontSize: 14, fontWeight: 600, color: TX, cursor: "pointer" }}>
                   📂 Carica da file / galleria

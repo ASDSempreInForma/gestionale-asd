@@ -1,5 +1,7 @@
 import { useState, useRef } from "react";
 import { supabase } from "../../supabase.js";
+import RitaglioDocumento from "../../RitaglioDocumento.jsx";
+import { eImmagine, senzaScansione, fileToBase64, caricaSuStorage } from "../../scansioneDocumento.js";
 
 /* =====================================================================
    ACQUISISCI MODULO ADESIONE — A.S.D. Sempre In Forma
@@ -23,70 +25,10 @@ const A = "#B45309", AL = "#FEF3C7";
 const R = "#991B1B", RL = "#FEE2E2";
 const TX = "#1A1A1A", SUB = "#6B7280", BD = "#E8E4DC";
 
-function comprimiImmagine(file, maxLato = 1800, qualita = 0.8) {
-  return new Promise((resolve) => {
-    if (!file.type.startsWith("image/")) { resolve(file); return; }
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      let { width, height } = img;
-      if (width > maxLato || height > maxLato) {
-        const scala = maxLato / Math.max(width, height);
-        width = Math.round(width * scala);
-        height = Math.round(height * scala);
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = width; canvas.height = height;
-      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-      canvas.toBlob((blob) => {
-        URL.revokeObjectURL(url);
-        if (!blob || blob.size >= file.size) resolve(file);
-        else resolve(new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" }));
-      }, "image/jpeg", qualita);
-    };
-    img.onerror = () => resolve(file);
-    img.src = url;
-  });
-}
-
-// Le foto scattate/salvate su iPhone sono spesso in formato HEIC/HEIF (impostazione
-// di default della fotocamera Apple). Claude Vision (come la maggior parte dei
-// browser non-Safari) non sa leggere HEIC: senza questa conversione, comprimiImmagine
-// fallisce silenziosamente (img.onerror → resolve(file) invariato) e il file HEIC
-// originale finisce inviato all'AI così com'è, che lo rifiuta o non riesce a
-// leggerlo — è la causa più comune dei moduli che "non vengono presi per niente",
-// specialmente quando la foto è scelta dalla galleria invece che scattata sul momento.
-function isHeic(file) {
-  const tipo = (file.type || "").toLowerCase();
-  if (tipo === "image/heic" || tipo === "image/heif") return true;
-  return /\.(heic|heif)$/i.test(file.name || "");
-}
-
-async function convertiSeHeic(file, addLog) {
-  if (!isHeic(file)) return file;
-  addLog && addLog("Formato HEIC (foto iPhone) rilevato — converto in JPEG...");
-  try {
-    const heic2any = (await import("heic2any")).default;
-    const risultato = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.85 });
-    const blob = Array.isArray(risultato) ? risultato[0] : risultato;
-    return new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" });
-  } catch (e) {
-    throw new Error(
-      "Questa foto è in formato HEIC (tipico di iPhone) e la conversione automatica non è riuscita. " +
-      "Prova a: 1) usare il pulsante \"📷 Fotografa il modulo\" invece di scegliere dalla galleria, oppure " +
-      "2) su iPhone andare in Impostazioni → Fotocamera → Formati e scegliere \"Più compatibile\" (salva in JPEG), poi rifotografare."
-    );
-  }
-}
-
-function fileToBase64(file) {
-  return new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(r.result.split(",")[1]);
-    r.onerror = rej;
-    r.readAsDataURL(file);
-  });
-}
+// Conversione HEIC (foto iPhone), ritaglio, raddrizzamento e compressione:
+// ora sono in scansioneDocumento.js / RitaglioDocumento.jsx, condivisi con
+// scanner certificati, anagrafica e aree soci/istruttori. La conversione HEIC
+// avviene all'apertura del ritaglio, con lo stesso messaggio d'aiuto di prima.
 
 function parseItalianDate(s) {
   if (!s) return null;
@@ -127,7 +69,8 @@ const CAMPI_ANAGRAFICA = [
 export default function AcquisisciModulo() {
   const [stato, setStato] = useState("idle"); // idle | analisi | revisione | confermato | errore
   const [immagine, setImmagine] = useState(null);
-  const [fileDaSalvare, setFileDaSalvare] = useState(null);
+  const [fileDaSalvare, setFileDaSalvare] = useState(null); // risultato di scansioneDocumento
+  const [fileDaRitagliare, setFileDaRitagliare] = useState(null);
   const [errore, setErrore] = useState("");
   const [log, setLog] = useState([]);
   const [salvando, setSalvando] = useState(false);
@@ -178,27 +121,29 @@ export default function AcquisisciModulo() {
     setSocioTrovato(data || null);
   }
 
-  async function elaboraImmagine(fileOriginale) {
-    if (!fileOriginale) return;
+  // Scelta del file: le foto passano prima dal ritaglio
+  function fileScelto(file, input) {
+    if (input) input.value = "";
+    if (!file) return;
+    if (eImmagine(file)) setFileDaRitagliare(file);
+    else senzaScansione(file).then(elaboraImmagine);
+  }
+
+  async function elaboraImmagine(risultato) {
+    setFileDaRitagliare(null);
+    if (!risultato) return;
     setStato("analisi");
     setErrore("");
     setDati({});
     setSocioTrovato(null);
     setCorsoIdScelto("");
 
-    let file;
-    try {
-      file = await convertiSeHeic(fileOriginale, addLog);
-    } catch (e) {
-      setErrore(e.message);
-      setStato("errore");
-      return;
-    }
-
-    const fileCompresso = await comprimiImmagine(file);
+    // All'AI la versione ritagliata a colori (legge meglio la scrittura a mano),
+    // in archivio la versione "scansionata" (+ foto originale finché SALVA_ORIGINALE è attivo)
+    const fileCompresso = risultato.ritagliatoColore;
     const base64 = await fileToBase64(fileCompresso);
-    setImmagine(`data:${fileCompresso.type};base64,${base64}`);
-    setFileDaSalvare(fileCompresso);
+    setImmagine(risultato.anteprima || `data:${fileCompresso.type};base64,${base64}`);
+    setFileDaSalvare(risultato);
     addLog("Foto caricata — recupero i corsi della stagione attiva...");
 
     try {
@@ -320,7 +265,7 @@ Rispondi SOLO con il JSON, senza testo aggiuntivo.`;
   }
 
   function reset() {
-    setStato("idle"); setImmagine(null); setFileDaSalvare(null); setErrore("");
+    setStato("idle"); setImmagine(null); setFileDaSalvare(null); setFileDaRitagliare(null); setErrore("");
     setDati({}); setCampiIncerti([]); setSocioTrovato(null);
     setCorsoIdScelto(""); setCorsoTestoLetto(""); setCorsoIncerto(false);
     setConsensoRegolamento(null); setConsensoDatiSensibili(null);
@@ -341,10 +286,10 @@ Rispondi SOLO con il JSON, senza testo aggiuntivo.`;
       // 1. Carico la foto del modulo firmato come documento ufficiale
       let moduloUrl = null;
       if (fileDaSalvare) {
-        const percorso = `${cfPulito}/modulo_cartaceo_${Date.now()}.jpg`;
-        const { error: errUpload } = await supabase.storage.from("documenti-soci").upload(percorso, fileDaSalvare, { contentType: fileDaSalvare.type });
-        if (errUpload) addLog("⚠️ Impossibile salvare la copia del modulo: " + errUpload.message);
-        else moduloUrl = percorso;
+        const up = await caricaSuStorage(supabase, `${cfPulito}/modulo_cartaceo_${Date.now()}`, fileDaSalvare);
+        if (up.errore) addLog("⚠️ Impossibile salvare la copia del modulo: " + up.errore);
+        else moduloUrl = up.percorso;
+        if (up.avvisoOriginale) addLog("⚠️ Copia originale non salvata: " + up.avvisoOriginale);
       }
 
       // 2. Socio nuovo o esistente
@@ -403,6 +348,10 @@ Rispondi SOLO con il JSON, senza testo aggiuntivo.`;
 
   return (
     <div style={{ fontFamily: "'Segoe UI',system-ui,sans-serif", background: "#F8F7F4", minHeight: "100vh" }}>
+      {fileDaRitagliare && (
+        <RitaglioDocumento file={fileDaRitagliare} colore={G}
+          onConferma={elaboraImmagine} onAnnulla={() => setFileDaRitagliare(null)} />
+      )}
       <div style={{ background: G, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 700, color: "white" }}>📝 Acquisisci Modulo Adesione</div>
@@ -423,12 +372,12 @@ Rispondi SOLO con il JSON, senza testo aggiuntivo.`;
               niente viene salvato in automatico.
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={(e) => elaboraImmagine(e.target.files[0])} />
+              <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={(e) => fileScelto(e.target.files[0], e.target)} />
               <button onClick={() => cameraRef.current?.click()}
                 style={{ width: "100%", padding: "13px", background: G, border: "none", borderRadius: 12, fontSize: 14, fontWeight: 600, color: "white", cursor: "pointer" }}>
                 📷 Fotografa il modulo
               </button>
-              <input ref={fileRef} type="file" accept="image/*,.heic,.heif" style={{ display: "none" }} onChange={(e) => elaboraImmagine(e.target.files[0])} />
+              <input ref={fileRef} type="file" accept="image/*,.heic,.heif" style={{ display: "none" }} onChange={(e) => fileScelto(e.target.files[0], e.target)} />
               <button onClick={() => fileRef.current?.click()}
                 style={{ width: "100%", padding: "13px", background: "white", border: `1px solid ${BD}`, borderRadius: 12, fontSize: 14, fontWeight: 600, color: TX, cursor: "pointer" }}>
                 📂 Carica da file / galleria

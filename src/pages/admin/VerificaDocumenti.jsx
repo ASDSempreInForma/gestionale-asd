@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../supabase.js'
+import { percorsoOriginale } from '../../scansioneDocumento.js'
 
 const G = "#2D6A4F", GL = "#D8F3DC"
 const BD = "#E8E4DC", TX = "#1A1A1A", SUB = "#6B7280"
@@ -57,6 +58,20 @@ async function apriDocumento(path) {
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 120)
   if (error) {
     alert('Impossibile aprire il documento: ' + error.message)
+    return
+  }
+  window.open(data.signedUrl, '_blank')
+}
+
+// Apre la foto originale (copia di sicurezza) di un documento "scansionato".
+// Il percorso si ricava da quello del documento: vedi percorsoOriginale in
+// scansioneDocumento.js. I documenti caricati prima del 23/09/2026, i PDF e le
+// foto caricate con "Non ritagliare" non hanno una copia originale.
+async function apriOriginale(path) {
+  if (!path) return
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(percorsoOriginale(path), 120)
+  if (error) {
+    alert('Per questo documento non c\'è una foto originale separata: è stato caricato prima dell\'attivazione della scansione, oppure era già un PDF o una foto non ritagliata. Il documento che apri normalmente è già il file originale.')
     return
   }
   window.open(data.signedUrl, '_blank')
@@ -274,6 +289,7 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
             )}
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
               <button onClick={() => apriDocumento(row.ricevuta_url)} style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>👁️ Apri file</button>
+              <button onClick={() => apriOriginale(row.ricevuta_url)} title="Foto originale, prima del ritaglio" style={{ background: 'none', color: '#64748b', border: 'none', padding: '7px 4px', fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}>Vedi foto originale</button>
               {!soloConsultazione && row.stato_pagamento === 'dichiarato' && (
                 <>
                   <button
@@ -379,6 +395,7 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
 
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
               <button onClick={() => apriDocumento(row.certificato_url)} style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>👁️ Apri file</button>
+              <button onClick={() => apriOriginale(row.certificato_url)} title="Foto originale, prima del ritaglio" style={{ background: 'none', color: '#64748b', border: 'none', padding: '7px 4px', fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}>Vedi foto originale</button>
               {!soloConsultazione && row.stato_certificato === 'dichiarato' && (
                 <>
                   <button

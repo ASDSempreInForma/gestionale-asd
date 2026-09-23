@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../supabase.js'
 import { generaPdfDomandaAdesione, comprimiTesseraPdf } from '../../pdfModuli.js'
 import ComboComune from '../../ComboComune.jsx'
+import CampoDocumento from '../../CampoDocumento.jsx'
+import RitaglioDocumento from '../../RitaglioDocumento.jsx'
+import { percorsoOriginale, caricaSuStorage, eImmagine, senzaScansione } from '../../scansioneDocumento.js'
 
 const G = "#2D6A4F", GL = "#D8F3DC"
 const BD = "#E8E4DC", TX = "#1A1A1A", SUB = "#6B7280"
@@ -76,6 +79,20 @@ async function apriDocumento(path) {
   if (!path) return
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 120)
   if (error) { alert('Impossibile aprire il documento: ' + error.message); return }
+  window.open(data.signedUrl, '_blank')
+}
+
+// Apre la foto originale (copia di sicurezza) di un documento "scansionato".
+// Il percorso si ricava da quello del documento: vedi percorsoOriginale in
+// scansioneDocumento.js. I documenti caricati prima del 23/09/2026, i PDF e le
+// foto caricate con "Non ritagliare" non hanno una copia originale.
+async function apriOriginale(path) {
+  if (!path) return
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(percorsoOriginale(path), 120)
+  if (error) {
+    alert('Per questo documento non c\'è una foto originale separata: è stato caricato prima dell\'attivazione della scansione, oppure era già un PDF o una foto non ritagliata. Il documento che apri normalmente è già il file originale.')
+    return
+  }
   window.open(data.signedUrl, '_blank')
 }
 
@@ -564,17 +581,26 @@ function NotaVisibileSocio({ iscrizione }) {
 function AllegaModuloCartaceo({ iscrizione, socioCf, onAggiornato }) {
   const [caricando, setCaricando] = useState(false)
   const [erroreUpload, setErroreUpload] = useState('')
+  const [daRitagliare, setDaRitagliare] = useState(null)
   const fileRef = useRef(null)
 
-  const carica = async (file) => {
+  // Le foto passano prima dal ritaglio/scansione, i PDF vanno diretti
+  const scelto = async (file, input) => {
+    if (input) input.value = ''
     if (!file) return
+    if (eImmagine(file)) setDaRitagliare(file)
+    else carica(await senzaScansione(file))
+  }
+
+  const carica = async (risultato) => {
+    setDaRitagliare(null)
+    if (!risultato) return
     setCaricando(true)
     setErroreUpload('')
     try {
-      const estensione = file.name.split('.').pop() || 'jpg'
-      const percorso = `${socioCf}/modulo_cartaceo_${Date.now()}.${estensione}`
-      const { error: errUpload } = await supabase.storage.from(BUCKET).upload(percorso, file, { contentType: file.type })
-      if (errUpload) throw errUpload
+      const up = await caricaSuStorage(supabase, `${socioCf}/modulo_cartaceo_${Date.now()}`, risultato)
+      if (up.errore) throw new Error(up.errore)
+      const percorso = up.percorso
       const { error: errUpdate } = await supabase.from('iscrizioni').update({ modulo_cartaceo_url: percorso }).eq('id', iscrizione.id)
       if (errUpdate) throw errUpdate
       onAggiornato && onAggiornato()
@@ -595,8 +621,11 @@ function AllegaModuloCartaceo({ iscrizione, socioCf, onAggiornato }) {
 
   return (
     <>
-      <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }}
-        onChange={e => carica(e.target.files[0])} />
+      <input ref={fileRef} type="file" accept="image/*,.pdf,.heic,.heif" style={{ display: 'none' }}
+        onChange={e => scelto(e.target.files[0], e.target)} />
+      {daRitagliare && (
+        <RitaglioDocumento file={daRitagliare} colore={G} onConferma={carica} onAnnulla={() => setDaRitagliare(null)} />
+      )}
       <button onClick={() => fileRef.current?.click()} disabled={caricando}
         style={{ fontSize: 12, background: '#F1F5F9', color: SUB, border: `1px dashed ${BD}`, borderRadius: 6, padding: '5px 10px', cursor: caricando ? 'default' : 'pointer' }}>
         {caricando ? 'Carico...' : '📎 Allega modulo cartaceo'}
@@ -616,7 +645,7 @@ function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato }) {
   const [aperto, setAperto] = useState(false)
   const [caricando, setCaricando] = useState(false)
   const [errore, setErrore] = useState('')
-  const [file, setFile] = useState(null)
+  const [documento, setDocumento] = useState(null) // risultato di scansioneDocumento
   const [tipoPagamento, setTipoPagamento] = useState(iscrizione.tipo_pagamento || 'annuale')
   const [importo, setImporto] = useState('')
   const [dataPagamento, setDataPagamento] = useState(new Date().toISOString().slice(0, 10))
@@ -632,7 +661,7 @@ function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato }) {
 
   const salva = async () => {
     const pagamentoSenzaDocumento = tipo === 'ricevuta' && senzaRicevuta
-    if (!pagamentoSenzaDocumento && !file) { setErrore('Seleziona prima un file (foto o PDF).'); return }
+    if (!pagamentoSenzaDocumento && !documento) { setErrore('Seleziona prima un file (foto o PDF).'); return }
     if (pagamentoSenzaDocumento && !notaManuale.trim()) { setErrore('Inserisci una nota (obbligatoria) per registrare il pagamento senza ricevuta.'); return }
     if (tipo === 'certificato' && !scadenzaCertificato) { setErrore('Inserisci la data di scadenza del certificato.'); return }
     setCaricando(true)
@@ -640,10 +669,9 @@ function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato }) {
     try {
       let percorso = null
       if (!pagamentoSenzaDocumento) {
-        const estensione = file.name.split('.').pop() || 'jpg'
-        percorso = `${socio.cf}/${tipo}_manuale_${Date.now()}.${estensione}`
-        const { error: errUpload } = await supabase.storage.from(BUCKET).upload(percorso, file, { contentType: file.type })
-        if (errUpload) throw errUpload
+        const up = await caricaSuStorage(supabase, `${socio.cf}/${tipo}_manuale_${Date.now()}`, documento)
+        if (up.errore) throw new Error(up.errore)
+        percorso = up.percorso
       }
 
       const notaAggiunta = pagamentoSenzaDocumento
@@ -693,7 +721,7 @@ function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato }) {
       }
 
       setAperto(false)
-      setFile(null)
+      setDocumento(null)
       setSenzaRicevuta(false)
       setNotaManuale('')
       onAggiornato && onAggiornato()
@@ -724,8 +752,7 @@ function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato }) {
       )}
 
       {!senzaRicevuta && (
-        <input type="file" accept="image/*,.pdf" onChange={e => setFile(e.target.files[0])}
-          style={{ fontSize: 12.5, marginBottom: 8, display: 'block' }} />
+        <CampoDocumento onChange={setDocumento} colore={G} />
       )}
 
       {tipo === 'ricevuta' && (
@@ -1863,10 +1890,12 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
             )}
             <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
               {i.ricevuta_url && <button onClick={() => apriDocumento(i.ricevuta_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Ricevuta</button>}
+              {i.ricevuta_url && <button onClick={() => apriOriginale(i.ricevuta_url)} title="Foto originale, prima del ritaglio" style={{ fontSize: 11.5, background: 'none', color: SUB, border: 'none', padding: '5px 2px', cursor: 'pointer', textDecoration: 'underline' }}>originale</button>}
               {i.stato_pagamento !== 'confermato' && (
                 <CaricaDocumentoManuale iscrizione={i} socio={socio} tipo="ricevuta" onAggiornato={caricaIscrizioni} />
               )}
               {i.certificato_url && <button onClick={() => apriDocumento(i.certificato_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Certificato</button>}
+              {i.certificato_url && <button onClick={() => apriOriginale(i.certificato_url)} title="Foto originale, prima del ritaglio" style={{ fontSize: 11.5, background: 'none', color: SUB, border: 'none', padding: '5px 2px', cursor: 'pointer', textDecoration: 'underline' }}>originale</button>}
               {certificatoStatoEffettivo(i.stato_certificato, i.data_scadenza_certificato) !== 'valido' && (
                 <CaricaDocumentoManuale iscrizione={i} socio={socio} tipo="certificato" onAggiornato={caricaIscrizioni} />
               )}

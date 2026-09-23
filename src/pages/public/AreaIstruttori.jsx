@@ -3,6 +3,8 @@ import jsQR from "jsqr";
 import SiteHeader from "../../SiteHeader.jsx";
 import SiteFooter from "../../SiteFooter.jsx";
 import ChatWidget from "../../ChatWidget.jsx";
+import CampoDocumento from "../../CampoDocumento.jsx";
+import { campiUpload } from "../../scansioneDocumento.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const ANON_KEY =
@@ -40,33 +42,8 @@ async function callFn(payload) {
   }
 }
 
-// Comprime le foto prima dell'invio: le foto da fotocamera pesano spesso 3-5 MB,
-// qui si riducono a poche centinaia di KB restando perfettamente leggibili.
-function comprimiImmagine(file, maxLato = 1600, qualita = 0.75) {
-  return new Promise((resolve) => {
-    if (!file.type.startsWith("image/")) { resolve(file); return; }
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      let { width, height } = img;
-      if (width > maxLato || height > maxLato) {
-        const scala = maxLato / Math.max(width, height);
-        width = Math.round(width * scala);
-        height = Math.round(height * scala);
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = width; canvas.height = height;
-      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-      canvas.toBlob((blob) => {
-        URL.revokeObjectURL(url);
-        if (!blob || blob.size >= file.size) resolve(file);
-        else resolve(new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" }));
-      }, "image/jpeg", qualita);
-    };
-    img.onerror = () => resolve(file);
-    img.src = url;
-  });
-}
+// La compressione e la "scansione" delle foto ora avvengono in CampoDocumento /
+// scansioneDocumento.js, condivisi con area soci, anagrafica e scanner.
 
 function BadgeCertificato({ stato }) {
   const map = {
@@ -151,7 +128,7 @@ async function inviaNotaEmail({ istruttore, corso, testo }) {
 }
 
 function ModaleDocumentoSocio({ iscritto, tipo, corso, callFnWithAuth, onClose, onDone }) {
-  const [file, setFile] = useState(null);
+  const [documento, setDocumento] = useState(null);
   const [tipoPagamento, setTipoPagamento] = useState("annuale");
   const [importo, setImporto] = useState("");
   const [dataPagamento, setDataPagamento] = useState("");
@@ -160,20 +137,12 @@ function ModaleDocumentoSocio({ iscritto, tipo, corso, callFnWithAuth, onClose, 
   const [errore, setErrore] = useState("");
 
   const invia = async () => {
-    if (!file) { setErrore("Allega una foto o un PDF del documento."); return; }
+    if (!documento) { setErrore("Allega una foto o un PDF del documento."); return; }
     if (tipo === "ricevuta" && (!importo || !dataPagamento)) { setErrore("Indica importo e data del pagamento."); return; }
     if (tipo === "certificato" && !scadenza) { setErrore("Indica la data di scadenza del certificato."); return; }
 
     setCaricando(true);
     setErrore("");
-    const fileCompresso = await comprimiImmagine(file);
-    const base64 = await new Promise((res, rej) => {
-      const r = new FileReader();
-      r.onload = () => res(r.result.split(",")[1]);
-      r.onerror = rej;
-      r.readAsDataURL(fileCompresso);
-    });
-
     const r = await callFnWithAuth({
       action: "carica_documento_socio",
       corso_id: corso.id,
@@ -182,9 +151,7 @@ function ModaleDocumentoSocio({ iscritto, tipo, corso, callFnWithAuth, onClose, 
       dichiarazione: tipo === "ricevuta"
         ? { tipo_pagamento: tipoPagamento, importo: Number(importo), data_pagamento: dataPagamento }
         : { data_scadenza: scadenza },
-      file_base64: base64,
-      file_name: fileCompresso.name,
-      file_type: fileCompresso.type,
+      ...(await campiUpload(documento)),
     });
     setCaricando(false);
     if (r.ok) onDone();
@@ -231,9 +198,7 @@ function ModaleDocumentoSocio({ iscritto, tipo, corso, callFnWithAuth, onClose, 
         )}
 
         <label style={{ fontSize: 11, color: "#64748b", display: "block", marginBottom: 3 }}>Foto o PDF del documento</label>
-        <input type="file" accept="image/*,application/pdf" capture="environment"
-          onChange={(e) => setFile(e.target.files[0])}
-          style={{ width: "100%", fontSize: 12.5, marginBottom: 14 }} />
+        <CampoDocumento onChange={setDocumento} colore={G} capture="environment" />
 
         {errore && <p style={{ color: "#DC2626", fontSize: 12, marginBottom: 10 }}>{errore}</p>}
         <div style={{ display: "flex", gap: 8 }}>
