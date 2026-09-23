@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { angoliProposti, caricaSuCanvas, convertiSeHeic, produciScansione, senzaScansione } from "./scansioneDocumento.js";
+import { angoliProposti, caricaSuCanvas, convertiSeHeic, produciScansione, senzaScansione, senzaScansioneDaCanvas, ruotaCanvas } from "./scansioneDocumento.js";
 
 /* =====================================================================
    RITAGLIO DOCUMENTO — schermata a tutto schermo
@@ -85,9 +85,17 @@ export default function RitaglioDocumento({ file, colore = "#2A6F86", onConferma
   }
   function fine() { trascinaRef.current = null; }
 
-  // Ruota di 90°: si cambia solo quale angolo è "in alto a sinistra"
+  // Ruota di 90° in senso orario la FOTO stessa (e i 4 angoli insieme a lei),
+  // così chi la usa vede subito il risultato. Prima si cambiava solo quale
+  // angolo era "in alto a sinistra": il risultato finale ruotava, ma sullo
+  // schermo non cambiava nulla e sembrava che il pulsante non funzionasse.
   function ruota() {
-    setAngoli((a) => [a[3], a[0], a[1], a[2]]);
+    const h = canvas.height;
+    const nuovo = ruotaCanvas(canvas);
+    // punto (x, y) → (h - y, x); l'angolo che era in basso a sinistra diventa in alto a sinistra
+    setAngoli((a) => [a[3], a[0], a[1], a[2]].map((p) => ({ x: h - p.y, y: p.x })));
+    setCanvas(nuovo);
+    setSrc(nuovo.toDataURL("image/jpeg", 0.85));
   }
 
   async function conferma() {
@@ -105,7 +113,7 @@ export default function RitaglioDocumento({ file, colore = "#2A6F86", onConferma
   async function usaCosi() {
     setStato("elaboro");
     try {
-      onConferma(await senzaScansione(await convertiSeHeic(file)));
+      onConferma(canvas ? await senzaScansioneDaCanvas(canvas, file) : await senzaScansione(await convertiSeHeic(file)));
     } catch (e) {
       setErrore(e.message || "Non riesco a usare questo file.");
       setStato("errore");

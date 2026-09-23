@@ -459,6 +459,24 @@ export async function senzaScansione(file) {
   return { scansionato: jpg, ritagliatoColore: jpg, originale: null, anteprima: URL.createObjectURL(jpg), nonElaborato: true };
 }
 
+// Come senzaScansione, ma parte dalla foto già aperta nel ritaglio: così se la
+// persona l'ha ruotata e poi sceglie "Non ritagliare", la rotazione resta.
+export async function senzaScansioneDaCanvas(canvas, fileSorgente) {
+  const jpg = await canvasAFile(canvas, `${nomeBase(fileSorgente)}.jpg`, 0.75);
+  return { scansionato: jpg, ritagliatoColore: jpg, originale: null, anteprima: URL.createObjectURL(jpg), nonElaborato: true };
+}
+
+// Ruota la foto di 90° in senso orario (nuovo canvas, larghezza e altezza scambiate)
+export function ruotaCanvas(canvas) {
+  const c = document.createElement("canvas");
+  c.width = canvas.height; c.height = canvas.width;
+  const ctx = c.getContext("2d");
+  ctx.translate(c.width, 0);
+  ctx.rotate(Math.PI / 2);
+  ctx.drawImage(canvas, 0, 0);
+  return c;
+}
+
 export function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
