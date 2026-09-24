@@ -139,9 +139,16 @@ export function tokenNome(s) {
 // Parole del movimento (tutto il testo) in forma confrontabile.
 // Si aggiungono anche le coppie unite (es. "DE MAIO" → "DEMAIO").
 function paroleMovimento(testo) {
-  const t = tokenNome(testo);
-  const set = new Set(t);
-  for (let i = 0; i < t.length - 1; i++) set.add(t[i] + t[i + 1]);
+  const set = new Set(tokenNome(testo));
+  // Per le coppie si tengono anche le lettere singole: così "D EMANUELE",
+  // "D.EMANUELE" o "D AMICO" diventano "DEMANUELE"/"DAMICO" e combaciano con i
+  // cognomi scritti con l'apostrofo (D'Emanuele, D'Amico). Caso reale 24/09/2026:
+  // il bonifico di Emilio D'Emanuele non veniva riconosciuto.
+  const tutti = String(testo || "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase().replace(/[’'`]/g, "")
+    .split(/[^A-Z]+/).filter(Boolean);
+  for (let i = 0; i < tutti.length - 1; i++) set.add(tutti[i] + tutti[i + 1]);
   return set;
 }
 
