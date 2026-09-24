@@ -1010,7 +1010,9 @@ function ModaleAssenzeTesto({ sessione, istruttoriSede, onChiudi, onApplicate })
     setErrore(''); setApplicando(true);
     try {
       const inseritoDa = `${sessione.nome} ${sessione.cognome}`;
-      const daInviare = proposte.map((p) => (p.tipo === 'lezione_extra'
+      const daInviare = proposte.map((p) => (p.tipo === 'elimina_lezione'
+        ? { tipo: 'elimina_lezione', id: p.id }
+        : p.tipo === 'lezione_extra'
         ? {
             tipo: 'lezione_extra', istruttore_id: p.istruttore_id, data: p.data, nota: p.nota,
             orario: p.orario_manuale || null, ore: Number(p.ore_manuale) || 1,
@@ -1027,7 +1029,7 @@ function ModaleAssenzeTesto({ sessione, istruttoriSede, onChiudi, onApplicate })
     finally { setApplicando(false); }
   }
 
-  const tutteRisolte = proposte && proposte.every((p) => p.istruttore_id && (p.tipo === 'lezione_extra' || !p.sostituto_da_scegliere || p.sostituto_id));
+  const tutteRisolte = proposte && proposte.every((p) => (p.tipo === 'elimina_lezione' ? !!p.id : (p.istruttore_id && (p.tipo === 'lezione_extra' || !p.sostituto_da_scegliere || p.sostituto_id))));
   const nAssenze = proposte ? proposte.filter((p) => p.tipo === 'assenza').length : 0;
 
   return (
@@ -1035,7 +1037,7 @@ function ModaleAssenzeTesto({ sessione, istruttoriSede, onChiudi, onApplicate })
       <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 620, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' }}>
         <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>Assenze, sostituzioni e lezioni extra da testo libero</h3>
         <p style={{ margin: '0 0 14px', fontSize: 12, color: '#777' }}>
-          Scrivi la situazione come la racconteresti a voce, ad es. "Le lezioni di martedì 22 mattina le fa Sabina perché Nadia è malata", "Sabato 26 tutte le lezioni le fa Monica", "Nadia è assente venerdì le prime due ore, sostituita da Marta" oppure, per una lezione in più, "Oggi Marta ha fatto una lezione extra alle 14:30 con 2 persone". Ti mostro i turni interessati uno per uno: controlla e conferma — non viene scritto nulla finché non premi "Conferma e applica".
+          Scrivi la situazione come la racconteresti a voce, ad es. "Le lezioni di martedì 22 mattina le fa Sabina perché Nadia è malata", "Sabato 26 tutte le lezioni le fa Monica", "Nadia è assente venerdì le prime due ore, sostituita da Marta", "Oggi Marta ha fatto una lezione extra alle 14:30 con 2 persone" oppure, per togliere qualcosa già inserito, "Cancella la lezione extra di Nadia del 30/09 delle 12:15". Ti mostro i turni interessati uno per uno: controlla e conferma — non viene scritto nulla finché non premi "Conferma e applica".
         </p>
 
         {risultatoApplicazione ? (
@@ -1084,16 +1086,31 @@ function ModaleAssenzeTesto({ sessione, istruttoriSede, onChiudi, onApplicate })
                 )}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
                   {proposte.map((p, i) => (
-                    <div key={p.chiave || i} style={{ border: `1px solid ${(p.istruttore_id && (p.tipo === 'lezione_extra' || !p.sostituto_da_scegliere || p.sostituto_id)) ? '#ddd' : '#e0b4b4'}`, borderRadius: 8, padding: 12 }}>
+                    <div key={p.chiave || p.id || i} style={{ border: `1px solid ${p.tipo === 'elimina_lezione' ? '#e0b4b4' : (p.istruttore_id && (p.tipo === 'lezione_extra' || !p.sostituto_da_scegliere || p.sostituto_id)) ? '#ddd' : '#e0b4b4'}`, borderRadius: 8, padding: 12 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
-                        <div style={{ display: 'inline-block', background: p.tipo === 'lezione_extra' ? '#eafaf0' : '#eef0f1', color: p.tipo === 'lezione_extra' ? '#1f8a52' : C, borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>
-                          {p.tipo === 'lezione_extra' ? '➕ Lezione extra' : `🚫 ${p.giorno_label} · ${p.orario} · ${p.numero_persone} ${p.numero_persone === 1 ? 'persona' : 'persone'}`}
+                        <div style={{ display: 'inline-block', background: p.tipo === 'elimina_lezione' ? '#fdecea' : p.tipo === 'lezione_extra' ? '#eafaf0' : '#eef0f1', color: p.tipo === 'elimina_lezione' ? '#c0392b' : p.tipo === 'lezione_extra' ? '#1f8a52' : C, borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>
+                          {p.tipo === 'elimina_lezione' ? `🗑️ ${p.giorno_label}${p.orario ? ` · ${p.orario}` : ''}` : p.tipo === 'lezione_extra' ? '➕ Lezione extra' : `🚫 ${p.giorno_label} · ${p.orario} · ${p.numero_persone} ${p.numero_persone === 1 ? 'persona' : 'persone'}`}
                         </div>
                         <button type="button" onClick={() => rimuoviProposta(i)} title="Togli questa modifica"
                           style={{ background: 'none', border: 'none', color: '#999', fontSize: 16, cursor: 'pointer', padding: 0 }}>✕</button>
                       </div>
 
-                      {p.tipo === 'lezione_extra' ? (
+                      {p.tipo === 'elimina_lezione' ? (
+                        <div style={{ fontSize: 13, color: '#555' }}>
+                          <div>
+                            Lezione di <strong>{p.istruttore_trovato}</strong>
+                            {p.sostituto_trovato && <> (sostituita da <strong>{p.sostituto_trovato}</strong>)</>}
+                            {' '}· {p.ore} {p.ore === 1 ? 'ora' : 'ore'} · {p.numero_persone} {p.numero_persone === 1 ? 'persona' : 'persone'}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
+                            {p.era_turno_fisso
+                              ? 'È una modifica a un turno fisso: cancellandola, il turno torna al suo comportamento normale.'
+                              : 'È una lezione extra: verrà rimossa del tutto.'}
+                            {p.note_esistente && <> · nota registrata: "{p.note_esistente}"</>}
+                            {p.nota && <> · motivo: "{p.nota}"</>}
+                          </div>
+                        </div>
+                      ) : p.tipo === 'lezione_extra' ? (
                         <>
                           {!p.istruttore_id && <div style={{ fontSize: 11, color: '#c0392b', marginBottom: 6 }}>⚠️ Non ho riconosciuto "{p.istruttore_nome_originale}" — selezionalo a mano</div>}
                           <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
