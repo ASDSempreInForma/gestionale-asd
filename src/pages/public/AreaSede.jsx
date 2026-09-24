@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../supabase.js';
 
@@ -982,7 +982,47 @@ function ModaleAssenzeTesto({ sessione, istruttoriSede, onChiudi, onApplicate })
   const [errore, setErrore] = useState('');
   const [risultatoApplicazione, setRisultatoApplicazione] = useState(null);
 
+  // Dettatura vocale diretta nel campo di testo: comoda su telefono, evita di
+  // dover aprire la tastiera solo per raggiungere l'icona microfono. Supportata
+  // da Chrome/Edge (desktop e Android); dove manca (es. alcune versioni di
+  // Safari) il pulsante semplicemente non compare, e resta la dettatura della
+  // tastiera di sistema che Sabina già usa.
+  const [ascoltando, setAscoltando] = useState(false);
+  const riconoscimentoRef = useRef(null);
+  const testoBaseRef = useRef('');
+  const SpeechRecognitionAPI = typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
+
+  function avviaAscolto() {
+    if (!SpeechRecognitionAPI) return;
+    const r = new SpeechRecognitionAPI();
+    r.lang = 'it-IT';
+    r.continuous = true;
+    r.interimResults = true;
+    testoBaseRef.current = testo ? `${testo} ` : '';
+    r.onresult = (e) => {
+      let finale = '';
+      let interim = '';
+      for (let i = 0; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finale += `${t} `;
+        else interim += t;
+      }
+      setTesto((testoBaseRef.current + finale + interim).replace(/\s+/g, ' '));
+    };
+    r.onerror = () => setAscoltando(false);
+    r.onend = () => setAscoltando(false);
+    riconoscimentoRef.current = r;
+    r.start();
+    setAscoltando(true);
+  }
+  function fermaAscolto() {
+    riconoscimentoRef.current?.stop();
+    setAscoltando(false);
+  }
+  useEffect(() => () => riconoscimentoRef.current?.stop(), []);
+
   async function interpreta() {
+    if (ascoltando) fermaAscolto();
     if (!testo.trim()) { setErrore('Scrivi prima il testo da interpretare'); return; }
     setErrore(''); setInterpretando(true); setProposte(null); setAvvisi([]);
     try {
@@ -1050,9 +1090,19 @@ function ModaleAssenzeTesto({ sessione, istruttoriSede, onChiudi, onApplicate })
           </div>
         ) : !proposte ? (
           <div>
-            <textarea value={testo} onChange={(e) => setTesto(e.target.value)} rows={5}
-              placeholder="Es. Le lezioni di martedì 22 mattina verranno svolte da Sabina perché Nadia è malata."
-              style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd', fontSize: 14, boxSizing: 'border-box', marginBottom: 14, fontFamily: 'inherit' }} />
+            <div style={{ position: 'relative' }}>
+              <textarea value={testo} onChange={(e) => setTesto(e.target.value)} rows={5}
+                placeholder="Es. Le lezioni di martedì 22 mattina verranno svolte da Sabina perché Nadia è malata."
+                style={{ width: '100%', padding: 10, paddingRight: SpeechRecognitionAPI ? 46 : 10, borderRadius: 8, border: `1px solid ${ascoltando ? C : '#ddd'}`, fontSize: 14, boxSizing: 'border-box', fontFamily: 'inherit' }} />
+              {SpeechRecognitionAPI && (
+                <button type="button" onClick={ascoltando ? fermaAscolto : avviaAscolto} title={ascoltando ? 'Ferma la dettatura' : 'Detta il testo a voce'}
+                  style={{ position: 'absolute', right: 8, bottom: 8, width: 32, height: 32, borderRadius: '50%', border: 'none', cursor: 'pointer', fontSize: 15, background: ascoltando ? '#c0392b' : C, color: '#fff' }}>
+                  {ascoltando ? '⏹' : '🎤'}
+                </button>
+              )}
+            </div>
+            {ascoltando && <div style={{ fontSize: 11, color: C, marginTop: 6 }}>🔴 In ascolto… parla pure, il testo si scrive da solo.</div>}
+            <div style={{ marginBottom: 14 }} />
             {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{errore}</div>}
             <div style={{ display: 'flex', gap: 10 }}>
               <button type="button" onClick={onChiudi} style={{ flex: 1, background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, cursor: 'pointer' }}>Annulla</button>
