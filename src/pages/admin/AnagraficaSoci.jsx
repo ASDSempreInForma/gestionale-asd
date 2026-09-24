@@ -1490,6 +1490,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
         stato_certificato, data_scadenza_certificato, certificato_url, certificato_ereditato,
         data_iscrizione, note, nota_socio, firma_url, firma_genitore_url, modulo_cartaceo_url,
         frequenza, giorno_scelto, data_pagamento, verificato_il, stato_pagamento_prima_annullamento,
+        incasso_verificato_il, incasso_importo, incasso_verificato_da,
         corso_extra_settembre_id, frequenza_extra_settembre, sovrapprezzo_extra_settembre,
         corsi!iscrizioni_corso_id_fkey ( codice_corso, disciplina, nome_visualizzato, giorni_orari, ha_variante_frequenza, sedi ( nome ) ),
         stagioni ( nome, attiva )
@@ -1911,6 +1912,14 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                 <BadgePagamento stato={i.stato_pagamento} />
+                {/* Controllo interno dall'estratto conto (pagina Controllo pagamenti):
+                    NON cambia lo stato del pagamento, dice solo che i soldi sono arrivati */}
+                {i.incasso_verificato_il && (
+                  <span title={`Bonifico trovato sull'estratto conto${i.incasso_importo ? `: ${Number(i.incasso_importo).toFixed(2).replace('.', ',')} €` : ''}${i.incasso_verificato_da ? ` — verificato da ${i.incasso_verificato_da}` : ''}`}
+                    style={{ background: '#DBEAFE', color: '#1D4ED8', borderRadius: 20, padding: '2px 9px', fontSize: 11.5, fontWeight: 600 }}>
+                    🏦 Incasso verificato {i.incasso_verificato_il.split('-').reverse().join('/')}
+                  </span>
+                )}
                 <BadgeCertificato stato={i.stato_certificato} scadenza={i.data_scadenza_certificato} />
               </div>
             </div>

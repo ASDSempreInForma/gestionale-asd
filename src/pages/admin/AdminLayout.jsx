@@ -19,6 +19,7 @@ import GenerazioneAttestati from './GenerazioneAttestati.jsx'
 import Note from './Note.jsx'
 import GestioneSede from './GestioneSede.jsx'
 import Compensi from './Compensi.jsx'
+import ControlloPagamenti from './ControlloPagamenti.jsx'
 
 // Voci raggruppate in sezioni pieghevoli (14/09/2026) — la sidebar era diventata
 // una lista piatta di 18 voci, difficile da scorrere. Il raggruppamento è solo
@@ -42,6 +43,9 @@ const SEZIONI = [
     titolo: 'Soci & Iscrizioni',
     voci: [
       { id: 'anagrafica-soci', icon: '👤', label: 'Anagrafica soci' },
+      // Controllo settimanale dell'estratto conto BancoPosta (24/09/2026):
+      // solo verifica interna degli incassi, non cambia lo stato dei pagamenti
+      { id: 'controllo-pagamenti', icon: '🏦', label: 'Controllo pagamenti' },
       { id: 'prove',         icon: '📋', label: 'Gestione prove' },
       { id: 'acquisisci-modulo', icon: '📝', label: 'Acquisisci modulo' },
       { id: 'certificati',  icon: '📷', label: 'Scanner certificati' },
@@ -204,6 +208,7 @@ export default function AdminLayout({ user, onLogout }) {
         {pagina === 'note'        && <Note />}
         {pagina === 'verifica-documenti' && <VerificaDocumenti />}
         {pagina === 'anagrafica-soci' && <AnagraficaSoci />}
+        {pagina === 'controllo-pagamenti' && <ControlloPagamenti />}
         {pagina === 'import-tessere' && <ImportTessere />}
         {pagina === 'prove'       && <GestioneProve />}
         {pagina === 'istruttori'  && <GestioneIstruttori onVaiAContratto={vaiAContratto} />}
