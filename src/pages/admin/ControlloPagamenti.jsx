@@ -43,7 +43,7 @@ const SEZIONI = [
   { id: 'importo_diverso', titolo: '⚠️ Importo diverso', aiuto: 'Socio trovato, ma la cifra arrivata non corrisponde a quella dichiarata.' },
   { id: 'non_abbinato', titolo: '❓ Da abbinare a mano', aiuto: 'Bonifici in cui non si riconosce nessun socio: scegli tu a chi appartengono, oppure ignorali.' },
   { id: 'altro', titolo: '💳 SumUp e bollettini', aiuto: 'Versamenti SumUp (somma di più pagamenti con carta: si controllano sul portale SumUp) e bollettini senza nome.' },
-  { id: 'senza_bonifico', titolo: '🚩 Confermati senza incasso', aiuto: 'Pagamenti confermati a sistema (ricevuta accettata) per cui non risulta nessun bonifico, né in questo file né nei controlli precedenti. Possono essere pagamenti in contanti, con carta o bollettino: controllali uno per uno.' },
+  { id: 'senza_bonifico', titolo: '🚩 Confermati senza incasso', aiuto: 'Pagamenti confermati a sistema per cui non risulta nessun incasso, né in questo file né nei controlli precedenti. Chi ha pagato in contanti, con carta o bollettino segnalo con i pulsanti a destra (anche più persone insieme): esce dalla lista. Quelli che restano sono le incongruenze da approfondire.' },
 ]
 
 async function leggiTutto(query) {
@@ -182,6 +182,7 @@ export default function ControlloPagamenti() {
   const [sezione, setSezione] = useState('regolare')
   const [inCorso, setInCorso] = useState(false)
   const [mostraRegistrati, setMostraRegistrati] = useState(false)
+  const [selezionati, setSelezionati] = useState(new Set()) // cf selezionati in "Confermati senza incasso"
   const inputRef = useRef(null)
 
   async function caricaDati() {
@@ -193,7 +194,7 @@ export default function ControlloPagamenti() {
       setStagione(st)
 
       const righe = await leggiTutto(() => supabase.from('iscrizioni')
-        .select('id, socio_cf, stato_pagamento, importo_dichiarato, tipo_pagamento, data_pagamento, data_iscrizione, verificato_il, incasso_verificato_il, soci ( nome, cognome ), corsi!iscrizioni_corso_id_fkey ( codice_corso )')
+        .select('id, socio_cf, stato_pagamento, importo_dichiarato, tipo_pagamento, data_pagamento, data_iscrizione, verificato_il, incasso_verificato_il, incasso_metodo, ricevuta_url, soci ( nome, cognome ), corsi!iscrizioni_corso_id_fkey ( codice_corso )')
         .eq('stagione_id', st.id).neq('stato_pagamento', 'annullata').order('id'))
 
       const perSocio = new Map()
@@ -211,6 +212,7 @@ export default function ControlloPagamenti() {
         stato: ordineStato.find(o => s.iscrizioni.some(i => i.stato_pagamento === o)) || s.iscrizioni[0]?.stato_pagamento,
         incasso: s.iscrizioni.every(i => i.incasso_verificato_il) ? s.iscrizioni[0].incasso_verificato_il : null,
         confermatoIl: s.iscrizioni.map(i => i.verificato_il).filter(Boolean).sort().pop() || null,
+        conRicevuta: s.iscrizioni.some(i => i.ricevuta_url),
       }))
       setSoci(lista)
 
@@ -286,11 +288,43 @@ export default function ControlloPagamenti() {
         incasso_verificato_il: mov.data,
         incasso_importo: mov.importo,
         incasso_verificato_da: utente,
+        incasso_metodo: mov.tipo === 'bollettino' ? 'bollettino' : mov.tipo === 'sumup' ? 'carta' : 'bonifico',
       }).in('id', ids)
       if (error) throw error
       await registraMovimento(mov, 'abbinato', candidati.map(s => s.cf), ids, null)
       const cfVerificati = new Set(candidati.map(s => s.cf))
       setSoci(prev => prev.map(s => cfVerificati.has(s.cf) ? { ...s, incasso: mov.data } : s))
+    } catch (e) {
+      alert('Errore: ' + (e.message || e))
+    }
+    setInCorso(false)
+  }
+
+  // Pagamenti senza bonifico (contanti in palestra, carta/SumUp, bollettino):
+  // la segreteria indica a mano il metodo, così escono dalla lista delle
+  // incongruenze. Come sempre NON cambia lo stato del pagamento.
+  async function segnaMetodo(listaSoci, metodo) {
+    const nomi = { contanti: 'in contanti', carta: 'con carta / SumUp', bollettino: 'con bollettino' }
+    const chi = listaSoci.length === 1 ? `${listaSoci[0].cognome} ${listaSoci[0].nome}` : `${listaSoci.length} persone`
+    if (!window.confirm(`Segnare che ${chi} ha${listaSoci.length === 1 ? '' : 'nno'} pagato ${nomi[metodo]}?`)) return
+    setInCorso(true)
+    try {
+      const utente = (await supabase.auth.getUser()).data.user?.email || null
+      const oggi = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' })
+      for (const s of listaSoci) {
+        for (const i of s.iscrizioni) {
+          const { error } = await supabase.from('iscrizioni').update({
+            incasso_verificato_il: i.data_pagamento || oggi,
+            incasso_importo: s.importo || null,
+            incasso_verificato_da: utente,
+            incasso_metodo: metodo,
+          }).eq('id', i.id)
+          if (error) throw error
+        }
+      }
+      const cf = new Set(listaSoci.map(s => s.cf))
+      setSoci(prev => prev.map(s => cf.has(s.cf) ? { ...s, incasso: oggi } : s))
+      setSelezionati(new Set())
     } catch (e) {
       alert('Errore: ' + (e.message || e))
     }
@@ -368,28 +402,65 @@ export default function ControlloPagamenti() {
             <div style={{ fontSize: 13, color: SUB, padding: 20, textAlign: 'center' }}>Niente da gestire in questo gruppo.</div>
           )}
 
-          {sezione === 'senza_bonifico' && (
-            <div style={{ border: `1px solid ${BD}`, borderRadius: 12, background: 'white', overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-                <thead>
-                  <tr style={{ background: '#FAFAF7', textAlign: 'left' }}>
-                    <th style={{ padding: '8px 10px' }}>Socio</th><th style={{ padding: '8px 10px' }}>Corsi</th>
-                    <th style={{ padding: '8px 10px' }}>Dichiarato</th><th style={{ padding: '8px 10px' }}>Confermato il</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {senzaBonifico.map(s => (
-                    <tr key={s.cf} style={{ borderTop: `1px solid ${BD}` }}>
-                      <td style={{ padding: '7px 10px' }}><b>{s.cognome} {s.nome}</b></td>
-                      <td style={{ padding: '7px 10px' }}>{s.codici.join(' + ')}</td>
-                      <td style={{ padding: '7px 10px' }}>{s.importo ? euro(s.importo) : '—'}</td>
-                      <td style={{ padding: '7px 10px' }}>{fmtData(s.confermatoIl?.slice(0, 10))}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          {sezione === 'senza_bonifico' && (() => {
+            const scelti = senzaBonifico.filter(s => selezionati.has(s.cf))
+            const senzaRicevuta = senzaBonifico.filter(s => !s.conRicevuta)
+            const toggle = (cf) => setSelezionati(prev => { const n = new Set(prev); n.has(cf) ? n.delete(cf) : n.add(cf); return n })
+            const btnMetodo = { border: `1px solid ${BD}`, background: 'white', borderRadius: 8, padding: '5px 9px', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }
+            return (
+              <>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+                  <button onClick={() => setSelezionati(new Set(senzaRicevuta.map(s => s.cf)))}
+                    style={{ ...btnMetodo, padding: '7px 12px', fontSize: 12.5 }}>
+                    Seleziona chi non ha ricevuta ({senzaRicevuta.length})
+                  </button>
+                  {scelti.length > 0 && (
+                    <>
+                      <span style={{ fontSize: 12.5, color: SUB }}>{scelti.length} selezionati:</span>
+                      <button disabled={inCorso} onClick={() => segnaMetodo(scelti, 'contanti')} style={{ ...btnMetodo, background: GL, color: G, fontWeight: 600, padding: '7px 12px' }}>💵 Contanti</button>
+                      <button disabled={inCorso} onClick={() => segnaMetodo(scelti, 'carta')} style={{ ...btnMetodo, padding: '7px 12px' }}>💳 Carta / SumUp</button>
+                      <button disabled={inCorso} onClick={() => segnaMetodo(scelti, 'bollettino')} style={{ ...btnMetodo, padding: '7px 12px' }}>📮 Bollettino</button>
+                      <button onClick={() => setSelezionati(new Set())} style={{ border: 'none', background: 'none', color: SUB, textDecoration: 'underline', cursor: 'pointer', fontSize: 12 }}>deseleziona</button>
+                    </>
+                  )}
+                </div>
+                <div style={{ border: `1px solid ${BD}`, borderRadius: 12, background: 'white', overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                    <thead>
+                      <tr style={{ background: '#FAFAF7', textAlign: 'left' }}>
+                        <th style={{ padding: '8px 10px', width: 28 }}></th>
+                        <th style={{ padding: '8px 10px' }}>Socio</th><th style={{ padding: '8px 10px' }}>Corsi</th>
+                        <th style={{ padding: '8px 10px' }}>Dichiarato</th><th style={{ padding: '8px 10px' }}>Confermato il</th>
+                        <th style={{ padding: '8px 10px' }}>Ricevuta</th><th style={{ padding: '8px 10px' }}>Come ha pagato?</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {senzaBonifico.map(s => (
+                        <tr key={s.cf} style={{ borderTop: `1px solid ${BD}`, background: selezionati.has(s.cf) ? '#F0FDF4' : 'white' }}>
+                          <td style={{ padding: '7px 10px' }}><input type="checkbox" checked={selezionati.has(s.cf)} onChange={() => toggle(s.cf)} /></td>
+                          <td style={{ padding: '7px 10px' }}><b>{s.cognome} {s.nome}</b></td>
+                          <td style={{ padding: '7px 10px' }}>{s.codici.join(' + ')}</td>
+                          <td style={{ padding: '7px 10px' }}>{s.importo ? euro(s.importo) : '—'}</td>
+                          <td style={{ padding: '7px 10px' }}>{fmtData(s.confermatoIl?.slice(0, 10))}</td>
+                          <td style={{ padding: '7px 10px' }}>{s.conRicevuta ? '📎 sì' : '—'}</td>
+                          <td style={{ padding: '5px 10px' }}>
+                            <div style={{ display: 'flex', gap: 4 }}>
+                              <button disabled={inCorso} title="Pagato in contanti" onClick={() => segnaMetodo([s], 'contanti')} style={btnMetodo}>💵</button>
+                              <button disabled={inCorso} title="Pagato con carta / SumUp" onClick={() => segnaMetodo([s], 'carta')} style={btnMetodo}>💳</button>
+                              <button disabled={inCorso} title="Pagato con bollettino" onClick={() => segnaMetodo([s], 'bollettino')} style={btnMetodo}>📮</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ fontSize: 12, color: SUB, marginTop: 8 }}>
+                  Se il pagamento è arrivato con un bonifico o un bollettino presente nell'estratto conto, è meglio abbinarlo dai gruppi "Da abbinare a mano" o "SumUp e bollettini": così resta collegato al movimento vero.
+                </div>
+              </>
+            )
+          })()}
 
           {mostraRegistrati && giaRegistrati.length > 0 && (
             <div style={{ marginTop: 20 }}>
