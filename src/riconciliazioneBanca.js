@@ -223,7 +223,7 @@ export function abbina(movimenti, soci) {
     //  altro           → SumUp / bollettini senza nome
     let esito;
     if (!candidati.length) esito = (mov.tipo === "sumup" || mov.tipo === "bollettino") ? "altro" : "non_abbinato";
-    else if (Math.abs(totaleDichiarato - mov.importo) >= 0.005) esito = "importo_diverso";
+    else if (!importoCorrisponde(candidati, mov.importo)) esito = "importo_diverso";
     else if (candidati.every((s) => s.stato === "confermato")) esito = "regolare";
     else esito = "senza_ricevuta";
 
@@ -236,6 +236,16 @@ export function abbina(movimenti, soci) {
       esito,
     };
   });
+}
+
+// L'importo torna se è uguale al totale dichiarato dei soci trovati, OPPURE
+// (un solo socio) all'importo di una sua iscrizione ancora da pagare: caso delle
+// integrazioni, es. chi aggiunge la seconda frequenza e versa solo la differenza
+// (Bersi Valeria 25/09/2026: 180 € già pagati + integrazione 40 € sul giovedì).
+export function importoCorrisponde(candidati, importo) {
+  const tot = candidati.reduce((t, s) => t + (Number(s.importo) || 0), 0);
+  if (Math.abs(tot - importo) < 0.005) return true;
+  return candidati.length === 1 && (candidati[0].importiAperti || []).some((x) => Math.abs(Number(x) - importo) < 0.005);
 }
 
 export function euro(n) {

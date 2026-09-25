@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../../supabase.js'
-import { leggiCsvBancoPosta, abbina, euro, tokenNome } from '../../riconciliazioneBanca.js'
+import { leggiCsvBancoPosta, abbina, euro, tokenNome, importoCorrisponde } from '../../riconciliazioneBanca.js'
 
 /* =====================================================================
    CONTROLLO PAGAMENTI — riconciliazione con l'estratto conto (24/09/2026)
@@ -103,7 +103,7 @@ function SchedaMovimento({ mov, soci, onVerifica, onIgnora, inCorso }) {
   const [scegli, setScegli] = useState(mov.esito === 'non_abbinato' || mov.esito === 'altro')
   const candidati = manuali ?? mov.candidati
   const totale = candidati.reduce((t, s) => t + (Number(s.importo) || 0), 0)
-  const differenza = mov.importo - totale
+  const differenza = importoCorrisponde(candidati, mov.importo) ? 0 : mov.importo - totale
   const nonConfermati = candidati.filter(s => s.stato !== 'confermato')
 
   return (
@@ -213,6 +213,8 @@ export default function ControlloPagamenti() {
         incasso: s.iscrizioni.every(i => i.incasso_verificato_il) ? s.iscrizioni[0].incasso_verificato_il : null,
         confermatoIl: s.iscrizioni.map(i => i.verificato_il).filter(Boolean).sort().pop() || null,
         conRicevuta: s.iscrizioni.some(i => i.ricevuta_url),
+        // importi delle iscrizioni ancora da pagare (es. integrazione di una 2ª frequenza)
+        importiAperti: [...new Set(s.iscrizioni.filter(i => i.stato_pagamento !== 'confermato').map(i => Number(i.importo_dichiarato) || 0).filter(Boolean))],
       }))
       setSoci(lista)
 

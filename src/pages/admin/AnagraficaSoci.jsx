@@ -899,6 +899,100 @@ function ReinviaEmailConferma({ iscrizione, socio, altreIscrizioniStessaStagione
   )
 }
 
+// Email di richiesta INTEGRAZIONE (aggiunto il 25/09/2026, caso Bersi Valeria):
+// chi aggiunge un corso o una seconda frequenza dopo aver già pagato versa solo
+// la differenza. Sulla nuova iscrizione l'importo è già la differenza; qui si
+// invia al socio, dal sistema (Brevo), l'email con importo, coordinate e
+// causale. Compare solo se la riga non è pagata e il socio ha altre iscrizioni
+// già confermate nella stessa stagione.
+function RichiestaIntegrazione({ iscrizione, socio, altreConfermate = [] }) {
+  const giaVersatoIniziale = Math.max(0, ...altreConfermate.map(r => Number(r.importo_dichiarato) || 0))
+  const [aperto, setAperto] = useState(false)
+  const [importo, setImporto] = useState(String(iscrizione.importo_dichiarato ?? ''))
+  const [giaVersato, setGiaVersato] = useState(String(giaVersatoIniziale || ''))
+  const codice = componiCodiceCompleto(iscrizione.corsi, iscrizione.frequenza, iscrizione.tipo_pagamento)
+  const [causale, setCausale] = useState(`${(socio.nome || '').toUpperCase()} ${(socio.cognome || '').toUpperCase()} ${codice} INTEGRAZIONE`)
+  const [inviando, setInviando] = useState(false)
+  const [esito, setEsito] = useState(null)
+
+  const invia = async () => {
+    const imp = Number(String(importo).replace(',', '.'))
+    const versato = Number(String(giaVersato).replace(',', '.')) || 0
+    if (!socio.email) { alert('Questo socio non ha un indirizzo email in anagrafica.'); return }
+    if (!imp || imp <= 0) { alert('Indica l\'importo da integrare.'); return }
+    if (!window.confirm(`Inviare a ${socio.email} la richiesta di integrazione di ${imp.toFixed(2).replace('.', ',')} € per "${iscrizione.corsi?.disciplina} — ${giorniOrariVisualizzati(iscrizione.corsi, iscrizione.frequenza, iscrizione.giorno_scelto)}"?`)) return
+    setInviando(true); setEsito(null)
+    try {
+      const res = await fetch('https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/invia-email-iscrizione', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tipo: 'richiesta_integrazione',
+          destinatarioEmail: socio.email,
+          destinatarioNome: `${socio.nome} ${socio.cognome}`,
+          corsi: [{
+            nome: iscrizione.corsi?.nome_visualizzato || iscrizione.corsi?.disciplina,
+            sede: iscrizione.corsi?.sedi?.nome,
+            giorniOrari: giorniOrariVisualizzati(iscrizione.corsi, iscrizione.frequenza, iscrizione.giorno_scelto),
+            codiceCompleto: codice,
+          }],
+          corsiGiaAttivi: altreConfermate.map(r => ({
+            nome: r.corsi?.nome_visualizzato || r.corsi?.disciplina,
+            sede: r.corsi?.sedi?.nome,
+            giorniOrari: giorniOrariVisualizzati(r.corsi, r.frequenza, r.giorno_scelto),
+            codiceCompleto: componiCodiceCompleto(r.corsi, r.frequenza, r.tipo_pagamento),
+          })),
+          quotaTotale: imp,
+          giaVersato: versato || undefined,
+          causale: causale.trim(),
+        }),
+      })
+      const data = await res.json()
+      if (data.success || data.messageId) {
+        setEsito('ok')
+        const nota = `Email richiesta integrazione ${imp.toFixed(2).replace('.', ',')} € inviata il ${new Date().toLocaleDateString('it-IT')}.`
+        await supabase.from('iscrizioni').update({ note: iscrizione.note ? `${iscrizione.note} | ${nota}` : nota }).eq('id', iscrizione.id)
+      } else setEsito('errore')
+    } catch { setEsito('errore') }
+    setInviando(false)
+  }
+
+  if (!aperto) {
+    return (
+      <button onClick={() => setAperto(true)}
+        style={{ fontSize: 12, background: '#FEF3C7', color: '#92400E', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', marginLeft: 6 }}>
+        📧 Invia richiesta integrazione
+      </button>
+    )
+  }
+  const campo = { padding: '6px 8px', borderRadius: 6, border: `1px solid ${BD}`, fontSize: 13 }
+  return (
+    <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: 12, marginTop: 8 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>📧 Richiesta di integrazione via email</div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+        <label style={{ fontSize: 12, color: SUB }}>Importo da integrare (€)<br />
+          <input value={importo} onChange={e => setImporto(e.target.value)} style={{ ...campo, width: 90 }} /></label>
+        <label style={{ fontSize: 12, color: SUB }}>Già versato (€)<br />
+          <input value={giaVersato} onChange={e => setGiaVersato(e.target.value)} style={{ ...campo, width: 90 }} /></label>
+        <label style={{ fontSize: 12, color: SUB, flex: 1, minWidth: 220 }}>Causale<br />
+          <input value={causale} onChange={e => setCausale(e.target.value)} style={{ ...campo, width: '100%', boxSizing: 'border-box', fontFamily: 'monospace' }} /></label>
+      </div>
+      <div style={{ fontSize: 11.5, color: SUB, marginBottom: 8 }}>
+        L'email elenca il corso aggiunto e quelli già attivi, indica l'importo da integrare con bonifico/bollettino e la causale, e chiede di caricare la ricevuta nell'area privata. Viene inviata a <b>{socio.email || '— nessuna email in anagrafica'}</b>.
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button onClick={invia} disabled={inviando}
+          style={{ background: G, color: 'white', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+          {inviando ? 'Invio…' : 'Invia email'}
+        </button>
+        <button onClick={() => setAperto(false)} style={{ background: 'none', border: 'none', color: SUB, textDecoration: 'underline', cursor: 'pointer', fontSize: 12 }}>chiudi</button>
+        {esito === 'ok' && <span style={{ fontSize: 12, color: G }}>✓ Inviata a {socio.email}</span>}
+        {esito === 'errore' && <span style={{ fontSize: 12, color: R }}>✕ Errore invio</span>}
+      </div>
+    </div>
+  )
+}
+
 // Cambia il TIPO DI PAGAMENTO e l'importo di un'iscrizione esistente, restando
 // sullo stesso corso — caso diverso da "Cambia corso" (che sposta su un altro
 // corso). Usato ad esempio quando la persona decide di passare da
@@ -2003,6 +2097,10 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
                   (altra) => altra.id !== i.id && altra.stagione_id === i.stagione_id && altra.stato_pagamento !== 'annullata'
                 )}
               />
+              {['in_attesa', 'rifiutato', 'dichiarato'].includes(i.stato_pagamento) && (() => {
+                const confermate = iscrizioni.filter(a => a.id !== i.id && a.stagione_id === i.stagione_id && a.stato_pagamento === 'confermato')
+                return confermate.length > 0 ? <RichiestaIntegrazione iscrizione={i} socio={socio} altreConfermate={confermate} /> : null
+              })()}
             </div>
             {i.note && <div style={{ fontSize: 11.5, color: SUB, marginTop: 6, fontStyle: 'italic' }}>{i.note}</div>}
             <NotaVisibileSocio iscrizione={i} />
