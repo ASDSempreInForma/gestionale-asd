@@ -1601,6 +1601,34 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
     else onAggiornato()
   }
 
+  // Rimuove la tessera a chi ci ha ripensato e non si iscrive più (aggiunto il
+  // 25/09/2026, caso reale). Svuota numero, ente, scadenza e PDF ufficiale, e
+  // lascia una traccia nelle note interne. NON annulla la tessera sul portale
+  // ASI/Libertas: quello va fatto a mano sul portale dell'ente.
+  const [rimuovendoTessera, setRimuovendoTessera] = useState(false)
+  const rimuoviTessera = async () => {
+    const descr = [socio.numero_tessera && `n. ${socio.numero_tessera}`, socio.ente_tessera, socio.tessera_ufficiale_url && 'PDF caricato'].filter(Boolean).join(', ')
+    if (!window.confirm(`Rimuovere la tessera di ${socio.nome} ${socio.cognome}${descr ? ` (${descr})` : ''}?\n\nVengono cancellati numero, ente, scadenza e il PDF della tessera: dall'area privata del socio sparisce.\n\nRicorda: se la tessera è già stata registrata sul portale ASI/Libertas, va annullata anche lì.`)) return
+    setRimuovendoTessera(true)
+    if (socio.tessera_ufficiale_url) {
+      await supabase.storage.from(BUCKET).remove([socio.tessera_ufficiale_url]) // se il file non c'è più, pazienza
+    }
+    const traccia = `Tessera rimossa dalla segreteria il ${new Date().toLocaleDateString('it-IT')}${descr ? ` (era: ${descr}${socio.scadenza_tessera ? `, scad. ${fmtData(socio.scadenza_tessera)}` : ''})` : ''}.`
+    const notaAggiornata = socio.note ? `${socio.note} | ${traccia}` : traccia
+    const { error } = await supabase.from('soci').update({
+      numero_tessera: null,
+      ente_tessera: null,
+      scadenza_tessera: null,
+      tessera_ufficiale_url: null,
+      note: notaAggiornata,
+    }).eq('cf', socio.cf)
+    setRimuovendoTessera(false)
+    if (error) { alert('Errore: ' + error.message); return }
+    setTessera('')
+    setNota(notaAggiornata) // tiene allineato il riquadro "Note interne", così un "Salva nota" successivo non cancella la traccia
+    onAggiornato()
+  }
+
   const salvaAnagrafica = async () => {
     const nuovoCf = anagrafica.cf.trim().toUpperCase()
     if (nuovoCf.length !== 16) { alert('Il codice fiscale deve avere 16 caratteri.'); return }
@@ -1790,6 +1818,13 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
             style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 8, padding: '7px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
             🖨️ Stampa tessera con QR
           </button>
+          {(socio.numero_tessera || socio.ente_tessera || socio.scadenza_tessera || socio.tessera_ufficiale_url) && (
+            <button onClick={rimuoviTessera} disabled={rimuovendoTessera}
+              title="Per chi ci ha ripensato e non si iscrive più"
+              style={{ background: '#FEE2E2', color: '#B91C1C', border: 'none', borderRadius: 8, padding: '7px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+              {rimuovendoTessera ? 'Rimuovo…' : '🗑️ Rimuovi tessera'}
+            </button>
+          )}
         </div>
 
         <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 12, marginBottom: 16 }}>
