@@ -189,6 +189,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
         .select(`
           id,nome,cognome,telefono,email,compenso_lezione_default,attivo,tipo,tariffa_oraria,modalita_pagamento,
           sede_attivo,accesso_sede,tariffa_sede_1,tariffa_sede_2_3,tariffa_sede_4_5,
+          indirizzo_residenza,cap,comune_residenza,provincia_residenza,
           istruttori_corsi(
             id, giorno_settimana,
             corsi(id,disciplina,giorni_orari,sedi(nome))
@@ -218,6 +219,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
           compenso:t.compenso_lezione_default||0,
           sedeAttivo:t.sede_attivo||false, accessoSede:t.accesso_sede||false,
           tariffaSede1:t.tariffa_sede_1, tariffaSede23:t.tariffa_sede_2_3, tariffaSede45:t.tariffa_sede_4_5,
+          indirizzo_residenza:t.indirizzo_residenza, cap:t.cap, comune_residenza:t.comune_residenza, provincia_residenza:t.provincia_residenza,
           colore:COLORI_DISPONIBILI[idx%COLORI_DISPONIBILI.length],
           corsi_nomi:corsiNomi,
           corsi_ids:corsiAssegnati.map(c=>c.id),
@@ -414,6 +416,22 @@ export default function GestioneIstruttori({ onVaiAContratto }){
     const payload = campo==="email" ? {email:valore.trim().toLowerCase()||null} : {telefono:valore.trim()||null};
     const {error}=await supabase.from("istruttori").update(payload).eq("id",id);
     setIstruttori(prev=>prev.map(t=>t.id===id?{...t,[campo]:payload[campo]}:t));
+    setSaving(p=>({...p,[campo+"_"+id]:false}));
+    if(error) alert("Errore nel salvataggio: "+error.message);
+  }
+
+  // ── Aggiorna residenza (27/09/2026) ─────────────────────────────
+  // Prima si poteva cambiare solo da Supabase. La residenza finisce nel
+  // contratto di collaborazione generato da Compensi: dopo una modifica il
+  // contratto va rigenerato da lì.
+  const CAMPI_RESIDENZA=["indirizzo_residenza","cap","comune_residenza","provincia_residenza"];
+  async function aggiornaResidenza(id, campo, valore){
+    if(!CAMPI_RESIDENZA.includes(campo)) return;
+    let v=valore.trim();
+    if(campo==="provincia_residenza") v=v.toUpperCase();
+    setSaving(p=>({...p,[campo+"_"+id]:true}));
+    const {error}=await supabase.from("istruttori").update({[campo]:v||null}).eq("id",id);
+    setIstruttori(prev=>prev.map(t=>t.id===id?{...t,[campo]:v||null}:t));
     setSaving(p=>({...p,[campo+"_"+id]:false}));
     if(error) alert("Errore nel salvataggio: "+error.message);
   }
@@ -759,6 +777,26 @@ export default function GestioneIstruttori({ onVaiAContratto }){
                       style={{width:"100%",padding:"7px 9px",border:`1px solid ${C.border}`,borderRadius:7,fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
                                     {saving["telefono_"+t.id]&&<div style={{fontSize:10,color:C.textSub,marginTop:2}}>Salvo…</div>}
                   </div>
+                </div>
+
+                <div style={{fontSize:11,fontWeight:700,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>
+                  Residenza (usata nel contratto)
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"2fr 0.8fr 1.4fr 0.6fr",gap:8,marginBottom:14}} onClick={e=>e.stopPropagation()}>
+                  {[
+                    ["indirizzo_residenza","Via e numero civico"],
+                    ["cap","CAP"],
+                    ["comune_residenza","Comune"],
+                    ["provincia_residenza","Prov."],
+                  ].map(([campo,ph])=>(
+                    <div key={campo}>
+                      <input placeholder={ph} defaultValue={t[campo]||""}
+                        maxLength={campo==="provincia_residenza"?2:campo==="cap"?5:undefined}
+                        onBlur={e=>{ if((e.target.value.trim()||null)!==(t[campo]||null)) aggiornaResidenza(t.id,campo,e.target.value) }}
+                        style={{width:"100%",padding:"7px 9px",border:`1px solid ${C.border}`,borderRadius:7,fontSize:12,fontFamily:"inherit",boxSizing:"border-box",textTransform:campo==="provincia_residenza"?"uppercase":"none"}}/>
+                      {saving[campo+"_"+t.id]&&<div style={{fontSize:10,color:C.textSub,marginTop:2}}>Salvo…</div>}
+                    </div>
+                  ))}
                 </div>
 
                 {t.tipo==="collaboratore" && (
