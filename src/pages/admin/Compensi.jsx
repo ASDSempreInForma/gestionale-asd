@@ -4,6 +4,7 @@ import { generaAutocertificazione } from "./generaAutocertificazione.js";
 import { generaAutocertificazioneAnnuale } from "./generaAutocertificazioneAnnuale.js";
 import { dataInizioCorso, dateAttese } from "./lezioniPreviste.js";
 import { generaContrattoCollaborazione, generaContrattoPartitaIva } from "./generaContratto.js";
+import { stimaNetto, ALIQUOTA_STANDARD, ALIQUOTA_RIDOTTA } from "./calcoloNetto.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -118,7 +119,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
   const caricaIstruttori = useCallback(async () => {
     setCaricandoIstr(true);
     const { data, error } = await supabase.from("istruttori")
-      .select(`id, nome, cognome, nome_legale, tipo, attivo, compenso_lezione_default, tariffa_oraria, fa_segreteria,
+      .select(`id, nome, cognome, nome_legale, tipo, attivo, compenso_lezione_default, tariffa_oraria, fa_segreteria, aliquota_inps_collab,
         tariffa_sede_1, tariffa_sede_2_3, tariffa_sede_4_5,
         data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza,
         indirizzo_residenza, cap, cf, data_contratto, qualifica, sesso, tipo_contratto, partita_iva,
@@ -133,6 +134,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
       setIstruttori((data || []).map((t) => ({
         id: t.id, nome: t.nome, cognome: t.cognome, nomeLegale: t.nome_legale, compensoLezione: t.compenso_lezione_default || 0,
         tipo: t.tipo, tariffaOraria: Number(t.tariffa_oraria) || 0, faSegreteria: !!t.fa_segreteria,
+        aliquotaInps: t.aliquota_inps_collab != null ? Number(t.aliquota_inps_collab) : ALIQUOTA_STANDARD,
         tariffaSede1: t.tariffa_sede_1, tariffaSede23: t.tariffa_sede_2_3, tariffaSede45: t.tariffa_sede_4_5,
         dataNascita: t.data_nascita, comuneNascita: t.comune_nascita, provinciaNascita: t.provincia_nascita,
         comuneResidenza: t.comune_residenza, provinciaResidenza: t.provincia_residenza,
@@ -180,6 +182,18 @@ export default function Compensi({ istruttoreIniziale } = {}) {
   const aggiustamentoNum = Number(aggiustamentoImporto) || 0;
   const importoFinale = risultato ? risultato.importoTotale + aggiustamentoNum : 0;
   const cumulativoDopoFinale = risultato ? risultato.cumulativoPrima + importoFinale : 0;
+  // Stima del netto (27/09/2026): regole ricavate dalle buste paga della
+  // commercialista, vedi calcoloNetto.js. Solo per i collaboratori (non P.IVA).
+  const netto = risultato && istruttore
+    ? stimaNetto({ lordo: importoFinale, cumulativoPrima: risultato.cumulativoPrima, aliquotaInps: istruttore.aliquotaInps })
+    : null;
+  async function cambiaAliquotaInps(valore) {
+    if (!istruttore) return;
+    const v = Number(valore);
+    const { error } = await supabase.from("istruttori").update({ aliquota_inps_collab: v }).eq("id", istruttore.id);
+    if (error) { setErrore("Aliquota non salvata: " + error.message); return; }
+    setIstruttori((prev) => prev.map((i) => (i.id === istruttore.id ? { ...i, aliquotaInps: v } : i)));
+  }
   const scDopoFinale = risultato ? scaglioneDi(cumulativoDopoFinale) : null;
   const avvisoCambioScaglioneFinale = risultato ? risultato.scPrima.riga !== scDopoFinale.riga : false;
 
@@ -820,6 +834,38 @@ export default function Compensi({ istruttoreIniziale } = {}) {
                 <tr><td style={{ padding: "6px 8px", fontWeight: 700 }}>Totale periodo</td><td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: C }}>{euro(importoFinale)}</td></tr>
               </tbody>
             </table>
+            {netto && anagrafica?.tipoContratto !== "partita_iva" && (
+              <div style={{ border: "1px solid #cfe8d8", background: "#f3faf6", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                  <strong>Netto stimato da pagare</strong>
+                  <span style={{ fontSize: 20, fontWeight: 700, color: "#1f8a52" }}>{euro(netto.netto)}</span>
+                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, marginTop: 6 }}>
+                  <tbody>
+                    <tr><td style={{ padding: "2px 0" }}>Lordo del periodo</td><td style={{ textAlign: "right" }}>{euro(netto.lordo)}</td></tr>
+                    <tr><td style={{ padding: "2px 0" }}>
+                      Contributi INPS a carico ({(istruttore.aliquotaInps * 100).toFixed(2).replace(".", ",")}% su {euro(netto.imponibileInps)})
+                      {netto.soggettoInps === 0 && <span style={{ color: "#888" }}> — nessuno: entro i 5.000 € annui</span>}
+                    </td><td style={{ textAlign: "right" }}>− {euro(netto.contributi)}</td></tr>
+                    <tr><td style={{ padding: "2px 0" }}>
+                      IRPEF {netto.soggettoIrpef > 0 ? `(su ${euro(netto.imponibileIrpef)}, detrazioni stimate ${euro(netto.detrazioni)})` : ""}
+                      {netto.soggettoIrpef === 0 && <span style={{ color: "#888" }}> — nessuna: entro i 15.000 € annui</span>}
+                    </td><td style={{ textAlign: "right" }}>− {euro(netto.irpef)}</td></tr>
+                  </tbody>
+                </table>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, color: "#666" }}>Posizione INPS:</span>
+                  <select value={String(istruttore.aliquotaInps)} onChange={(e) => cambiaAliquotaInps(e.target.value)}
+                    style={{ fontSize: 12, padding: "3px 6px", borderRadius: 6, border: "1px solid #ddd" }}>
+                    <option value={String(ALIQUOTA_STANDARD)}>Standard (9,69%)</option>
+                    <option value={String(ALIQUOTA_RIDOTTA)}>Già pensionato / altra previdenza (8%)</option>
+                  </select>
+                </div>
+                <div style={{ fontSize: 11, color: "#888", marginTop: 6 }}>
+                  Stima ricavata dalle buste paga della commercialista: fa fede la busta paga. Non comprende eventuali addizionali IRPEF né gli arrotondamenti all'euro{netto.soggettoIrpef > 0 ? "; con IRPEF la stima può differire di qualche decina di euro per le detrazioni" : ""}.
+                </div>
+              </div>
+            )}
             <div style={{ background: CL, borderRadius: 8, padding: 12, fontSize: 13 }}>
               <div>Totale {dataFine.slice(0, 4)} già pagato prima di questo periodo: <strong>{euro(risultato.cumulativoPrima)}</strong></div>
               <div>Totale {dataFine.slice(0, 4)} DOPO questo pagamento: <strong>{euro(cumulativoDopoFinale)}</strong> — scaglione: {scDopoFinale.label}</div>
