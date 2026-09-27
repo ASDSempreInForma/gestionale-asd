@@ -118,16 +118,21 @@ export default function Compensi({ istruttoreIniziale } = {}) {
   const caricaIstruttori = useCallback(async () => {
     setCaricandoIstr(true);
     const { data, error } = await supabase.from("istruttori")
-      .select(`id, nome, cognome, nome_legale, tipo, attivo, compenso_lezione_default,
+      .select(`id, nome, cognome, nome_legale, tipo, attivo, compenso_lezione_default, tariffa_oraria, fa_segreteria,
         tariffa_sede_1, tariffa_sede_2_3, tariffa_sede_4_5,
         data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza,
         indirizzo_residenza, cap, cf, data_contratto, qualifica, sesso, tipo_contratto, partita_iva,
         disciplina_contratto, disponibilita_oraria, compenso_orario_contratto, data_fine_contratto,
         compenso_annuo_lordo, scadenza_pagamento_iva`)
-      .eq("attivo", true).eq("tipo", "istruttore").order("cognome");
+      .eq("attivo", true).in("tipo", ["istruttore", "collaboratore"]).order("cognome");
+    // (27/09/2026) Inclusi anche i COLLABORATORI: il loro compenso sono le ore
+    // di segreteria dichiarate in ore_collaboratori × tariffa oraria. Lo stesso
+    // vale per gli istruttori con fa_segreteria ("Istruttore + segreteria"),
+    // che sommano lezioni e ore di segreteria.
     if (!error) {
       setIstruttori((data || []).map((t) => ({
         id: t.id, nome: t.nome, cognome: t.cognome, nomeLegale: t.nome_legale, compensoLezione: t.compenso_lezione_default || 0,
+        tipo: t.tipo, tariffaOraria: Number(t.tariffa_oraria) || 0, faSegreteria: !!t.fa_segreteria,
         tariffaSede1: t.tariffa_sede_1, tariffaSede23: t.tariffa_sede_2_3, tariffaSede45: t.tariffa_sede_4_5,
         dataNascita: t.data_nascita, comuneNascita: t.comune_nascita, provinciaNascita: t.provincia_nascita,
         comuneResidenza: t.comune_residenza, provinciaResidenza: t.provincia_residenza,
@@ -416,7 +421,29 @@ export default function Compensi({ istruttoreIniziale } = {}) {
       const orePalestraTotali = righePalestra.reduce((s, r) => s + r.ore, 0);
       const importoPalestra = righePalestra.reduce((s, r) => s + r.importo, 0);
 
-      const importoTotale = importoSede + importoPalestra;
+      // ── SEGRETERIA (solo collaboratori) ──
+      // Ore dichiarate mese per mese in ore_collaboratori (Area Istruttori),
+      // pagate a tariffa oraria; se per un mese è indicato un forfait vale quello.
+      let righeSegreteria = [], importoSegreteria = 0, oreSegreteriaTotali = 0;
+      if (istruttore.tipo === "collaboratore" || istruttore.faSegreteria) {
+        const { data: oreColl, error: errC } = await supabase.from("ore_collaboratori")
+          .select("anno, mese, ore, forfait, note").eq("istruttore_id", istruttoreId);
+        if (errC) throw new Error(errC.message);
+        const meseDa = dataInizio.slice(0, 7), meseA = dataFine.slice(0, 7);
+        righeSegreteria = (oreColl || [])
+          .map((r) => ({ ...r, chiave: `${r.anno}-${String(r.mese).padStart(2, "0")}` }))
+          .filter((r) => r.chiave >= meseDa && r.chiave <= meseA)
+          .sort((a, b) => a.chiave.localeCompare(b.chiave))
+          .map((r) => {
+            const ore = Number(r.ore) || 0;
+            const forfait = r.forfait != null && r.forfait !== "" ? Number(r.forfait) : null;
+            return { label: MESI[r.mese - 1], anno: r.anno, ore, importo: forfait ?? ore * (istruttore.tariffaOraria || 0), forfait, note: r.note };
+          });
+        importoSegreteria = righeSegreteria.reduce((t, r) => t + r.importo, 0);
+        oreSegreteriaTotali = righeSegreteria.reduce((t, r) => t + r.ore, 0);
+      }
+
+      const importoTotale = importoSede + importoPalestra + importoSegreteria;
       const cumulativoDopo = cumulativoPrima + importoTotale;
       const scPrima = scaglioneDi(cumulativoPrima);
       const scDopo = scaglioneDi(cumulativoDopo);
@@ -437,11 +464,21 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         righePalestra.forEach((r) => righeTesto.push(`•*${r.label}*: ${r.ore} ${r.ore === 1 ? "ora" : "ore"}`));
         righeTesto.push("");
       }
-      righeTesto.push(`*Totale ore: ${oreSedeTotali} in studio e ${orePalestraTotali} in palestra*`);
+      if (righeSegreteria.length > 0) {
+        righeTesto.push("*Segreteria*");
+        righeSegreteria.forEach((r) => righeTesto.push(`• *${r.label}*: ${r.ore} ${r.ore === 1 ? "ora" : "ore"}${r.forfait != null ? " (forfait)" : ""}`));
+        righeTesto.push("");
+      }
+      if (istruttore.tipo === "collaboratore" && oreSedeTotali === 0 && orePalestraTotali === 0) {
+        righeTesto.push(`*Totale ore segreteria: ${oreSegreteriaTotali}*`);
+      } else {
+        righeTesto.push(`*Totale ore: ${oreSedeTotali} in studio e ${orePalestraTotali} in palestra${oreSegreteriaTotali ? ` e ${oreSegreteriaTotali} in segreteria` : ""}*`);
+      }
       const testoWhatsapp = righeTesto.join("\n");
 
       setRisultato({
         righeSede, righePalestra, oreSedeTotali, orePalestraTotali, importoSede, importoPalestra, importoTotale, lezioniFuture,
+        righeSegreteria, oreSegreteriaTotali, importoSegreteria,
         cumulativoPrima, cumulativoDopo, scPrima, scDopo, testoWhatsapp, nomeCompleto,
         avvisoCambioScaglione: scPrima.riga !== scDopo.riga,
       });
@@ -465,7 +502,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         importo_sede: risultato.importoSede, importo_palestra: risultato.importoPalestra, importo_totale: importoFinale,
         aggiustamento_importo: aggiustamentoNum, aggiustamento_nota: aggiustamentoNota || null,
         cumulativo_annuo_dopo: cumulativoDopoFinale, data_pagamento: isoData(new Date()), pagato: true,
-        dettaglio: { righeSede: risultato.righeSede, righePalestra: risultato.righePalestra },
+        dettaglio: { righeSede: risultato.righeSede, righePalestra: risultato.righePalestra, righeSegreteria: risultato.righeSegreteria || [] },
       });
       if (error) throw new Error(error.message);
       setMessaggio("Pagamento registrato.");
@@ -601,7 +638,12 @@ export default function Compensi({ istruttoreIniziale } = {}) {
           <select value={istruttoreId} onChange={(e) => setIstruttoreId(e.target.value)} disabled={caricandoIstr}
             style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", fontSize: 14, minWidth: 200 }}>
             <option value="">Seleziona…</option>
-            {istruttori.map((i) => <option key={i.id} value={i.id}>{i.cognome} {i.nome}</option>)}
+            {istruttori.filter((i) => i.tipo !== "collaboratore").map((i) => <option key={i.id} value={i.id}>{i.cognome} {i.nome}{i.faSegreteria ? " (+ segreteria)" : ""}</option>)}
+            {istruttori.some((i) => i.tipo === "collaboratore") && (
+              <optgroup label="Collaboratori (segreteria)">
+                {istruttori.filter((i) => i.tipo === "collaboratore").map((i) => <option key={i.id} value={i.id}>{i.cognome} {i.nome}</option>)}
+              </optgroup>
+            )}
           </select>
         </div>
         <div>
@@ -759,6 +801,11 @@ export default function Compensi({ istruttoreIniziale } = {}) {
               <tbody>
                 <tr style={{ borderBottom: "1px solid #f2f2f2" }}><td style={{ padding: "6px 8px" }}>Studio (SEDE) — {risultato.oreSedeTotali} ore</td><td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{euro(risultato.importoSede)}</td></tr>
                 <tr style={{ borderBottom: "1px solid #f2f2f2" }}><td style={{ padding: "6px 8px" }}>Palestra — {risultato.orePalestraTotali} ore{risultato.lezioniFuture > 0 && <div style={{ fontSize: 11, color: "#1E3A5F", marginTop: 2 }}>🗓 di cui {risultato.lezioniFuture} {risultato.lezioniFuture === 1 ? "lezione prevista" : "lezioni previste"}, non ancora svolte (contate come svolte)</div>}</td><td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{euro(risultato.importoPalestra)}</td></tr>
+                {(istruttore?.tipo === "collaboratore" || istruttore?.faSegreteria) && (
+                  <tr style={{ borderBottom: "1px solid #f2f2f2" }}><td style={{ padding: "6px 8px" }}>Segreteria — {risultato.oreSegreteriaTotali} ore × {euro(istruttore.tariffaOraria)}
+                    {risultato.righeSegreteria.length === 0 && <div style={{ fontSize: 11, color: "#b45309", marginTop: 2 }}>Nessuna ora dichiarata nel periodo (le ore si inseriscono dall'Area Istruttori, mese per mese)</div>}
+                  </td><td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{euro(risultato.importoSegreteria)}</td></tr>
+                )}
                 <tr style={{ borderBottom: "1px solid #f2f2f2" }}>
                   <td style={{ padding: "6px 8px" }}>
                     Aggiustamento manuale (rimanenza, bonus, correzione…)
