@@ -106,6 +106,9 @@ export default function Compensi({ istruttoreIniziale } = {}) {
   const [errore, setErrore] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [messaggio, setMessaggio] = useState("");
+  // Data scritta nell'autocertificazione ("DICHIARA CHE IN DATA … RICEVE"):
+  // di default oggi, modificabile (27/09/2026, richiesta di Solomon).
+  const [dataDichiarazione, setDataDichiarazione] = useState(() => isoData(new Date()));
 
   const [storico, setStorico] = useState([]);
   const [saldoIniziale, setSaldoIniziale] = useState(0);
@@ -484,7 +487,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
     try {
       await generaAutocertificazione({
         nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
-        periodoLabel: p.periodo_label, dataPagamento: p.data_pagamento || isoData(new Date()),
+        periodoLabel: p.periodo_label, dataPagamento: dataDichiarazione || p.data_pagamento || isoData(new Date()),
         importoPeriodo: Number(p.importo_totale || 0),
         cumulativoPrima: Number(p.cumulativo_annuo_dopo || 0) - Number(p.importo_totale || 0),
       });
@@ -579,7 +582,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
         // Nelle righe va il compenso del PERIODO; il cumulativo prima del
         // pagamento serve solo a scegliere la fascia (vedi generaAutocertificazione.js)
-        periodoLabel, dataPagamento: isoData(new Date()),
+        periodoLabel, dataPagamento: dataDichiarazione || isoData(new Date()),
         importoPeriodo: importoFinale, cumulativoPrima: risultato.cumulativoPrima,
       });
     } catch (err) { setErrore("Autocertificazione non generata: " + err.message); }
@@ -782,10 +785,15 @@ export default function Compensi({ istruttoreIniziale } = {}) {
               {anagrafica?.tipoContratto === "partita_iva" ? (
                 <div style={{ fontSize: 12, color: "#888", alignSelf: "center" }}>Partita IVA — fattura direttamente lui/lei, nessuna autocertificazione da generare.</div>
               ) : (
+<>
+                <label style={{ fontSize: 12, color: "#666", display: "flex", alignItems: "center", gap: 6 }}>Data dichiarazione
+                  <input type="date" value={dataDichiarazione} onChange={(e) => setDataDichiarazione(e.target.value)}
+                    style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd", fontSize: 13 }} /></label>
                 <button onClick={stampaAutocertificazione} disabled={!anagraficaCompleta} title={!anagraficaCompleta ? "Completa prima i dati anagrafici" : ""}
                   style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: anagraficaCompleta ? "pointer" : "default", opacity: anagraficaCompleta ? 1 : 0.5 }}>
                   📄 Genera autocertificazione (Word)
                 </button>
+                </>
               )}
             </div>
           </div>
@@ -806,6 +814,13 @@ export default function Compensi({ istruttoreIniziale } = {}) {
               {salvandoSaldo ? "Salvo…" : "Salva saldo iniziale"}
             </button>
           </div>
+          {storico.length > 0 && anagrafica?.tipoContratto !== "partita_iva" && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+              <label style={{ fontSize: 12, color: "#666", display: "flex", alignItems: "center", gap: 6 }}>Data da scrivere nelle autocertificazioni riscaricate
+                  <input type="date" value={dataDichiarazione} onChange={(e) => setDataDichiarazione(e.target.value)}
+                    style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd", fontSize: 13 }} /></label>
+            </div>
+          )}
           {storico.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {storico.map((p) => (
