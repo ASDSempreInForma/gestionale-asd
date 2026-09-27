@@ -37,12 +37,31 @@ export function ripartisciScaglioni(cumulativoPrima, importoPeriodo) {
   });
 }
 
+// Data del contratto da scrivere per un certo periodo (27/09/2026).
+// I contratti seguono l'ANNO SPORTIVO (settembre → agosto) e in anagrafica c'è
+// solo la data dell'ultimo contratto: per un periodo di una stagione passata
+// (es. febbraio 2026 con contratto attuale del 01/09/2026) si usa lo stesso
+// giorno/mese nella stagione del periodo (→ 01/09/2025). Se anche quella
+// data cadesse dopo l'inizio del periodo, si usa il 1° settembre della stagione.
+export function dataContrattoPerPeriodo(dataContratto, dataRiferimento) {
+  if (!dataContratto || !dataRiferimento) return dataContratto;
+  const rif = String(dataRiferimento).slice(0, 10);
+  if (String(dataContratto).slice(0, 10) <= rif) return dataContratto;
+  const [ar, mr] = rif.split("-").map(Number);
+  const inizioStagione = mr >= 9 ? ar : ar - 1; // stagione del periodo
+  const [, mc, gc] = String(dataContratto).slice(0, 10).split("-");
+  const annoCandidato = Number(mc) >= 9 ? inizioStagione : inizioStagione + 1;
+  const candidato = `${annoCandidato}-${mc}-${gc}`;
+  return candidato <= rif ? candidato : `${inizioStagione}-09-01`;
+}
+
 // Funzione pura (testabile senza browser): dati → segnaposto del template.
 export function valoriAutocertificazione(dati) {
   const {
     nome, cognome, sesso, dataNascita, comuneNascita, provinciaNascita,
     comuneResidenza, provinciaResidenza, indirizzoResidenza, cap, cf,
     dataContratto, qualifica, periodoLabel, dataPagamento, importoPeriodo, cumulativoPrima,
+    dataInizioPeriodo, // inizio del periodo pagato: serve a scegliere il contratto in vigore
     importoCumulativo, scaglioneRiga, // vecchi parametri, usati solo se mancano i due nuovi
   } = dati;
 
@@ -71,7 +90,7 @@ export function valoriAutocertificazione(dati) {
     PROV_RES: provinciaResidenza || "__",
     CF: String(cf || "").trim().toUpperCase(),
     QUALIFICA: qualifica || "TECNICO/ISTRUTTORE",
-    DATA_CONTRATTO: fmtData(dataContratto),
+    DATA_CONTRATTO: fmtData(dataContrattoPerPeriodo(dataContratto, dataInizioPeriodo)),
     PERIODO: String(periodoLabel || "").toUpperCase(),
     DATA_PAGAMENTO: fmtData(dataPagamento),
     ANNO: String(dataPagamento || "").slice(0, 4),

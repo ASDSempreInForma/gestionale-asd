@@ -541,6 +541,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         periodoLabel: p.periodo_label, dataPagamento: dataDichiarazione || p.data_pagamento || isoData(new Date()),
         importoPeriodo: Number(p.importo_totale || 0),
         cumulativoPrima: Number(p.cumulativo_annuo_dopo || 0) - Number(p.importo_totale || 0),
+        dataInizioPeriodo: p.data_inizio,
       });
     } catch (err) { setErrore("Autocertificazione non generata: " + err.message); }
   }
@@ -635,6 +636,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         // pagamento serve solo a scegliere la fascia (vedi generaAutocertificazione.js)
         periodoLabel, dataPagamento: dataDichiarazione || isoData(new Date()),
         importoPeriodo: importoFinale, cumulativoPrima: risultato.cumulativoPrima,
+        dataInizioPeriodo: dataInizio,
       });
     } catch (err) { setErrore("Autocertificazione non generata: " + err.message); }
   }
