@@ -471,6 +471,76 @@ export default function Compensi({ istruttoreIniziale } = {}) {
     finally { setSalvando(false); }
   }
 
+  // ── Storico: ristampa / modifica / elimina un pagamento già registrato ──────
+  // (27/09/2026) Prima lo storico era di sola lettura: per riscaricare
+  // l'autocertificazione di un mese già pagato o correggerne l'importo
+  // bisognava passare da Supabase.
+  async function stampaAutocertificazioneStorico(p) {
+    if (!anagraficaCompleta || anagrafica?.tipoContratto === "partita_iva") {
+      setErrore("Completa prima i dati anagrafici/contratto dell'istruttore (sopra): servono per l'autocertificazione.");
+      return;
+    }
+    setErrore("");
+    try {
+      await generaAutocertificazione({
+        nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
+        periodoLabel: p.periodo_label, dataPagamento: p.data_pagamento || isoData(new Date()),
+        importoPeriodo: Number(p.importo_totale || 0),
+        cumulativoPrima: Number(p.cumulativo_annuo_dopo || 0) - Number(p.importo_totale || 0),
+      });
+    } catch (err) { setErrore("Autocertificazione non generata: " + err.message); }
+  }
+
+  // Dopo una modifica/eliminazione il "cumulativo dopo" di questo pagamento e
+  // di tutti i successivi dell'anno va ricalcolato (serve per le fasce fiscali).
+  async function ricalcolaCumulativi(pagamenti) {
+    let cum = Number(saldoIniziale) || 0;
+    for (const x of [...pagamenti].sort((a, b) => String(a.data_fine).localeCompare(String(b.data_fine)))) {
+      cum = Math.round((cum + Number(x.importo_totale || 0)) * 100) / 100;
+      if (Math.abs(cum - Number(x.cumulativo_annuo_dopo || 0)) >= 0.005) {
+        const { error } = await supabase.from("compensi_pagamenti").update({ cumulativo_annuo_dopo: cum }).eq("id", x.id);
+        if (error) throw new Error(error.message);
+      }
+    }
+  }
+
+  async function modificaPagamentoStorico(p) {
+    const inserito = window.prompt(`Nuovo importo lordo per "${p.periodo_label}" (attuale ${euro(p.importo_totale)}):`, String(p.importo_totale ?? ""));
+    if (inserito === null) return;
+    const nuovo = Math.round(Number(String(inserito).replace(",", ".")) * 100) / 100;
+    if (!Number.isFinite(nuovo) || nuovo < 0) { alert("Importo non valido."); return; }
+    const vecchio = Number(p.importo_totale || 0);
+    if (Math.abs(nuovo - vecchio) < 0.005) return;
+    const motivo = window.prompt("Motivo della correzione (facoltativo):", "") || "";
+    setErrore("");
+    try {
+      const delta = Math.round((nuovo - vecchio) * 100) / 100;
+      const nota = `${p.aggiustamento_nota ? p.aggiustamento_nota + " | " : ""}corretto a mano il ${dataItaliana(isoData(new Date()))}: ${euro(vecchio)} → ${euro(nuovo)}${motivo ? ` (${motivo})` : ""}`;
+      const { error } = await supabase.from("compensi_pagamenti").update({
+        importo_totale: nuovo,
+        // la differenza finisce nella "rimanenza", così sede + palestra + rimanenza = totale
+        aggiustamento_importo: Math.round((Number(p.aggiustamento_importo || 0) + delta) * 100) / 100,
+        aggiustamento_nota: nota,
+      }).eq("id", p.id);
+      if (error) throw new Error(error.message);
+      await ricalcolaCumulativi(storico.map((x) => (x.id === p.id ? { ...x, importo_totale: nuovo } : x)));
+      setMessaggio(`Importo di ${p.periodo_label} aggiornato. Ricordati di riscaricare l'autocertificazione.`);
+      caricaStorico();
+    } catch (err) { setErrore("Modifica non riuscita: " + err.message); }
+  }
+
+  async function eliminaPagamentoStorico(p) {
+    if (!window.confirm(`Eliminare il pagamento registrato "${p.periodo_label}" di ${euro(p.importo_totale)}?\n\nIl periodo tornerà da pagare e i cumulativi dei pagamenti successivi verranno ricalcolati. L'operazione non si può annullare.`)) return;
+    setErrore("");
+    try {
+      const { error } = await supabase.from("compensi_pagamenti").delete().eq("id", p.id);
+      if (error) throw new Error(error.message);
+      await ricalcolaCumulativi(storico.filter((x) => x.id !== p.id));
+      setMessaggio(`Pagamento ${p.periodo_label} eliminato.`);
+      caricaStorico();
+    } catch (err) { setErrore("Eliminazione non riuscita: " + err.message); }
+  }
+
   // ── Autocertificazione annuale (da generare a dicembre) ─────────────────────
   // Importo = totale lordo dell'anno: saldo iniziale + pagamenti registrati (stessa fonte dello "Storico pagamenti").
   const [annoAnnuale, setAnnoAnnuale] = useState(new Date().getFullYear());
@@ -741,7 +811,17 @@ export default function Compensi({ istruttoreIniziale } = {}) {
               {storico.map((p) => (
                 <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", background: CL, borderRadius: 8, fontSize: 13 }}>
                   <span>{p.periodo_label} ({dataItaliana(p.data_inizio)} – {dataItaliana(p.data_fine)}){p.aggiustamento_importo ? ` · rimanenza ${euro(p.aggiustamento_importo)}${p.aggiustamento_nota ? ` (${p.aggiustamento_nota})` : ""}` : ""}</span>
-                  <span style={{ fontWeight: 600 }}>{euro(p.importo_totale)} · cumulativo dopo: {euro(p.cumulativo_annuo_dopo)}</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <span style={{ fontWeight: 600 }}>{euro(p.importo_totale)} · cumulativo dopo: {euro(p.cumulativo_annuo_dopo)}</span>
+                    {anagrafica?.tipoContratto !== "partita_iva" && (
+                      <button onClick={() => stampaAutocertificazioneStorico(p)} title="Riscarica l'autocertificazione di questo pagamento"
+                        style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 6, padding: "3px 8px", fontSize: 11.5, cursor: "pointer" }}>📄 Autocertificazione</button>
+                    )}
+                    <button onClick={() => modificaPagamentoStorico(p)} title="Correggi l'importo registrato"
+                      style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 6, padding: "3px 8px", fontSize: 11.5, cursor: "pointer" }}>✏️ Modifica</button>
+                    <button onClick={() => eliminaPagamentoStorico(p)} title="Elimina questo pagamento registrato"
+                      style={{ background: "#fff", border: "1px solid #f3c1c1", color: "#b91c1c", borderRadius: 6, padding: "3px 8px", fontSize: 11.5, cursor: "pointer" }}>🗑️</button>
+                  </span>
                 </div>
               ))}
             </div>
