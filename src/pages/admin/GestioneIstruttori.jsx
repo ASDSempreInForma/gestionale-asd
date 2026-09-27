@@ -187,7 +187,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
       const {data:istrDB}=await supabase
         .from("istruttori")
         .select(`
-          id,nome,cognome,telefono,email,compenso_lezione_default,attivo,tipo,tariffa_oraria,modalita_pagamento,
+          id,nome,cognome,telefono,email,compenso_lezione_default,attivo,tipo,tariffa_oraria,modalita_pagamento,fa_segreteria,
           sede_attivo,accesso_sede,tariffa_sede_1,tariffa_sede_2_3,tariffa_sede_4_5,
           indirizzo_residenza,cap,comune_residenza,provincia_residenza,
           istruttori_corsi(
@@ -215,7 +215,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
         return {
           id:t.id,
           nome:t.nome, cognome:t.cognome, telefono:t.telefono, email:t.email,
-          tipo:t.tipo||"istruttore", tariffaOraria:t.tariffa_oraria||0, modalitaPagamento:t.modalita_pagamento||"oraria",
+          tipo:t.tipo||"istruttore", tariffaOraria:t.tariffa_oraria||0, modalitaPagamento:t.modalita_pagamento||"oraria", faSegreteria:!!t.fa_segreteria,
           compenso:t.compenso_lezione_default||0,
           sedeAttivo:t.sede_attivo||false, accessoSede:t.accesso_sede||false,
           tariffaSede1:t.tariffa_sede_1, tariffaSede23:t.tariffa_sede_2_3, tariffaSede45:t.tariffa_sede_4_5,
@@ -420,6 +420,24 @@ export default function GestioneIstruttori({ onVaiAContratto }){
     if(error) alert("Errore nel salvataggio: "+error.message);
   }
 
+  // ── Ruolo (27/09/2026) ─────────────────────────────────────────
+  // istruttore | collaboratore | entrambi (= istruttore che fa anche ore di
+  // segreteria: tipo "istruttore" + fa_segreteria). Il tipo decide il check-in
+  // (l'istruttore registra le lezioni per i compensi, il collaboratore solo le
+  // presenze); fa_segreteria aggiunge le ore di segreteria nei pagamenti.
+  const ruoloDi=(t)=>t.tipo==="collaboratore"?"collaboratore":(t.faSegreteria?"entrambi":"istruttore");
+  const faSegreteria=(t)=>t.tipo==="collaboratore"||t.faSegreteria;
+  async function aggiornaRuolo(id, ruolo){
+    const t=istruttori.find(x=>x.id===id);
+    if(!t||ruoloDi(t)===ruolo) return;
+    const etichette={istruttore:"Istruttore",collaboratore:"Collaboratore",entrambi:"Istruttore + segreteria"};
+    if(!window.confirm(`Cambiare il ruolo di ${t.nome} ${t.cognome} in "${etichette[ruolo]}"?`)) return;
+    const upd={tipo:ruolo==="collaboratore"?"collaboratore":"istruttore", fa_segreteria:ruolo==="entrambi"};
+    const {error}=await supabase.from("istruttori").update(upd).eq("id",id);
+    if(error){ alert("Errore: "+error.message); return; }
+    setIstruttori(prev=>prev.map(x=>x.id===id?{...x,tipo:upd.tipo,faSegreteria:upd.fa_segreteria}:x));
+  }
+
   // ── Aggiorna residenza (27/09/2026) ─────────────────────────────
   // Prima si poteva cambiare solo da Supabase. La residenza finisce nel
   // contratto di collaborazione generato da Compensi: dopo una modifica il
@@ -579,13 +597,12 @@ export default function GestioneIstruttori({ onVaiAContratto }){
   }
 
   const totMese=istruttori.reduce((acc,t)=>{
-    if(t.tipo==="collaboratore"){
-      if(t.modalitaPagamento==="forfait") return acc+(oreCollab[t.id]?.forfait||0);
-      const o=oreCollab[t.id]?.ore||0;
-      return acc+o*(t.tariffaOraria||0);
+    let tot=0;
+    if(faSegreteria(t)){
+      tot+=t.modalitaPagamento==="forfait" ? (oreCollab[t.id]?.forfait||0) : (oreCollab[t.id]?.ore||0)*(t.tariffaOraria||0);
     }
-    const r=reportInstr(t.id);
-    return acc+(r?.totale||0);
+    if(t.tipo!=="collaboratore"){ const r=reportInstr(t.id); tot+=(r?.totale||0); }
+    return acc+tot;
   },0);
 
   // Recupero stagionale
@@ -779,6 +796,27 @@ export default function GestioneIstruttori({ onVaiAContratto }){
                   </div>
                 </div>
 
+                <div style={{fontSize:11,fontWeight:700,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>
+                  Ruolo
+                </div>
+                <div style={{display:"flex",gap:8,marginBottom:6}} onClick={e=>e.stopPropagation()}>
+                  {[["istruttore","Istruttore"],["collaboratore","Collaboratore"],["entrambi","Istruttore + segreteria"]].map(([r,lab])=>{
+                    const attivo=ruoloDi(t)===r;
+                    return (
+                      <button key={r} onClick={()=>aggiornaRuolo(t.id,r)}
+                        style={{flex:1,padding:"7px",borderRadius:8,border:`1px solid ${attivo?C.green:C.border}`,
+                          background:attivo?C.green+"18":"white",fontSize:12,fontWeight:600,color:attivo?C.greenD:C.textSub,cursor:"pointer"}}>
+                        {lab}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{fontSize:10,color:C.textSub,marginBottom:14}}>
+                  {ruoloDi(t)==="istruttore"&&"Insegna: il check-in registra le lezioni, pagate a lezione."}
+                  {ruoloDi(t)==="collaboratore"&&"Controlla i corsi ma non li insegna: il check-in registra solo le presenze; è pagato per le ore di segreteria."}
+                  {ruoloDi(t)==="entrambi"&&"Insegna (lezioni pagate a lezione) e fa anche ore di segreteria, pagate a parte a ore o a forfait."}
+                </div>
+
                 <div style={{fontSize:11,fontWeight:700,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>
                   Residenza (usata nel contratto)
                 </div>
@@ -799,11 +837,20 @@ export default function GestioneIstruttori({ onVaiAContratto }){
                   ))}
                 </div>
 
-                {t.tipo==="collaboratore" && (
+                {faSegreteria(t) && (
                   <div style={{marginBottom:14}}>
                     <div style={{fontSize:11,fontWeight:700,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>
-                      Modalità di pagamento
+                      {t.tipo==="collaboratore"?"Modalità di pagamento":"Ore di segreteria — modalità di pagamento"}
                     </div>
+                    {t.tipo!=="collaboratore"&&t.modalitaPagamento!=="forfait"&&(
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}} onClick={e=>e.stopPropagation()}>
+                        <input type="number" value={t.tariffaOraria}
+                          onChange={e=>setIstruttori(prev=>prev.map(x=>x.id===t.id?{...x,tariffaOraria:parseFloat(e.target.value)||0}:x))}
+                          onBlur={e=>aggiornaTariffaOraria(t.id,parseFloat(e.target.value)||0)}
+                          style={{width:70,padding:"5px 7px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:12,textAlign:"center"}}/>
+                        <span style={{fontSize:11,color:C.textSub}}>€/ora di segreteria</span>
+                      </div>
+                    )}
                     <div style={{display:"flex",gap:8}} onClick={e=>e.stopPropagation()}>
                       <button onClick={()=>aggiornaModalitaPagamento(t.id,"oraria")}
                         style={{flex:1,padding:"7px",borderRadius:8,border:`1px solid ${t.modalitaPagamento==="oraria"?C.green:C.border}`,
@@ -1164,10 +1211,10 @@ export default function GestioneIstruttori({ onVaiAContratto }){
             </div>
           );
         })}
-        {istruttori.filter(t=>t.tipo==="collaboratore").length>0 && (
+        {istruttori.filter(faSegreteria).length>0 && (
           <div style={{marginTop:16,marginBottom:9}}>
-            <div style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:9}}>📋 Collaboratori — ore di segreteria</div>
-            {istruttori.filter(t=>t.tipo==="collaboratore").map(t=>{
+            <div style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:9}}>📋 Ore di segreteria (collaboratori e istruttori con segreteria)</div>
+            {istruttori.filter(faSegreteria).map(t=>{
               const ore=oreCollab[t.id]?.ore||0;
               const forfait=oreCollab[t.id]?.forfait||0;
               const aForfait=t.modalitaPagamento==="forfait";
