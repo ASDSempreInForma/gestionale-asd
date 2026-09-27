@@ -185,7 +185,11 @@ export default function Compensi({ istruttoreIniziale } = {}) {
   // Stima del netto (27/09/2026): regole ricavate dalle buste paga della
   // commercialista, vedi calcoloNetto.js. Solo per i collaboratori (non P.IVA).
   const netto = risultato && istruttore
-    ? stimaNetto({ lordo: importoFinale, cumulativoPrima: risultato.cumulativoPrima, aliquotaInps: istruttore.aliquotaInps })
+    ? stimaNetto({
+        lordo: importoFinale, cumulativoPrima: risultato.cumulativoPrima, aliquotaInps: istruttore.aliquotaInps,
+        // giorni del periodo pagato: le detrazioni in busta sono proporzionali ai giorni (es. 31/365 a marzo)
+        giorniPeriodo: Math.round((new Date(dataFine + "T12:00:00") - new Date(dataInizio + "T12:00:00")) / 86400000) + 1,
+      })
     : null;
   async function cambiaAliquotaInps(valore) {
     if (!istruttore) return;
