@@ -507,8 +507,10 @@ export default function Compensi({ istruttoreIniziale } = {}) {
     try {
       await generaAutocertificazione({
         nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
-        periodoLabel, dataPagamento: isoData(new Date()), importoCumulativo: cumulativoDopoFinale,
-        scaglioneRiga: scDopoFinale.riga,
+        // Nelle righe va il compenso del PERIODO; il cumulativo prima del
+        // pagamento serve solo a scegliere la fascia (vedi generaAutocertificazione.js)
+        periodoLabel, dataPagamento: isoData(new Date()),
+        importoPeriodo: importoFinale, cumulativoPrima: risultato.cumulativoPrima,
       });
     } catch (err) { setErrore("Autocertificazione non generata: " + err.message); }
   }
