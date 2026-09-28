@@ -288,7 +288,11 @@ function ModaleRicevuta({ iscrizionePrincipale, altreIscrizioni, onClose, onDone
 }
 
 // ─── Modale upload certificato ──────────────────────────────────────────────
-function ModaleCertificato({ iscrizioneIds, onClose, onDone, callFnWithAuth }) {
+// `perSede` (28/09/2026): chi frequenta la SEDE (Via del Brolo) carica il
+// certificato sulla propria scheda SEDE (azione upload_certificato_sede), non
+// su un'iscrizione ai corsi in palestra. Per scelta di Solomon, per ora il
+// certificato SEDE non passa dalla verifica della segreteria.
+function ModaleCertificato({ iscrizioneIds, perSede = false, onClose, onDone, callFnWithAuth }) {
   const [scadenza, setScadenza] = useState("");
   const [documento, setDocumento] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -299,15 +303,31 @@ function ModaleCertificato({ iscrizioneIds, onClose, onDone, callFnWithAuth }) {
       setErrore("Indica la data di scadenza e allega il certificato.");
       return;
     }
+    if (perSede) {
+      const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+      const [y, m, d] = scadenza.split("-").map(Number);
+      if (new Date(y, m - 1, d) < oggi) {
+        setErrore("La data di scadenza indicata è già passata: serve un certificato ancora valido.");
+        return;
+      }
+    }
     setLoading(true);
     setErrore("");
-    const r = await callFnWithAuth({
-      action: "upload_documento",
-      tipo: "certificato",
-      iscrizione_ids: iscrizioneIds,
-      dichiarazione: { data_scadenza: scadenza },
-      ...(await campiUpload(documento)),
-    });
+    const r = await callFnWithAuth(
+      perSede
+        ? {
+            action: "upload_certificato_sede",
+            dichiarazione: { data_scadenza: scadenza },
+            ...(await campiUpload(documento)),
+          }
+        : {
+            action: "upload_documento",
+            tipo: "certificato",
+            iscrizione_ids: iscrizioneIds,
+            dichiarazione: { data_scadenza: scadenza },
+            ...(await campiUpload(documento)),
+          }
+    );
     setLoading(false);
     if (r.ok) onDone(r.message);
     else setErrore(r.error || "Errore durante l'invio.");
@@ -316,7 +336,7 @@ function ModaleCertificato({ iscrizioneIds, onClose, onDone, callFnWithAuth }) {
   return (
     <div style={styles.overlay} onClick={onClose}>
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-        <h3>Carica certificato medico</h3>
+        <h3>Carica certificato medico{perSede ? " — SEDE" : ""}</h3>
         <label style={styles.label}>Data di scadenza indicata sul certificato</label>
         <input type="date" value={scadenza} onChange={(e) => setScadenza(e.target.value)} style={styles.input} />
         <label style={styles.label}>Foto o PDF del certificato</label>
@@ -449,6 +469,43 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato }) {
 // Mostra gli attestati che la segreteria ha reso disponibili (dopo averli
 // generati, stampati, firmati a mano e ricaricati firmati). Se non ce ne sono,
 // la sezione non compare affatto.
+// ─── Card SEDE (Via del Brolo) ──────────────────────────────────────────────
+const GIORNI_SETTIMANA = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
+
+function CardSede({ sede, onApriCertificato }) {
+  const cert = sede.certificato || {};
+  const stato = cert.presente ? "valido" : "mancante";
+  const scaduto = certificatoStatoEffettivo(stato, cert.data_scadenza) === "scaduto";
+  return (
+    <div style={{ ...styles.card, marginBottom: 24 }}>
+      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>I tuoi corsi in SEDE (Via del Brolo)</div>
+      {(sede.turni || []).length > 0 ? (
+        <ul style={{ margin: "0 0 12px", paddingLeft: 18, color: "#475569", fontSize: 14 }}>
+          {sede.turni.map((t, idx) => (
+            <li key={idx}>
+              {GIORNI_SETTIMANA[t.giorno_settimana] || ""} ore {String(t.orario || "").slice(0, 5)}
+              {t.istruttore ? ` · con ${t.istruttore}` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p style={{ color: "#64748b", fontSize: 13, margin: "0 0 12px" }}>Nessun turno attivo al momento.</p>
+      )}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <BadgeCertificato stato={stato} scadenza={cert.data_scadenza} />
+        {cert.data_scadenza && (
+          <span style={{ fontSize: 13, color: scaduto ? "#991B1B" : "#64748b" }}>
+            {scaduto ? "scaduto il" : "valido fino al"} {fmtData(cert.data_scadenza)}
+          </span>
+        )}
+      </div>
+      <button onClick={onApriCertificato} style={{ ...styles.btnSmall, marginTop: 12 }}>
+        📎 {cert.presente ? "Carica un nuovo certificato" : "Carica il certificato medico"}
+      </button>
+    </div>
+  );
+}
+
 function SezioneAttestati({ callFnWithAuth }) {
   const [attestati, setAttestati] = useState(null); // null = non ancora caricati
   const [scaricandoId, setScaricandoId] = useState(null);
@@ -520,6 +577,7 @@ export default function AreaTesserati() {
 
   const [modaleRicevuta, setModaleRicevuta] = useState(null); // iscrizione o null
   const [modaleCertificato, setModaleCertificato] = useState(null);
+  const [modaleCertificatoSede, setModaleCertificatoSede] = useState(false);
   const [modaleRinnovo, setModaleRinnovo] = useState(null);
   const [scaricandoTessera, setScaricandoTessera] = useState(false);
 
@@ -665,6 +723,10 @@ export default function AreaTesserati() {
   }
 
   const { socio, iscrizioni } = dati;
+  // Chi frequenta solo la SEDE vede una versione ridotta (niente iscrizioni,
+  // pagamenti, rinnovi o QR delle palestre) — vedi edge function area-tesserati.
+  const soloSede = !!socio.solo_sede;
+  const sede = dati.sede;
   const iscrizioniAttive = iscrizioni.filter((i) => i.stagioni?.attiva);
   const stagioneAttivaNome = iscrizioniAttive[0]?.stagioni?.nome
     ?? iscrizioni.find((i) => i.stagioni?.attiva)?.stagioni?.nome;
@@ -708,8 +770,8 @@ export default function AreaTesserati() {
         )}
 
         <div style={styles.quickRow}>
-          <a href="/iscriviti" style={styles.quickBtn}>📝 Nuova iscrizione</a>
-          <a href="/prova" style={styles.quickBtn}>🎯 Prova un corso</a>
+          {!soloSede && <a href="/iscriviti" style={styles.quickBtn}>📝 Nuova iscrizione</a>}
+          {!soloSede && <a href="/prova" style={styles.quickBtn}>🎯 Prova un corso</a>}
           <a
             href={`https://wa.me/${WHATSAPP_NUM}?text=${encodeURIComponent(
               `Ciao, sono ${socio.nome} ${socio.cognome} (tessera ${socio.numero_tessera || "n/d"}), avrei bisogno di...`
@@ -722,6 +784,7 @@ export default function AreaTesserati() {
           </a>
         </div>
 
+        {!soloSede && (
         <div id="tessera-stampabile" style={{ ...styles.card, marginBottom: 12, display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
           <img
             src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(socio.cf)}`}
@@ -740,6 +803,11 @@ export default function AreaTesserati() {
             </div>
           </div>
         </div>
+        )}
+
+        {sede && (
+          <CardSede sede={sede} onApriCertificato={() => setModaleCertificatoSede(true)} />
+        )}
 
         {socio.tessera_ufficiale_disponibile && (
           <div style={{ ...styles.card, marginBottom: 24 }}>
@@ -757,6 +825,7 @@ export default function AreaTesserati() {
 
         <SezioneAttestati callFnWithAuth={callFnWithAuth} />
 
+        {!soloSede && (<>
         <h3>La tua stagione in corso {stagioneAttivaNome ? `— ${stagioneAttivaNome}` : ""}</h3>
         {iscrizioniAttive.length === 0 && (
           <p style={{ color: "#64748b" }}>Non risultano ancora iscrizioni per la stagione in corso.</p>
@@ -793,6 +862,7 @@ export default function AreaTesserati() {
             </div>
           </>
         )}
+        </>)}
       </div>
 
       {modaleRicevuta && (
@@ -817,6 +887,18 @@ export default function AreaTesserati() {
           callFnWithAuth={callFnWithAuth}
           onDone={(msg) => {
             setModaleCertificato(null);
+            setMessaggio(msg);
+            caricaDati();
+          }}
+        />
+      )}
+      {modaleCertificatoSede && (
+        <ModaleCertificato
+          perSede
+          onClose={() => setModaleCertificatoSede(false)}
+          callFnWithAuth={callFnWithAuth}
+          onDone={(msg) => {
+            setModaleCertificatoSede(false);
             setMessaggio(msg);
             caricaDati();
           }}

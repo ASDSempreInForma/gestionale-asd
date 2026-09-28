@@ -65,7 +65,9 @@ async function chiamaAreaSede(action, payload) {
 // resto del gestionale) — così riusiamo quel codice invece di duplicarlo.
 function comeIscrizione(i) {
   return {
-    data_scadenza_certificato: null, // non richiesto per gli export SEDE (solo tracciamento interno)
+    // Dal 28/09/2026 le persone SEDE caricano il certificato dall'Area Tesserati:
+    // se c'e', la scadenza compare anche nei registri firme come per le palestre.
+    data_scadenza_certificato: i.data_scadenza_certificato || null,
     soci: {
       cognome: i.cognome, nome: i.nome, cf: i.cf, data_nascita: i.data_nascita,
       comune_nascita: i.comune_nascita, provincia_nascita: i.provincia_nascita,
@@ -74,6 +76,42 @@ function comeIscrizione(i) {
       email: i.email, numero_tessera: i.numero_tessera,
     },
   };
+}
+
+// ─── Certificato medico caricato dalla persona (Area Tesserati, 28/09/2026) ──
+// Per ora nessuna verifica: si mostra solo lo stato e si puo' aprire il file.
+function oggiLocale() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function fmtDataIt(iso) {
+  if (!iso) return "";
+  const [y, m, g] = iso.split("-");
+  return `${g}/${m}/${y}`;
+}
+function BadgeCertificatoSede({ persona }) {
+  const scad = persona.data_scadenza_certificato;
+  if (!persona.certificato_url || !scad) {
+    return <span style={{ fontSize: 11, color: "#c0392b", background: "#fdecea", borderRadius: 6, padding: "1px 6px", marginLeft: 6 }}>🩺 Certificato mancante</span>;
+  }
+  const scaduto = scad < oggiLocale();
+  return (
+    <span style={{ fontSize: 11, color: scaduto ? "#c0392b" : "#1f8a52", background: scaduto ? "#fdecea" : "#e8f6ee", borderRadius: 6, padding: "1px 6px", marginLeft: 6 }}>
+      🩺 {scaduto ? "Scaduto il" : "Valido fino al"} {fmtDataIt(scad)}
+    </span>
+  );
+}
+async function apriCertificatoSede(path) {
+  // Finestra aperta subito al click: dopo una chiamata asincrona il browser la bloccherebbe
+  const w = window.open("", "_blank");
+  const { data, error } = await supabase.storage.from("documenti-soci").createSignedUrl(path, 120);
+  if (error || !data?.signedUrl) {
+    if (w) w.close();
+    alert("Impossibile aprire il certificato: " + (error?.message || "file non trovato"));
+    return;
+  }
+  if (w) w.location.href = data.signedUrl;
+  else window.location.href = data.signedUrl;
 }
 
 export default function GestioneSede() {
@@ -437,7 +475,12 @@ function TurniEGruppi() {
                               <div style={{ flex: 1 }}>
                                 {i.cognome} {i.nome}
                                 {!i.cf && <span style={{ color: "#c0392b", fontSize: 11 }}> (dati anagrafici incompleti)</span>}
+                                <BadgeCertificatoSede persona={i} />
+                                {!i.email && <span style={{ fontSize: 11, color: "#b7791f", marginLeft: 6 }}>✉️ senza email</span>}
                               </div>
+                              {i.certificato_url && (
+                                <button onClick={() => apriCertificatoSede(i.certificato_url)} title="Apri certificato" style={{ background: "none", border: "none", cursor: "pointer" }}>📄</button>
+                              )}
                               <select value="" onChange={(e) => { if (e.target.value) chiamaAreaSede("salva_iscritto_turno", { ...i, id: i.id, turno_id: e.target.value }).then(carica).catch((err) => alert(err.message)); }}
                                 style={{ fontSize: 11, border: "1px solid #ddd", borderRadius: 6, padding: "2px 4px", color: "#777" }}>
                                 <option value="">↔ Sposta a…</option>
