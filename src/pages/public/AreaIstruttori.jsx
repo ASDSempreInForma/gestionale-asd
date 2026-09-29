@@ -459,7 +459,10 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
         <div>
           <div style={{ fontWeight: 700, fontSize: 15 }}>{corso.disciplina}</div>
           <div style={{ color: "#64748b", fontSize: 13 }}>{corso.giorni_orari} · {corso.sede}</div>
-          <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 2 }}>{corso.iscritti.length} iscritti in totale</div>
+          <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 2 }}>
+            {corso.iscritti.length} iscritti in totale
+            {(corso.prove || []).length > 0 && <> · <span style={{ color: "#7C3AED" }}>{corso.prove.length} in prova</span></>}
+          </div>
         </div>
         {!eCollaboratore && giaSegnata === "fatta" && <span style={styles.badgeVerde}>✓ Lezione di oggi segnata come svolta</span>}
         {!eCollaboratore && giaSegnata === "sospesa" && <span style={styles.badgeRosso}>Lezione di oggi segnata come non svolta</span>}
@@ -567,6 +570,42 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
             </button>
           )}
           {eOggiSelezionato && messaggio && <p style={{ fontSize: 12.5, color: "#475569", marginTop: 8 }}>{messaggio}</p>}
+
+          {/* Persone in prova (29/09/2026): SOLO LETTURA, per sapere chi aspettarsi.
+              Non entrano nel check-in e l'istruttore non cambia lo stato della prova:
+              lo gestisce la segreteria da Gestione prove. */}
+          {(corso.prove || []).length > 0 && (
+            <div style={{ marginTop: 18 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#7C3AED", marginBottom: 6 }}>
+                🎯 In prova ({corso.prove.length})
+              </div>
+              <div style={{ fontSize: 11.5, color: "#94a3b8", marginBottom: 8 }}>
+                Persone che hanno chiesto una lezione di prova per questo corso. Solo da consultare: non vanno segnate nel check-in.
+              </div>
+              {corso.prove.map((p) => {
+                const giornoGiusto = p.giorno_preferito && p.giorno_preferito === giornoSelezionato;
+                return (
+                  <div key={p.id} style={{ ...styles.rigaIscritto, background: giornoGiusto ? "#F5F3FF" : undefined }}>
+                    <span style={{ flex: 1 }}>
+                      <div>{capitalizza(p.cognome)} {capitalizza(p.nome)}</div>
+                      <div style={{ fontSize: 11.5, color: "#94a3b8" }}>
+                        {p.telefono}
+                        {p.frequenza_desiderata && ` · vorrebbe venire ${p.frequenza_desiderata === "1x" ? "1 volta" : "2 volte"} a settimana`}
+                        {p.giorno_preferito && ` · preferisce il ${p.giorno_preferito}`}
+                      </div>
+                      <div style={{ marginTop: 5 }}>
+                        <span style={{ fontSize: 11, borderRadius: 6, padding: "2px 7px",
+                          background: p.stato === "confermata" ? "#EDE9FE" : "#F1F5F9",
+                          color: p.stato === "confermata" ? "#6D28D9" : "#64748b" }}>
+                          {p.stato === "confermata" ? "Prova confermata" : "Richiesta in attesa"}
+                        </span>
+                      </div>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
