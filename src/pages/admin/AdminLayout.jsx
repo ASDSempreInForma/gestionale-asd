@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../../supabase.js'
 import GestioneProve from './GestioneProve.jsx'
 import GestioneIstruttori from './GestioneIstruttori.jsx'
@@ -128,6 +128,12 @@ export default function AdminLayout({ user, onLogout }) {
     Object.fromEntries(SEZIONI.map(s => [s.id, true]))
   )
   const toggleSezione = (id) => setSezioniAperte(s => ({ ...s, [id]: !s[id] }))
+
+  // Cambiando pagina si riparte sempre dall'inizio. Le pagine non sono "vere"
+  // pagine del browser (si cambia solo `pagina`), quindi senza questo il
+  // browser resterebbe alla posizione di scorrimento della pagina precedente:
+  // da telefono, dove si scorre molto, la nuova pagina si apriva in fondo.
+  useEffect(() => { window.scrollTo(0, 0) }, [pagina])
 
   async function logout() {
     await supabase.auth.signOut()
