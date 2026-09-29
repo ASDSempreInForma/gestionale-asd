@@ -599,6 +599,9 @@ export default function AreaTesserati() {
   }, []);
 
   useEffect(() => {
+    // Dopo il login (o il logout) si riparte dall'inizio: login e area sono la
+    // stessa pagina del browser, che altrimenti resterebbe scorsa dov'era.
+    window.scrollTo(0, 0);
     if (sessione) caricaDati();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessione]);

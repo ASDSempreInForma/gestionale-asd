@@ -4,3 +4,10 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+
+/* Da telefono (soprattutto iPhone) il browser ingrandisce da solo la pagina
+   quando si tocca un campo con testo piu' piccolo di 16px, e poi resta
+   ingrandita. Con 16px sui campi lo zoom automatico non scatta. (29/09/2026) */
+@media (max-width: 767px) {
+  input, select, textarea { font-size: 16px !important; }
+}
