@@ -271,12 +271,19 @@ export default function Compensi({ istruttoreIniziale } = {}) {
     } catch (err) { setErrore("Contratto non generato: " + err.message); }
   }
 
-  const anagraficaCompleta = anagrafica && (
-    anagrafica.tipoContratto === "partita_iva"
-      ? !!(anagrafica.cf && anagrafica.partitaIva)
-      : !!(anagrafica.dataNascita && anagrafica.comuneNascita && anagrafica.provinciaNascita
-        && anagrafica.comuneResidenza && anagrafica.provinciaResidenza && anagrafica.indirizzoResidenza && anagrafica.cap && anagrafica.cf && anagrafica.sesso)
+  const eCompleta = (a) => !!a && (
+    (a.tipoContratto || "collaborazione") === "partita_iva"
+      ? !!(a.cf && a.partitaIva)
+      : !!(a.dataNascita && a.comuneNascita && a.provinciaNascita
+        && a.comuneResidenza && a.provinciaResidenza && a.indirizzoResidenza && a.cap && a.cf && a.sesso)
   );
+  // Dati come li si sta scrivendo nel modulo (abilita i pulsanti dei documenti)
+  const anagraficaCompleta = eCompleta(anagrafica);
+  // Dati come risultano SALVATI nel database: decidono se mostrare il riquadro
+  // arancione. Prima si usavano i dati del modulo, e il riquadro spariva appena
+  // l'ultimo campo veniva riempito, portandosi via il pulsante "Salva" prima
+  // del salvataggio (29/09/2026, caso Elisa Prati con partita IVA).
+  const anagraficaSalvataCompleta = eCompleta(istruttore);
 
   async function salvaAnagrafica() {
     if (!istruttoreId) return;
@@ -684,7 +691,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         </button>
       </div>
 
-      {istruttoreId && anagrafica && !anagraficaCompleta && (
+      {istruttoreId && anagrafica && !anagraficaSalvataCompleta && (
         <div style={{ background: "#fff4e5", borderRadius: 12, padding: 16, marginBottom: 20 }}>
           <div style={{ fontWeight: 700, color: "#b9770e", marginBottom: 10 }}>⚠️ Dati contrattuali incompleti per {istruttore.nome} {istruttore.cognome}</div>
           <p style={{ fontSize: 12, color: "#8a5a10", margin: "0 0 12px" }}>Servono per generare l'autocertificazione (una volta sola, poi restano salvati). Il riepilogo ore/compenso funziona comunque anche senza.</p>
