@@ -6,6 +6,8 @@ import { generaFileASI, generaFileLibertas } from "./esportaAssicurazioni.js";
 import { generaRegistroFirmeASI, generaRegistroFirmeLibertas, generaRegistroFirmeMistoASI, generaRegistroFirmeMistoLibertas, generaRegistroFirmeGiornoASI, generaRegistroFirmeGiornoLibertas } from "./registroFirme.js";
 import { generaFoglioPresenzeSede } from "./foglioPresenzeSede.js";
 import { generaFoglioPresenzeExcelSede } from "./foglioPresenzeExcel.js";
+import CampoDocumento from "../../CampoDocumento.jsx";
+import { caricaSuStorage } from "../../scansioneDocumento.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -185,6 +187,52 @@ const CAMPI_ANAGRAFICA_VUOTI = {
   comune_residenza: "", provincia_residenza: "", cap: "", indirizzo: "", sesso: "", telefono: "", email: "", numero_tessera: "",
 };
 
+// ─── Caricamento certificato da parte della segreteria (29/09/2026) ─────────
+// Stesso risultato del caricamento dall'Area Tesserati: file nel bucket
+// documenti-soci + scadenza su sede_persone. Nessuna verifica (scelta di
+// Solomon). Scrive direttamente con l'utente admin loggato (RLS is_admin()).
+function ModaleCertificatoSede({ persona, onClose, onSalvato }) {
+  const [documento, setDocumento] = useState(null);
+  const [scadenza, setScadenza] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [errore, setErrore] = useState("");
+
+  const salva = async () => {
+    if (!documento || !scadenza) { setErrore("Carica il documento e indica la data di scadenza."); return; }
+    setSalvando(true); setErrore("");
+    const cf = (persona.cf || "").trim().toUpperCase();
+    const cartella = cf || `SEDE_${persona.persona_id}`;
+    const r = await caricaSuStorage(supabase, `${cartella}/certificato_sede_${Date.now()}`, documento);
+    if (r.errore) { setErrore("Caricamento non riuscito: " + r.errore); setSalvando(false); return; }
+    const valori = { certificato_url: r.percorso, data_scadenza_certificato: scadenza, certificato_caricato_il: new Date().toISOString() };
+    // Con il CF si aggiornano tutte le eventuali schede della stessa persona
+    const q = supabase.from("sede_persone").update(valori);
+    const { error } = cf ? await q.eq("cf", cf) : await q.eq("id", persona.persona_id);
+    if (error) { setErrore("Salvataggio non riuscito: " + error.message); setSalvando(false); return; }
+    onSalvato();
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: 20, width: "100%", maxWidth: 440, maxHeight: "90vh", overflowY: "auto" }}>
+        <h3 style={{ margin: "0 0 4px" }}>Carica certificato medico</h3>
+        <div style={{ fontSize: 13, color: "#666", marginBottom: 14 }}>{persona.cognome} {persona.nome}</div>
+        <CampoDocumento onChange={setDocumento} colore={C} etichettaPulsante="📷 Fotografa o scegli il certificato" />
+        <label style={{ display: "block", fontSize: 12, color: "#888", marginTop: 14 }}>Data di scadenza</label>
+        <input type="date" value={scadenza} onChange={(e) => setScadenza(e.target.value)}
+          style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid #ddd", boxSizing: "border-box" }} />
+        {errore && <p style={{ color: "#c0392b", fontSize: 13 }}>{errore}</p>}
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button onClick={onClose} disabled={salvando} style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}>Annulla</button>
+          <button onClick={salva} disabled={salvando} style={{ flex: 2, padding: 10, borderRadius: 8, border: "none", background: C, color: "#fff", fontWeight: 600, cursor: "pointer", opacity: salvando ? 0.6 : 1 }}>
+            {salvando ? "Salvataggio..." : "Salva certificato"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TurniEGruppi() {
   const [turni, setTurni] = useState([]);
   const [istruttori, setIstruttori] = useState([]);
@@ -196,6 +244,7 @@ function TurniEGruppi() {
   const [modaleTurno, setModaleTurno] = useState(null); // null | { turno: obj|null }
   const [modalePersona, setModalePersona] = useState(null); // null | { turnoId, persona: obj|null }
   const [modaleFoglio, setModaleFoglio] = useState(null); // null | turno
+  const [modaleCertificato, setModaleCertificato] = useState(null); // null | persona
   const [modaleSelezione, setModaleSelezione] = useState(null); // null | { titolo, persone, onConferma }
 
   const carica = useCallback(async () => {
@@ -481,6 +530,7 @@ function TurniEGruppi() {
                               {i.certificato_url && (
                                 <button onClick={() => apriCertificatoSede(i.certificato_url)} title="Apri certificato" style={{ background: "none", border: "none", cursor: "pointer" }}>📄</button>
                               )}
+                              <button onClick={() => setModaleCertificato(i)} title={i.certificato_url ? "Carica un nuovo certificato" : "Carica certificato"} style={{ background: "none", border: "none", cursor: "pointer" }}>📎</button>
                               <select value="" onChange={(e) => { if (e.target.value) chiamaAreaSede("salva_iscritto_turno", { ...i, id: i.id, turno_id: e.target.value }).then(carica).catch((err) => alert(err.message)); }}
                                 style={{ fontSize: 11, border: "1px solid #ddd", borderRadius: 6, padding: "2px 4px", color: "#777" }}>
                                 <option value="">↔ Sposta a…</option>
@@ -518,6 +568,10 @@ function TurniEGruppi() {
       {modalePersona && (
         <ModalePersona turnoId={modalePersona.turnoId} persona={modalePersona.persona} personeEsistenti={tuttePersone}
           onChiudi={() => setModalePersona(null)} onSalvato={() => { setModalePersona(null); carica(); }} />
+      )}
+      {modaleCertificato && (
+        <ModaleCertificatoSede persona={modaleCertificato} onClose={() => setModaleCertificato(null)}
+          onSalvato={() => { setModaleCertificato(null); carica(); }} />
       )}
       {modaleFoglio && (
         <ModaleFoglioPresenze turno={modaleFoglio} onChiudi={() => setModaleFoglio(null)} />
