@@ -643,6 +643,10 @@ function ModaleSelezionaPersone({ titolo, persone, onChiudi, onConferma }) {
 function ModaleFoglioPresenze({ turno, onChiudi }) {
   const [dataInizio, setDataInizio] = useState(new Date().toISOString().slice(0, 10));
   const [esclusioni, setEsclusioni] = useState([]);
+  // Colonna vuota in fondo per un futuro iscritto da aggiungere a penna
+  // (30/09/2026). Proposta attiva se il gruppo non e' ancora pieno (max 5).
+  const [colonneVuote, setColonneVuote] = useState((turno.iscritti || []).length < 5 ? 1 : 0);
+  const personeFoglio = [...(turno.iscritti || []), ...Array.from({ length: colonneVuote }, () => ({ cognome: "", nome: "" }))];
   const [generando, setGenerando] = useState(false);
   const [generandoExcel, setGenerandoExcel] = useState(false);
   const [errore, setErrore] = useState("");
@@ -654,7 +658,7 @@ function ModaleFoglioPresenze({ turno, onChiudi }) {
   async function genera() {
     setErrore(""); setGenerando(true);
     try {
-      await generaFoglioPresenzeSede(turno, turno.iscritti || [], dataInizio, esclusioni.filter((e) => e.dal && e.al));
+      await generaFoglioPresenzeSede(turno, personeFoglio, dataInizio, esclusioni.filter((e) => e.dal && e.al));
       onChiudi();
     } catch (err) { setErrore(err.message); }
     finally { setGenerando(false); }
@@ -663,7 +667,7 @@ function ModaleFoglioPresenze({ turno, onChiudi }) {
   function generaExcel() {
     setErrore(""); setGenerandoExcel(true);
     try {
-      generaFoglioPresenzeExcelSede(turno, turno.iscritti || [], dataInizio, esclusioni.filter((e) => e.dal && e.al));
+      generaFoglioPresenzeExcelSede(turno, personeFoglio, dataInizio, esclusioni.filter((e) => e.dal && e.al));
     } catch (err) { setErrore(err.message); }
     finally { setGenerandoExcel(false); }
   }
@@ -676,6 +680,13 @@ function ModaleFoglioPresenze({ turno, onChiudi }) {
 
         <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 4 }}>Data della prima lezione</label>
         <input type="date" value={dataInizio} onChange={(e) => setDataInizio(e.target.value)} style={{ width: "100%", padding: 8, marginBottom: 14, border: "1px solid #ddd", borderRadius: 8 }} />
+
+        <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 4 }}>Colonne vuote per nuovi iscritti (da scrivere a mano)</label>
+        <select value={colonneVuote} onChange={(e) => setColonneVuote(Number(e.target.value))} style={{ width: "100%", padding: 8, marginBottom: 14, border: "1px solid #ddd", borderRadius: 8 }}>
+          <option value={0}>Nessuna</option>
+          <option value={1}>1 colonna vuota</option>
+          <option value={2}>2 colonne vuote</option>
+        </select>
 
         <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 6 }}>Periodi di sospensione da saltare (es. vacanze di Natale)</label>
         {esclusioni.map((e, i) => (
