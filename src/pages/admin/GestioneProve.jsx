@@ -125,6 +125,9 @@ export default function GestioneProve() {
   // Tab "Stampa registro"
   const [ricercaStampa, setRicercaStampa] = useState("");
   const [filtroCorsoStampa, setFiltroCorsoStampa] = useState("");
+  // Filtri palestra/disciplina per trovare il corso nel registro (01/10/2026)
+  const [filtroSedeStampa, setFiltroSedeStampa] = useState("");
+  const [filtroDiscStampa, setFiltroDiscStampa] = useState("");
   const [selezionatiStampa, setSelezionatiStampa] = useState(new Set());
   const [righeVuoteExtra, setRigheVuoteExtra] = useState(4);
   const [mostraNonAttiveStampa, setMostraNonAttiveStampa] = useState(false);
@@ -580,17 +583,31 @@ export default function GestioneProve() {
   };
 
   // ── Tab "Stampa registro": filtro, selezione persone, corso unico ────────
+  const sediStampa = useMemo(() => [...new Set(corsi.map((c) => c.sede).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [corsi]);
+  const disciplineStampa = useMemo(
+    () => [...new Set(corsi.filter((c) => !filtroSedeStampa || c.sede === filtroSedeStampa).map((c) => c.nome).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [corsi, filtroSedeStampa]
+  );
+  const corsiStampaVisibili = useMemo(
+    () => corsi.filter((c) => (!filtroSedeStampa || c.sede === filtroSedeStampa) && (!filtroDiscStampa || c.nome === filtroDiscStampa)),
+    [corsi, filtroSedeStampa, filtroDiscStampa]
+  );
+
   const risultatiStampa = useMemo(() => {
+    const idVisibili = new Set(corsiStampaVisibili.map((c) => c.id));
     return prove.filter((p) => {
       if (!mostraNonAttiveStampa && ["annullata", "scaduta"].includes(p.stato)) return false;
       if (filtroCorsoStampa && p.corso_id !== filtroCorsoStampa) return false;
+      if ((filtroSedeStampa || filtroDiscStampa) && !idVisibili.has(p.corso_id)) return false;
       if (ricercaStampa) {
         const testo = `${p.nome || ""} ${p.cognome || ""} ${p.cf || ""}`.toLowerCase();
         if (!testo.includes(ricercaStampa.toLowerCase())) return false;
       }
       return true;
-    });
-  }, [prove, filtroCorsoStampa, ricercaStampa, mostraNonAttiveStampa]);
+    }).sort((a, b) =>
+      String(a.cognome || "").trim().localeCompare(String(b.cognome || "").trim(), "it", { sensitivity: "base" })
+      || String(a.nome || "").trim().localeCompare(String(b.nome || "").trim(), "it", { sensitivity: "base" }));
+  }, [prove, filtroCorsoStampa, ricercaStampa, mostraNonAttiveStampa, filtroSedeStampa, filtroDiscStampa, corsiStampaVisibili]);
 
   function toggleSelezionatoStampa(id) {
     setSelezionatiStampa((prev) => {
@@ -1209,11 +1226,23 @@ export default function GestioneProve() {
               stampare o il file Excel.
             </p>
 
+            <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+              <select value={filtroSedeStampa} onChange={(e) => { setFiltroSedeStampa(e.target.value); setFiltroDiscStampa(""); setFiltroCorsoStampa(""); }}
+                style={{ flex: 1, minWidth: 150, padding: "8px 10px", borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13 }}>
+                <option value="">Tutte le palestre</option>
+                {sediStampa.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+              <select value={filtroDiscStampa} onChange={(e) => { setFiltroDiscStampa(e.target.value); setFiltroCorsoStampa(""); }}
+                style={{ flex: 1, minWidth: 150, padding: "8px 10px", borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13 }}>
+                <option value="">Tutte le discipline</option>
+                {disciplineStampa.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
             <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
               <select value={filtroCorsoStampa} onChange={(e) => setFiltroCorsoStampa(e.target.value)}
                 style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13 }}>
-                <option value="">Tutti i corsi</option>
-                {corsi.map((c) => (
+                <option value="">{filtroSedeStampa || filtroDiscStampa ? `Tutti i corsi filtrati (${corsiStampaVisibili.length})` : "Tutti i corsi"}</option>
+                {corsiStampaVisibili.map((c) => (
                   <option key={c.id} value={c.id}>{c.nome} — {c.sede} · {c.orario}</option>
                 ))}
               </select>
