@@ -146,10 +146,12 @@ function capitalizza(s) {
 }
 
 // Estrae i nomi dei giorni dalla stringa "Lunedì/Giovedì 18:10-19:00" -> ["Lunedì","Giovedì"]
+// Trova tutti i nomi dei giorni nell'orario, qualunque sia il formato:
+// "Martedì/Giovedì 20:05-21:00", "Giovedì 17:00-17:55",
+// "Lunedì 17:15-18:15 e Giovedì 17:00-18:00" (01/10/2026).
 function estraiGiorni(giorniOrari) {
   if (!giorniOrari) return [];
-  const soloGiorni = giorniOrari.split(/\s+\d/)[0]; // taglia via l'orario
-  return soloGiorni.split("/").map((g) => g.trim()).filter(Boolean);
+  return giorniOrari.match(/(Lunedì|Martedì|Mercoledì|Giovedì|Venerdì|Sabato|Domenica)/g) || [];
 }
 
 const GIORNI_ABBR = {
@@ -176,10 +178,14 @@ function abbreviaDisciplina(nomeVisualizzato, disciplina) {
   return primaParola.slice(0, 3).charAt(0).toUpperCase() + primaParola.slice(1, 3).toLowerCase();
 }
 
+// NB: nel database "2x" significa "frequenta TUTTI i giorni del corso" (regola
+// del 09/09/2026, vedi AnagraficaSoci): per un corso di un solo giorno quindi
+// vuol dire 1 volta a settimana. Si mostrano i giorni reali, non "2x/sett",
+// che faceva credere a una doppia frequenza (caso Negretti, 01/10/2026).
 function labelFrequenza(r) {
   if (r.frequenza === "2x") {
     const giorni = estraiGiorni(r._giorniOrari);
-    return giorni.length === 2 ? giorni.map(abbreviaGiorno).join("+") : "2x/sett";
+    return giorni.length > 0 ? giorni.map(abbreviaGiorno).join("+") : "2x/sett";
   }
   if (r.frequenza === "1x") return abbreviaGiorno(r.giorno_scelto) || "1x/sett";
   return r.frequenza || "";

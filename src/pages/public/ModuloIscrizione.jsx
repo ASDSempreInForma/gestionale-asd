@@ -1183,7 +1183,16 @@ export default function ModuloIscrizione() {
         firma_dichiarazione_accettata: dichiarazioneFirma,
         note: [
           `Codice: ${c.codiceCompleto}`,
-          `Frequenza: ${c.frequenza === "2x" ? "bisettimanale" : "monosettimanale"}${
+          // Per i corsi senza scelta 1x/2x si salva sempre "2x" (= tutti i giorni
+          // del corso, regola usata da capienza e liste per giornata): la nota
+          // pero' deve dire la frequenza vera, cioe' quanti giorni ha il corso.
+          `Frequenza: ${
+            c.frequenza === "2x"
+              ? ((c.corso.orario || "").match(/(Lunedì|Martedì|Mercoledì|Giovedì|Venerdì|Sabato|Domenica)/g) || []).length === 1
+                ? "monosettimanale"
+                : "bisettimanale"
+              : "monosettimanale"
+          }${
             c.frequenza === "1x" && c.corso.ha_variante_frequenza && c.giornoScelto ? ` (${c.giornoScelto})` : ""
           }`,
           c.corso.mese_inizio === "settembre" ? `Inizio corso scelto: ${c.inizioPersonalizzato === "ottobre" ? "dal 1° ottobre" : "da subito (settembre)"}` : null,
