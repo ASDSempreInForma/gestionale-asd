@@ -225,6 +225,10 @@ export default function ElencoPersonalizzato() {
   const [errore, setErrore] = useState(null);
 
   const [filtroCorso, setFiltroCorso] = useState("");
+  // Filtri per trovare il corso (01/10/2026): palestra e disciplina restringono
+  // sia il menu dei corsi sia l'elenco delle persone.
+  const [filtroSede, setFiltroSede] = useState("");
+  const [filtroDisciplina, setFiltroDisciplina] = useState("");
   const [ricerca, setRicerca] = useState("");
   const [selezionati, setSelezionati] = useState(new Set());
 
@@ -442,10 +446,25 @@ export default function ElencoPersonalizzato() {
     }
   }
 
+  const sediDisponibili = useMemo(
+    () => [...new Set(corsi.map((c) => c.sedi && c.sedi.nome).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [corsi]
+  );
+  const disciplineDisponibili = useMemo(
+    () => [...new Set(corsi.filter((c) => !filtroSede || (c.sedi && c.sedi.nome) === filtroSede).map((c) => c.disciplina).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [corsi, filtroSede]
+  );
+  const corsiVisibili = useMemo(
+    () => corsi.filter((c) => (!filtroSede || (c.sedi && c.sedi.nome) === filtroSede) && (!filtroDisciplina || c.disciplina === filtroDisciplina)),
+    [corsi, filtroSede, filtroDisciplina]
+  );
+  const idCorsiVisibili = useMemo(() => new Set(corsiVisibili.map((c) => c.id)), [corsiVisibili]);
+
   const risultatiFiltrati = useMemo(() => {
     return iscrizioni
       .filter((r) => {
         if (filtroCorso && r.corso_id !== filtroCorso) return false;
+        if ((filtroSede || filtroDisciplina) && !idCorsiVisibili.has(r.corso_id)) return false;
         if (ricerca) {
           const testo = ((r.soci && r.soci.nome ? r.soci.nome : "") + " " + (r.soci && r.soci.cognome ? r.soci.cognome : "") + " " + (r.soci && r.soci.cf ? r.soci.cf : "")).toLowerCase();
           if (!testo.includes(ricerca.toLowerCase())) return false;
@@ -453,7 +472,7 @@ export default function ElencoPersonalizzato() {
         return true;
       })
       .sort(ordinaRighe(corsi));
-  }, [iscrizioni, filtroCorso, ricerca, corsi]);
+  }, [iscrizioni, filtroCorso, ricerca, corsi, filtroSede, filtroDisciplina, idCorsiVisibili]);
 
   const iscrizioniSelezionate = useMemo(
     () => iscrizioni.filter((r) => selezionati.has(r.id)).sort(ordinaRighe(corsi)),
@@ -610,11 +629,23 @@ export default function ElencoPersonalizzato() {
             <div style={{ background: "white", borderRadius: 12, border: "1px solid " + BD, padding: 18 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: TX, marginBottom: 12 }}>2. Scegli le persone</div>
 
+              <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                <select value={filtroSede} onChange={(e) => { setFiltroSede(e.target.value); setFiltroDisciplina(""); setFiltroCorso(""); }}
+                  style={{ flex: 1, minWidth: 150, padding: "8px 10px", borderRadius: 8, border: "1px solid " + BD, fontSize: 13 }}>
+                  <option value="">Tutte le palestre</option>
+                  {sediDisponibili.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <select value={filtroDisciplina} onChange={(e) => { setFiltroDisciplina(e.target.value); setFiltroCorso(""); }}
+                  style={{ flex: 1, minWidth: 150, padding: "8px 10px", borderRadius: 8, border: "1px solid " + BD, fontSize: 13 }}>
+                  <option value="">Tutte le discipline</option>
+                  {disciplineDisponibili.map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
               <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                 <select value={filtroCorso} onChange={(e) => setFiltroCorso(e.target.value)}
                   style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid " + BD, fontSize: 13 }}>
-                  <option value="">Tutti i corsi</option>
-                  {corsi.map((c) => (
+                  <option value="">{filtroSede || filtroDisciplina ? `Tutti i corsi filtrati (${corsiVisibili.length})` : "Tutti i corsi"}</option>
+                  {corsiVisibili.map((c) => (
                     <option key={c.id} value={c.id}>{c.codice_corso} - {c.disciplina} ({c.sedi && c.sedi.nome}) · {c.giorni_orari}</option>
                   ))}
                 </select>
