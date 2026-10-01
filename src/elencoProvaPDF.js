@@ -45,6 +45,19 @@ function altezzaRiga(richiesta) {
   return ALTEZZA_RIGA_BASE + (richiesta.dataCompilazione ? ALTEZZA_RIGA_DATA_COMPILAZIONE : 0) + ALTEZZA_RIGA_GAP;
 }
 
+
+// Ordine alfabetico per cognome e nome (01/10/2026: gli elenchi uscivano
+// nell'ordine di arrivo delle richieste). Se l'elenco mescola piu' corsi,
+// prima si raggruppa per corso, poi alfabetico dentro ogni corso.
+function ordinaProve(prove, corsoUnico) {
+  const t = (v) => String(v || "").trim();
+  return [...(prove || [])].sort((a, b) =>
+    (corsoUnico ? 0 : t(a.corsoNome).localeCompare(t(b.corsoNome), "it", { sensitivity: "base" }))
+    || t(a.cognome).localeCompare(t(b.cognome), "it", { sensitivity: "base" })
+    || t(a.nome).localeCompare(t(b.nome), "it", { sensitivity: "base" })
+  );
+}
+
 export const RIGHE_PER_PAGINA = 16; // stima usata solo per il pulsante "foglio bianco"
 
 /**
@@ -56,6 +69,7 @@ export const RIGHE_PER_PAGINA = 16; // stima usata solo per il pulsante "foglio 
  * @param {string}  opzioni.nomeFile
  */
 export async function generaRegistroProvaPDF({ prove, corsoUnico, stagione, righeVuoteExtra = 4, nomeFile }) {
+  prove = ordinaProve(prove, corsoUnico);
   const pdfDoc = await PDFDocument.create();
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -214,6 +228,7 @@ export async function generaRegistroProvaPDF({ prove, corsoUnico, stagione, righ
  * Export Excel dello stesso elenco (dati + colonne Data/Firma vuote da compilare).
  */
 export function generaRegistroProvaExcel({ prove, corsoUnico, righeVuoteExtra = 4, nomeFile }) {
+  prove = ordinaProve(prove, corsoUnico);
   const intestazione = corsoUnico
     ? ["#", "Cognome", "Nome", "Data", "Firma", "Liberatoria compilata il"]
     : ["#", "Cognome", "Nome", "Corso", "Data", "Firma", "Liberatoria compilata il"];
