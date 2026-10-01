@@ -175,7 +175,9 @@ function ModaleConfermaNota({ tipo, onClose, onConfirm }) {
   )
 }
 
-function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
+// `solo` (01/10/2026): 'pagamenti' | 'certificati' | 'tutti' — con il filtro attivo
+// si mostra solo il riquadro di quel tipo di documento.
+function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
   const [tessera, setTessera] = useState(row.soci?.numero_tessera || '')
   const [salvandoTessera, setSalvandoTessera] = useState(false)
   const [modaleRifiuto, setModaleRifiuto] = useState(null) // 'pagamento' | 'certificato' | null
@@ -270,7 +272,7 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
-        {row.ricevuta_url && (
+        {row.ricevuta_url && solo !== 'certificati' && (
           <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 14 }}>
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
               📄 Ricevuta pagamento {row.stato_pagamento === 'confermato' && <span style={{ color: '#166534' }}>✓ confermata</span>}
@@ -343,7 +345,7 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna }) {
           </div>
         )}
 
-        {row.certificato_url && (
+        {row.certificato_url && solo !== 'pagamenti' && (
           <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 14 }}>
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
               🩺 Certificato medico {row.stato_certificato === 'valido' && <span style={{ color: '#166534' }}>✓ confermato</span>}
@@ -589,6 +591,7 @@ export default function VerificaDocumenti() {
   const [errore, setErrore] = useState('')
   const [vista, setVista] = useState('in_attesa') // 'in_attesa' | 'storico'
   const [ricerca, setRicerca] = useState('')
+  const [tipoFiltro, setTipoFiltro] = useState('tutti') // 'tutti' | 'pagamenti' | 'certificati'
 
   const carica = async () => {
     let query = supabase
@@ -619,6 +622,10 @@ export default function VerificaDocumenti() {
   if (vista !== 'scadenze' && !righe) return <div style={{ padding: 24, color: SUB }}>Caricamento...</div>
 
   const righeFiltrate = (righe || []).filter(r => {
+    // Filtro per tipo di documento: in "Da verificare" conta lo stato
+    // dichiarato, nello storico basta che il documento sia stato caricato
+    if (tipoFiltro === 'pagamenti' && !(vista === 'in_attesa' ? r.stato_pagamento === 'dichiarato' : r.ricevuta_url)) return false
+    if (tipoFiltro === 'certificati' && !(vista === 'in_attesa' ? r.stato_certificato === 'dichiarato' : r.certificato_url)) return false
     if (!ricerca.trim()) return true
     const q = ricerca.trim().toLowerCase()
     return `${r.soci?.nome} ${r.soci?.cognome} ${r.soci?.cf}`.toLowerCase().includes(q)
@@ -657,14 +664,23 @@ export default function VerificaDocumenti() {
 
       {vista === 'scadenze' && <PannelloScadenzeCertificati />}
 
-      {vista !== 'scadenze' && vista === 'in_attesa' && (
-        <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-          <div style={{ background: nPagamenti ? '#FEF3C7' : GL, borderRadius: 10, padding: '10px 16px', fontSize: 13, fontWeight: 600 }}>
-            📄 {nPagamenti} ricevut{nPagamenti === 1 ? 'a' : 'e'} in attesa
-          </div>
-          <div style={{ background: nCertificati ? '#FEF3C7' : GL, borderRadius: 10, padding: '10px 16px', fontSize: 13, fontWeight: 600 }}>
-            🩺 {nCertificati} certificat{nCertificati === 1 ? 'o' : 'i'} in attesa
-          </div>
+      {vista !== 'scadenze' && (
+        <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: 12.5, color: SUB }}>Mostra:</span>
+          {[
+            { id: 'tutti', label: '📋 Tutti' },
+            { id: 'certificati', label: vista === 'in_attesa' ? `🩺 Solo certificati (${nCertificati})` : '🩺 Solo certificati' },
+            { id: 'pagamenti', label: vista === 'in_attesa' ? `📄 Solo ricevute (${nPagamenti})` : '📄 Solo ricevute' },
+          ].map(f => {
+            const attivo = tipoFiltro === f.id
+            const daFare = vista === 'in_attesa' && ((f.id === 'certificati' && nCertificati) || (f.id === 'pagamenti' && nPagamenti))
+            return (
+              <button key={f.id} onClick={() => setTipoFiltro(f.id)}
+                style={{ background: attivo ? G : (daFare ? '#FEF3C7' : 'white'), color: attivo ? 'white' : TX, border: `1px solid ${attivo ? G : BD}`, borderRadius: 10, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                {f.label}
+              </button>
+            )
+          })}
         </div>
       )}
 
@@ -683,7 +699,7 @@ export default function VerificaDocumenti() {
         </div>
       )}
 
-      {vista !== 'scadenze' && righeFiltrate.map(r => <RigaIscritto key={r.id} row={r} soloConsultazione={vista === 'storico'} onAggiorna={carica} />)}
+      {vista !== 'scadenze' && righeFiltrate.map(r => <RigaIscritto key={r.id} row={r} soloConsultazione={vista === 'storico'} onAggiorna={carica} solo={tipoFiltro} />)}
     </div>
   )
 }
