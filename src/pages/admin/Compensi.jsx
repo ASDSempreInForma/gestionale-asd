@@ -5,6 +5,7 @@ import { generaAutocertificazioneAnnuale } from "./generaAutocertificazioneAnnua
 import { dataInizioCorso, dateAttese } from "./lezioniPreviste.js";
 import { generaContrattoCollaborazione, generaContrattoPartitaIva } from "./generaContratto.js";
 import { stimaNetto, ALIQUOTA_STANDARD, ALIQUOTA_RIDOTTA } from "./calcoloNetto.js";
+import { calcolaSedePeriodo, testoCalcoloOre, isoData, isDataSospesa, MESI, GIORNI_LABEL } from "./calcoloSede.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -13,72 +14,16 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const C = "#4A5560";
 const CL = "#EEF0F1";
-const GIORNI_LABEL = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
-const MESI = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"];
 
 // Festività/sospensioni: ora vivono nella tabella "festivita" (fetchate
 // più sotto), non più hardcoded qui — vedi anche GestioneIstruttori.jsx,
 // che scrive/legge la stessa tabella per il sistema "palestra". Il
 // sistema "sede" è un elenco indipendente e tipicamente più corto (la
 // SEDE fa molte meno sospensioni della Palestra).
-function dateInRange(d, dal, al) { return d >= dal && d <= al; }
-function isDataSospesa(d, elenco) { return elenco.some((s) => dateInRange(d, s.dal, s.al)); }
 
-function isoData(d) {
-  // MAI toISOString() su una data locale: sposta indietro di un giorno nei
-  // fusi UTC+ (bug ricorrente già corretto altrove nel gestionale — vedi
-  // learnings). Sempre dai componenti locali.
-  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), g = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${g}`;
-}
 function euro(n) { return `€ ${Number(n || 0).toFixed(2)}`; }
 function dataItaliana(iso) { const [a, m, g] = iso.split("-"); return `${g}/${m}/${a}`; }
 
-function tariffaPerScaglione(istr, numeroPersone) {
-  if (numeroPersone <= 1) return istr.tariffaSede1 ?? null;
-  if (numeroPersone <= 3) return istr.tariffaSede23 ?? null;
-  return istr.tariffaSede45 ?? null;
-}
-
-// Replica client-side della stessa logica dell'edge function area-sede
-// (generaLezioniEffettive), ma per UN SOLO istruttore e un intervallo di
-// date libero invece che un mese di calendario — necessaria perché
-// l'area-sede lavora solo per mese solare, qui serve "dal 1 marzo al 30
-// aprile".
-function generaOccorrenzeSede(turni, eccezioni, dataInizio, dataFine) {
-  const mappaEcc = new Map();
-  for (const e of eccezioni) mappaEcc.set(`${e.istruttore_id}|${e.orario || ""}|${e.data}`, e);
-  const consumate = new Set();
-  const risultato = [];
-
-  for (const t of turni) {
-    if (!t.data_inizio) continue;
-    const inizioEff = t.data_inizio > dataInizio ? t.data_inizio : dataInizio;
-    const cursor = new Date(inizioEff + "T00:00:00");
-    const diff = (t.giorno_settimana - cursor.getDay() + 7) % 7;
-    cursor.setDate(cursor.getDate() + diff);
-    const fine = new Date(dataFine + "T00:00:00");
-    while (cursor <= fine) {
-      const d = isoData(cursor);
-      const chiave = `${t.istruttore_id}|${t.orario || ""}|${d}`;
-      const ecc = mappaEcc.get(chiave);
-      if (ecc) {
-        risultato.push({ ...ecc, turno: t, di_default: false });
-        consumate.add(chiave);
-      } else {
-        risultato.push({
-          id: null, turno_id: t.id, data: d, orario: t.orario, ore: t.ore, numero_persone: t.numero_persone_default,
-          stato: "svolta", istruttore_id: t.istruttore_id, istruttore_sostituto_id: null, turno: t, di_default: true,
-        });
-      }
-      cursor.setDate(cursor.getDate() + 7);
-    }
-  }
-  for (const [chiave, ecc] of mappaEcc) {
-    if (!consumate.has(chiave)) risultato.push({ ...ecc, turno: null, di_default: false, extra: true });
-  }
-  return risultato;
-}
 
 export default function Compensi({ istruttoreIniziale } = {}) {
   const [istruttori, setIstruttori] = useState([]);
@@ -273,7 +218,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
 
   const eCompleta = (a) => !!a && (
     (a.tipoContratto || "collaborazione") === "partita_iva"
-      ? !!(a.cf && a.partitaIva)
+      ? !!(a.cf && a.partitaIva && a.dataNascita && a.comuneNascita && a.provinciaNascita)
       : !!(a.dataNascita && a.comuneNascita && a.provinciaNascita
         && a.comuneResidenza && a.provinciaResidenza && a.indirizzoResidenza && a.cap && a.cf && a.sesso)
   );
@@ -360,35 +305,9 @@ export default function Compensi({ istruttoreIniziale } = {}) {
       if (errT) throw new Error(errT.message);
       if (errE) throw new Error(errE.message);
 
-      const occorrenze = generaOccorrenzeSede(turni || [], eccTutte || [], dataInizio, dataFine);
-      const mieSede = occorrenze.filter((o) => {
-        if (o.stato !== "svolta") return false;
-        if (isDataSospesa(o.data, festivitaSede)) return false;
-        const beneficiario = o.istruttore_sostituto_id || o.istruttore_id;
-        return beneficiario === istruttoreId;
+      const { righeSede, oreSedeTotali, importoSede } = calcolaSedePeriodo({
+        turni, eccezioni: eccTutte, dataInizio, dataFine, festivita: festivitaSede, istruttore, istruttoreId,
       });
-
-      const gruppiSlot = new Map(); // chiave slot ricorrente -> {label, ore, importo}
-      const righeExtra = []; // lezioni singole, una riga ciascuna
-      let importoSede = 0, oreSedeTotali = 0;
-      for (const o of mieSede) {
-        const tariffa = tariffaPerScaglione(istruttore, o.numero_persone);
-        const importo = tariffa !== null ? tariffa * Number(o.ore) : 0;
-        importoSede += importo; oreSedeTotali += Number(o.ore);
-        if (o.turno) {
-          const chiave = `${o.turno.giorno_settimana}|${o.turno.orario}`;
-          const label = `Corso ${GIORNI_LABEL[o.turno.giorno_settimana]} ore ${(o.orario || "").slice(0, 5)}`;
-          if (!gruppiSlot.has(chiave)) gruppiSlot.set(chiave, { label, ore: 0, importo: 0, tariffaMancante: false });
-          const g = gruppiSlot.get(chiave);
-          g.ore += Number(o.ore); g.importo += importo;
-          if (tariffa === null) g.tariffaMancante = true;
-        } else {
-          const d = new Date(o.data + "T00:00:00");
-          const label = `Corso ${GIORNI_LABEL[d.getDay()]} ${d.getDate()} ${MESI[d.getMonth()]}`;
-          righeExtra.push({ label, ore: Number(o.ore), importo, tariffaMancante: tariffa === null });
-        }
-      }
-      const righeSede = [...Array.from(gruppiSlot.values()), ...righeExtra];
 
       // ── PALESTRA ──
       const { data: lezPalestra, error: errL } = await supabase.from("lezioni")
@@ -469,37 +388,31 @@ export default function Compensi({ istruttoreIniziale } = {}) {
       }
 
       const importoTotale = importoSede + importoPalestra + importoSegreteria;
+      // Totale gia' pagato nell'anno letto SEMPRE fresco dal database (01/10/2026):
+      // prima si usava lo storico in memoria, che dopo "Pagamento registrato"
+      // poteva non essere ancora aggiornato, e calcolando subito il periodo
+      // successivo il nuovo pagamento non veniva sommato (serviva ricaricare).
+      const annoCum = Number(dataFine.slice(0, 4));
+      const [{ data: pagFreschi, error: errPag }, { data: saldoFresco }] = await Promise.all([
+        supabase.from("compensi_pagamenti").select("*").eq("istruttore_id", istruttoreId).eq("anno", annoCum).eq("pagato", true).order("data_fine"),
+        supabase.from("compensi_saldo_iniziale").select("importo").eq("istruttore_id", istruttoreId).eq("anno", annoCum).maybeSingle(),
+      ]);
+      if (errPag) throw new Error(errPag.message);
+      setStorico(pagFreschi || []);
+      setSaldoIniziale(saldoFresco?.importo || 0);
+      const cumulativoPrima = (Number(saldoFresco?.importo) || 0)
+        + (pagFreschi || []).reduce((acc, p) => acc + Number(p.importo_totale || 0), 0);
       const cumulativoDopo = cumulativoPrima + importoTotale;
       const scPrima = scaglioneDi(cumulativoPrima);
       const scDopo = scaglioneDi(cumulativoDopo);
 
-      // Testo pronto per WhatsApp, stesso formato del messaggio di riferimento.
+      // Testo pronto per WhatsApp (formato condiviso con Gestione Istruttori).
       const nomeCompleto = `${istruttore.nome} ${istruttore.cognome}`;
-      const righeTesto = [];
-      righeTesto.push(`*Calcolo Ore: ${istruttore.nome}*`);
-      righeTesto.push(`dal ${dataItaliana(dataInizio).slice(0, 5)} al ${dataItaliana(dataFine)}`);
-      righeTesto.push("");
-      if (righeSede.length > 0) {
-        righeTesto.push("*Studio*");
-        righeSede.forEach((r) => righeTesto.push(`• *${r.label}*: ${r.ore} ${r.ore === 1 ? "ora" : "ore"}`));
-        righeTesto.push("");
-      }
-      if (righePalestra.length > 0) {
-        righeTesto.push("*Palestra*");
-        righePalestra.forEach((r) => righeTesto.push(`•*${r.label}*: ${r.ore} ${r.ore === 1 ? "ora" : "ore"}`));
-        righeTesto.push("");
-      }
-      if (righeSegreteria.length > 0) {
-        righeTesto.push("*Segreteria*");
-        righeSegreteria.forEach((r) => righeTesto.push(`• *${r.label}*: ${r.ore} ${r.ore === 1 ? "ora" : "ore"}${r.forfait != null ? " (forfait)" : ""}`));
-        righeTesto.push("");
-      }
-      if (istruttore.tipo === "collaboratore" && oreSedeTotali === 0 && orePalestraTotali === 0) {
-        righeTesto.push(`*Totale ore segreteria: ${oreSegreteriaTotali}*`);
-      } else {
-        righeTesto.push(`*Totale ore: ${oreSedeTotali} in studio e ${orePalestraTotali} in palestra${oreSegreteriaTotali ? ` e ${oreSegreteriaTotali} in segreteria` : ""}*`);
-      }
-      const testoWhatsapp = righeTesto.join("\n");
+      const testoWhatsapp = testoCalcoloOre({
+        nome: istruttore.nome, dataInizio, dataFine, righePalestra, righeSede, righeSegreteria,
+        orePalestraTotali, oreSedeTotali, oreSegreteriaTotali,
+        soloSegreteria: istruttore.tipo === "collaboratore" && oreSedeTotali === 0 && orePalestraTotali === 0,
+      });
 
       setRisultato({
         righeSede, righePalestra, oreSedeTotali, orePalestraTotali, importoSede, importoPalestra, importoTotale, lezioniFuture,
@@ -531,7 +444,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
       });
       if (error) throw new Error(error.message);
       setMessaggio("Pagamento registrato.");
-      caricaStorico();
+      await caricaStorico();
     } catch (err) { setErrore(err.message); }
     finally { setSalvando(false); }
   }
@@ -711,6 +624,12 @@ export default function Compensi({ istruttoreIniziale } = {}) {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
               <div><label style={{ fontSize: 11, color: "#888" }}>Partita IVA</label><input type="text" value={anagrafica.partitaIva} onChange={(e) => setAnagrafica({ ...anagrafica, partitaIva: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
               <div><label style={{ fontSize: 11, color: "#888" }}>Codice fiscale</label><input type="text" value={anagrafica.cf} onChange={(e) => setAnagrafica({ ...anagrafica, cf: e.target.value.toUpperCase() })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              {/* Dati di nascita richiesti anche per la partita IVA (29/09/2026) */}
+              <div><label style={{ fontSize: 11, color: "#888" }}>Data di nascita</label><input type="date" value={anagrafica.dataNascita} onChange={(e) => setAnagrafica({ ...anagrafica, dataNascita: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 90px", gap: 10 }}>
+                <div><label style={{ fontSize: 11, color: "#888" }}>Comune di nascita</label><input type="text" value={anagrafica.comuneNascita} onChange={(e) => setAnagrafica({ ...anagrafica, comuneNascita: e.target.value })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+                <div><label style={{ fontSize: 11, color: "#888" }}>Prov. (EE estero)</label><input type="text" maxLength={2} value={anagrafica.provinciaNascita} onChange={(e) => setAnagrafica({ ...anagrafica, provinciaNascita: e.target.value.toUpperCase() })} style={{ width: "100%", padding: 7, borderRadius: 6, border: "1px solid #ddd" }} /></div>
+              </div>
             </div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>

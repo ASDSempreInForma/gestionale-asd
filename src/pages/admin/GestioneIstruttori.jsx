@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { dataInizioCorso, dateAttese } from "./lezioniPreviste.js";
 import SettimanaIstruttori from "./SettimanaIstruttori.jsx";
+import { calcolaSedePeriodo, testoCalcoloOre } from "./calcoloSede.js";
 
 /* =====================================================================
    GESTIONE ISTRUTTORI — A.S.D. Sempre In Forma
@@ -141,6 +142,37 @@ export default function GestioneIstruttori({ onVaiAContratto }){
       })
       .finally(()=>setCaricandoSede(false));
   },[meseSelIdx]);
+
+  // Ore/compenso SEDE per istruttore nel mese selezionato (02/10/2026): prima le schede
+  // e il totale contavano solo la Palestra, quindi chi lavorava solo in SEDE risultava a 0.
+  // Stesso calcolo di Compensi (calcoloSede.js).
+  const [sedeDati,setSedeDati]=useState({turni:[],eccezioni:[],festivita:[],inizio:null,fine:null});
+  const [testoCopiato,setTestoCopiato]=useState(null);
+  useEffect(()=>{
+    const m=MESI_STAGIONE[meseSelIdx];
+    if(!m) return;
+    const mm=String(m.mese).padStart(2,"0");
+    const inizio=`${m.anno}-${mm}-01`;
+    const fine=`${m.anno}-${mm}-${String(new Date(m.anno,m.mese,0).getDate()).padStart(2,"0")}`;
+    let annullato=false;
+    Promise.all([
+      supabase.from("sede_turni").select("id, istruttore_id, giorno_settimana, orario, ore, numero_persone_default, data_inizio, attivo").eq("attivo",true).not("data_inizio","is",null),
+      supabase.from("sede_lezioni").select("id, data, orario, ore, numero_persone, stato, istruttore_id, istruttore_sostituto_id").gte("data",inizio).lte("data",fine),
+      supabase.from("festivita").select("dal, al").eq("sistema","sede"),
+    ]).then(([t,e,f])=>{
+      if(annullato) return;
+      setSedeDati({turni:t.data||[],eccezioni:e.data||[],festivita:f.data||[],inizio,fine});
+    });
+    return ()=>{ annullato=true; };
+  },[meseSelIdx]);
+  const sedePerIstr=useMemo(()=>{
+    const out={};
+    if(!sedeDati.inizio) return out;
+    for(const t of istruttori){
+      out[t.id]=calcolaSedePeriodo({turni:sedeDati.turni,eccezioni:sedeDati.eccezioni,dataInizio:sedeDati.inizio,dataFine:sedeDati.fine,festivita:sedeDati.festivita,istruttore:t,istruttoreId:t.id});
+    }
+    return out;
+  },[istruttori,sedeDati]);
 
   async function salvaOreCollaboratore(istruttoreId, ore){
     const m=MESI_STAGIONE[meseSelIdx];
@@ -583,6 +615,21 @@ export default function GestioneIstruttori({ onVaiAContratto }){
 
   const lezMese=lezioni.filter(l=>l.data.startsWith(mesePfx));
 
+  // Testo "Calcolo Ore" pronto per WhatsApp (formato condiviso con Compensi)
+  async function copiaTestoOre(t,rep){
+    const nomeMese=meseSel.labelFull.split(" ")[0];
+    const oreSeg=faSegreteria(t)?(oreCollab[t.id]?.ore||0):0;
+    const testo=testoCalcoloOre({
+      nome:t.nome, dataInizio:sedeDati.inizio, dataFine:sedeDati.fine,
+      righePalestra:rep.totLez>0?[{label:nomeMese,ore:rep.totLez}]:[],
+      righeSede:rep.sede.righeSede,
+      righeSegreteria:oreSeg>0?[{label:nomeMese,ore:oreSeg,forfait:t.modalitaPagamento==="forfait"?(oreCollab[t.id]?.forfait??null):null}]:[],
+      orePalestraTotali:rep.totLez, oreSedeTotali:rep.sede.oreSedeTotali, oreSegreteriaTotali:oreSeg,
+    });
+    try{ await navigator.clipboard.writeText(testo); setTestoCopiato(t.id); setTimeout(()=>setTestoCopiato(null),2500); }
+    catch{ window.prompt("Copia il testo:",testo); }
+  }
+
   function reportInstr(istrId){
     const lz=lezMese.filter(l=>l.istruttoreId===istrId||l.sostitutoId===istrId);
     const fatte=lz.filter(l=>(l.istruttoreId===istrId||l.sostitutoId===istrId)&&(l.stato==="fatta"||l.isRecupero)&&!isDateSospesa(l.data,sospensioni)).length;
@@ -592,8 +639,10 @@ export default function GestioneIstruttori({ onVaiAContratto }){
     const sostituto=lz.filter(l=>l.sostitutoId===istrId&&l.istruttoreId!==istrId).length;
     const totLez=fatte+recuperi;
     const t=istruttori.find(x=>x.id===istrId);
-    const totale=totLez*(t?.compenso||0);
-    return {fatte,sospese,assenti,recuperi,sostituto,totLez,totale};
+    const sede=sedePerIstr[istrId]||{righeSede:[],oreSedeTotali:0,importoSede:0};
+    const totalePalestra=totLez*(t?.compenso||0);
+    const totale=totalePalestra+sede.importoSede;
+    return {fatte,sospese,assenti,recuperi,sostituto,totLez,totalePalestra,sede,totale,haAttivita:totLez>0||sede.oreSedeTotali>0};
   }
 
   const totMese=istruttori.reduce((acc,t)=>{
@@ -602,6 +651,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
       tot+=t.modalitaPagamento==="forfait" ? (oreCollab[t.id]?.forfait||0) : (oreCollab[t.id]?.ore||0)*(t.tariffaOraria||0);
     }
     if(t.tipo!=="collaboratore"){ const r=reportInstr(t.id); tot+=(r?.totale||0); }
+    else { tot+=(sedePerIstr[t.id]?.importoSede||0); }
     return acc+tot;
   },0);
 
@@ -941,7 +991,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
                 {t.tipo==="istruttore" && (()=>{const r=reportInstr(t.id);return r&&(
                   <div style={{marginTop:12,background:"#FAFAF8",borderRadius:9,padding:"10px 12px",
                     border:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div style={{fontSize:11,color:C.textSub}}>{meseSel.labelFull} · {r.totLez} lezioni</div>
+                    <div style={{fontSize:11,color:C.textSub}}>{meseSel.labelFull} · {r.totLez} lezioni{r.sede.oreSedeTotali>0&&` + ${r.sede.oreSedeTotali} ore SEDE`}</div>
                     <div style={{fontSize:16,fontWeight:700,color:C.greenD}}>{fmtEuro(r.totale)}</div>
                   </div>
                 );})()}
@@ -1141,7 +1191,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
         {(caricandoSede||sedeRiepilogo.length>0)&&(
           <div style={{background:"white",border:`1px solid ${C.border}`,borderRadius:13,marginBottom:14,overflow:"hidden"}}>
             <div style={{padding:"12px 15px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div style={{fontSize:12,fontWeight:600,color:C.text}}>🏋️ Compensi SEDE (Via del Brolo)</div>
+              <div style={{fontSize:12,fontWeight:600,color:C.text}}>🏋️ Dettaglio SEDE (Via del Brolo) · già incluso nel totale</div>
               <div style={{fontSize:10,color:C.textSub}}>inserite nell'Area SEDE separata</div>
             </div>
             <div style={{padding:"9px 15px"}}>
@@ -1171,7 +1221,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
 
         {istruttori.map(t=>{
           const rep=reportInstr(t.id);
-          if(!rep||rep.totLez===0) return null;
+          if(!rep||!rep.haAttivita) return null;
           const lezIstr=lezMese.filter(l=>l.istruttoreId===t.id||l.sostitutoId===t.id);
           return(
             <div key={t.id} style={{background:"white",border:`1px solid ${C.border}`,borderRadius:13,marginBottom:9,overflow:"hidden"}}>
@@ -1181,7 +1231,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
                     fontSize:12,fontWeight:700,color:t.colore}}>{(t.nome[0]||"")}{(t.cognome[0]||"")}</div>
                   <div>
                     <div style={{fontSize:13,fontWeight:600,color:C.text}}>{t.cognome} {t.nome}</div>
-                    <div style={{fontSize:11,color:C.textSub}}>{fmtEuro(t.compenso)}/lez · {rep.totLez} lezioni fatte</div>
+                    <div style={{fontSize:11,color:C.textSub}}>{fmtEuro(t.compenso)}/lez · {rep.totLez} lezioni fatte{rep.sede.oreSedeTotali>0&&` · ${rep.sede.oreSedeTotali} ore SEDE`}</div>
                   </div>
                 </div>
                 <div style={{textAlign:"right"}}>
@@ -1202,11 +1252,22 @@ export default function GestioneIstruttori({ onVaiAContratto }){
                 <div style={{marginTop:9,padding:"9px 11px",background:"#FAFAF8",borderRadius:8,border:`1px solid ${C.border}`}}>
                   <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.textSub,marginBottom:2}}>
                     <span>{rep.totLez} lezioni × {fmtEuro(t.compenso)}</span>
-                    <span style={{fontWeight:600,color:C.text}}>{fmtEuro(rep.totale)}</span>
+                    <span style={{fontWeight:600,color:C.text}}>{fmtEuro(rep.totalePalestra)}</span>
                   </div>
+                  {rep.sede.oreSedeTotali>0&&(
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.textSub,marginBottom:2}}>
+                      <span>🏋️ SEDE · {rep.sede.oreSedeTotali} ore</span>
+                      <span style={{fontWeight:600,color:C.text}}>{fmtEuro(rep.sede.importoSede)}</span>
+                    </div>
+                  )}
                   {rep.assenti>0&&<div style={{fontSize:11,color:C.amber}}>⚠️ {rep.assenti} assenz{rep.assenti===1?"a":"e"} non pagat{rep.assenti===1?"a":"e"}</div>}
                   {rep.sospese>0&&<div style={{fontSize:11,color:"#3730A3"}}>— {rep.sospese} lezioni sospese</div>}
                 </div>
+                <button onClick={()=>copiaTestoOre(t,rep)}
+                  style={{width:"100%",marginTop:9,padding:"8px",background:testoCopiato===t.id?C.greenL:"white",border:`1px solid ${C.green}`,
+                    borderRadius:8,fontSize:12,fontWeight:600,color:C.greenD,cursor:"pointer"}}>
+                  {testoCopiato===t.id?"✓ Testo copiato":"📋 Copia testo per WhatsApp"}
+                </button>
               </div>
             </div>
           );
