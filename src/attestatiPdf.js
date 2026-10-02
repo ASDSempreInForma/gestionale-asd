@@ -252,7 +252,11 @@ export async function generaAttestatoPdf(dati) {
   ]);
 
   // ── Luogo e data / firma, verso il fondo pagina ─────────────────────────────
-  const bottomY = 200;
+  // Prima era fisso a 200: se il paragrafo del corso andava a capo su piu'
+  // righe, "Luogo e data" finiva sopra il testo (02/10/2026). Ora parte
+  // sempre almeno 30 punti sotto l'ultima riga scritta, ma non piu' in alto
+  // di 200 e non cosi' in basso da far uscire la firma dalla pagina.
+  const bottomY = Math.max(150, Math.min(200, y - 30));
   page.drawText('Luogo e data', { x: marginX, y: bottomY, size: 11, font: fontRegular });
   page.drawText(dati.luogoData || '', { x: marginX, y: bottomY - 18, size: 11, font: fontItalic });
 
