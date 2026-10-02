@@ -131,6 +131,9 @@ export default function GestioneProve() {
   const [selezionatiStampa, setSelezionatiStampa] = useState(new Set());
   const [righeVuoteExtra, setRigheVuoteExtra] = useState(4);
   const [mostraNonAttiveStampa, setMostraNonAttiveStampa] = useState(false);
+  // 02/10/2026: chi si e' gia' iscritto dopo la prova e' negli elenchi soci,
+  // non serve piu' nel registro prove: nascosto salvo spunta esplicita.
+  const [mostraIscritteStampa, setMostraIscritteStampa] = useState(false);
 
   // ── Caricamento iniziale ─────────────────────────────────────────────────
   useEffect(() => { caricaDati(); }, []);
@@ -597,6 +600,7 @@ export default function GestioneProve() {
     const idVisibili = new Set(corsiStampaVisibili.map((c) => c.id));
     return prove.filter((p) => {
       if (!mostraNonAttiveStampa && ["annullata", "scaduta"].includes(p.stato)) return false;
+      if (!mostraIscritteStampa && p.stato === "iscritta") return false;
       if (filtroCorsoStampa && p.corso_id !== filtroCorsoStampa) return false;
       if ((filtroSedeStampa || filtroDiscStampa) && !idVisibili.has(p.corso_id)) return false;
       if (ricercaStampa) {
@@ -607,7 +611,7 @@ export default function GestioneProve() {
     }).sort((a, b) =>
       String(a.cognome || "").trim().localeCompare(String(b.cognome || "").trim(), "it", { sensitivity: "base" })
       || String(a.nome || "").trim().localeCompare(String(b.nome || "").trim(), "it", { sensitivity: "base" }));
-  }, [prove, filtroCorsoStampa, ricercaStampa, mostraNonAttiveStampa, filtroSedeStampa, filtroDiscStampa, corsiStampaVisibili]);
+  }, [prove, filtroCorsoStampa, ricercaStampa, mostraNonAttiveStampa, mostraIscritteStampa, filtroSedeStampa, filtroDiscStampa, corsiStampaVisibili]);
 
   function toggleSelezionatoStampa(id) {
     setSelezionatiStampa((prev) => {
@@ -1256,6 +1260,10 @@ export default function GestioneProve() {
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: SUB, marginBottom: 10, cursor: "pointer" }}>
               <input type="checkbox" checked={mostraNonAttiveStampa} onChange={(e) => setMostraNonAttiveStampa(e.target.checked)} />
               Mostra anche le richieste annullate/scadute
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: SUB, marginBottom: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={mostraIscritteStampa} onChange={(e) => setMostraIscritteStampa(e.target.checked)} />
+              Mostra anche chi si è già iscritto dopo la prova
             </label>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>

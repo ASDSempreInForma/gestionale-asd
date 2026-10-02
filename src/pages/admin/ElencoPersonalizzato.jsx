@@ -383,12 +383,18 @@ export default function ElencoPersonalizzato() {
       // Non hanno una vera iscrizione a quel corso — compaiono qui, agganciate al
       // corso di settembre scelto, solo per permettere di aggiungerle a mano al
       // gruppo giusto quando si esporta l'elenco di quel corso.
-      const { data: extraSettembreDB, error: errExtra } = await supabase
-        .from("iscrizioni")
-        .select("id, corso_id, corso_extra_settembre_id, frequenza_extra_settembre, sovrapprezzo_extra_settembre, tipo_pagamento, soci ( cf, nome, cognome, telefono, data_nascita )")
-        .eq("stagione_id", stag.id)
-        .not("corso_extra_settembre_id", "is", null)
-        .neq("stato_pagamento", "annullata");
+      // Finito settembre (dal 1° ottobre dell'anno di inizio stagione) l'extra
+      // settembre e' concluso: queste righe non servono piu' e vengono nascoste
+      // (02/10/2026). I dati restano salvati sulle iscrizioni.
+      const settembreFinito = new Date() >= new Date(annoStagione, 9, 1);
+      const { data: extraSettembreDB, error: errExtra } = settembreFinito
+        ? { data: [], error: null }
+        : await supabase
+          .from("iscrizioni")
+          .select("id, corso_id, corso_extra_settembre_id, frequenza_extra_settembre, sovrapprezzo_extra_settembre, tipo_pagamento, soci ( cf, nome, cognome, telefono, data_nascita )")
+          .eq("stagione_id", stag.id)
+          .not("corso_extra_settembre_id", "is", null)
+          .neq("stato_pagamento", "annullata");
       if (errExtra) throw errExtra;
 
       const extraSettembreArricchiteConDuplicati = (extraSettembreDB || []).map((r) => {
