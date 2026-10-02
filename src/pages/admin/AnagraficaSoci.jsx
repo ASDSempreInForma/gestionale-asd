@@ -641,7 +641,12 @@ function AllegaModuloCartaceo({ iscrizione, socioCf, onAggiornato }) {
 // la STESSA email ("documento_confermato") che parte quando è il socio a caricarlo
 // e la segreteria lo conferma da "Verifica Documenti" — così il socio riceve
 // comunque conferma, anche se non ha mai usato l'area privata per questo documento.
-function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato }) {
+// `altre` (02/10/2026): le altre iscrizioni della stessa stagione dove questo
+// documento manca ancora. Di solito ricevuta e certificato sono UNICI per tutti
+// i corsi della persona: si possono applicare anche a quelle con una spunta,
+// come succede quando e' il socio a caricarli dall'area privata.
+function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato, altre = [] }) {
+  const [altreScelte, setAltreScelte] = useState(() => new Set(altre.map(a => a.id)))
   const [aperto, setAperto] = useState(false)
   const [caricando, setCaricando] = useState(false)
   const [errore, setErrore] = useState('')
@@ -692,13 +697,17 @@ function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato }) {
             data_scadenza_certificato: scadenzaCertificato,
           }
 
-      const { error: errUpdate } = await supabase.from('iscrizioni').update({
-        ...payload,
-        verificato_da: (await supabase.auth.getUser()).data.user?.email,
-        verificato_il: new Date().toISOString(),
-        note: iscrizione.note ? `${iscrizione.note} | ${notaAggiunta}` : notaAggiunta,
-      }).eq('id', iscrizione.id)
-      if (errUpdate) throw errUpdate
+      const verificatoDa = (await supabase.auth.getUser()).data.user?.email
+      const daAggiornare = [iscrizione, ...altre.filter(a => altreScelte.has(a.id))]
+      for (const isc of daAggiornare) {
+        const { error: errUpdate } = await supabase.from('iscrizioni').update({
+          ...payload,
+          verificato_da: verificatoDa,
+          verificato_il: new Date().toISOString(),
+          note: isc.note ? `${isc.note} | ${notaAggiunta}` : notaAggiunta,
+        }).eq('id', isc.id)
+        if (errUpdate) throw errUpdate
+      }
 
       if (pagamentoSenzaDocumento) {
         // Nota interna sulla scheda del socio — SOLO staff, mai visibile al socio.
@@ -796,6 +805,21 @@ function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato }) {
             ? `Al salvataggio il documento risulterà confermato e partirà subito l'email di conferma a ${socio.email} (la stessa che parte quando è il socio a caricarlo).`
             : 'Attenzione: questo socio non ha un indirizzo email in anagrafica, quindi il documento verrà confermato ma nessuna email potrà partire.'}
       </div>
+
+      {altre.length > 0 && (
+        <div style={{ background: 'white', border: `1px solid ${BD}`, borderRadius: 6, padding: '8px 10px', marginBottom: 8 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 600, color: TX, marginBottom: 4 }}>
+            Vale anche per gli altri corsi di questa stagione:
+          </div>
+          {altre.map(a => (
+            <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: TX, cursor: 'pointer', padding: '2px 0' }}>
+              <input type="checkbox" checked={altreScelte.has(a.id)}
+                onChange={() => setAltreScelte(prev => { const n = new Set(prev); n.has(a.id) ? n.delete(a.id) : n.add(a.id); return n })} />
+              {a.corsi?.disciplina || 'Corso'}{a.corsi?.giorni_orari ? ` — ${a.corsi.giorni_orari}` : ''}{a.corsi?.sedi?.nome ? ` (${a.corsi.sedi.nome})` : ''}
+            </label>
+          ))}
+        </div>
+      )}
 
       {errore && <div style={{ fontSize: 11, color: R, marginBottom: 8 }}>{errore}</div>}
 
@@ -2073,12 +2097,17 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
               {i.ricevuta_url && <button onClick={() => apriDocumento(i.ricevuta_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Ricevuta</button>}
               {i.ricevuta_url && <button onClick={() => apriOriginale(i.ricevuta_url)} title="Foto originale, prima del ritaglio" style={{ fontSize: 11.5, background: 'none', color: SUB, border: 'none', padding: '5px 2px', cursor: 'pointer', textDecoration: 'underline' }}>originale</button>}
               {i.stato_pagamento !== 'confermato' && (
-                <CaricaDocumentoManuale iscrizione={i} socio={socio} tipo="ricevuta" onAggiornato={caricaIscrizioni} />
+                <CaricaDocumentoManuale iscrizione={i} socio={socio} tipo="ricevuta" onAggiornato={caricaIscrizioni}
+                  altre={(iscrizioni || []).filter(x => x.id !== i.id && x.stagione_id === i.stagione_id
+                    && x.stato_pagamento !== 'annullata' && x.stato_pagamento !== 'confermato')} />
               )}
               {i.certificato_url && <button onClick={() => apriDocumento(i.certificato_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Certificato</button>}
               {i.certificato_url && <button onClick={() => apriOriginale(i.certificato_url)} title="Foto originale, prima del ritaglio" style={{ fontSize: 11.5, background: 'none', color: SUB, border: 'none', padding: '5px 2px', cursor: 'pointer', textDecoration: 'underline' }}>originale</button>}
               {certificatoStatoEffettivo(i.stato_certificato, i.data_scadenza_certificato) !== 'valido' && (
-                <CaricaDocumentoManuale iscrizione={i} socio={socio} tipo="certificato" onAggiornato={caricaIscrizioni} />
+                <CaricaDocumentoManuale iscrizione={i} socio={socio} tipo="certificato" onAggiornato={caricaIscrizioni}
+                  altre={(iscrizioni || []).filter(x => x.id !== i.id && x.stagione_id === i.stagione_id
+                    && x.stato_pagamento !== 'annullata'
+                    && certificatoStatoEffettivo(x.stato_certificato, x.data_scadenza_certificato) !== 'valido')} />
               )}
               {(i.firma_url || i.firma_genitore_url) ? (
                 <button onClick={() => generaPdfDomandaAdesione({ socio, iscrizione: i, corso: i.corsi }).catch(err => alert("Impossibile generare il PDF: " + err.message))}
