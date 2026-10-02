@@ -74,13 +74,17 @@ export function calcolaSedePeriodo({ turni, eccezioni, dataInizio, dataFine, fes
   });
 
   const gruppiSlot = new Map();
-  const gruppiExtra = new Map(); // lezioni singole fuori turno: una riga per giorno
+  const gruppiExtra = new Map(); // lezioni singole fuori turno (o sostituzioni): una riga per giorno
   let importoSede = 0, oreSedeTotali = 0;
   for (const o of mie) {
     const tariffa = tariffaPerScaglione(istruttore, o.numero_persone);
     const importo = tariffa !== null ? tariffa * Number(o.ore) : 0;
     importoSede += importo; oreSedeTotali += Number(o.ore);
-    if (o.turno) {
+    // Sostituzione: la lezione appartiene al turno di UN'ALTRA persona. Non e' uno slot
+    // ricorrente di questo istruttore (mostrarla come "Corso ore 8,45" faceva sembrare
+    // che insegnasse a quell'ora ogni settimana): si raggruppa per giorno come lezione singola.
+    const eSostituzione = !!o.turno && o.turno.istruttore_id !== istruttoreId;
+    if (o.turno && !eSostituzione) {
       const chiave = `${o.turno.giorno_settimana}|${o.turno.orario}`;
       if (!gruppiSlot.has(chiave)) {
         gruppiSlot.set(chiave, {
@@ -94,19 +98,22 @@ export function calcolaSedePeriodo({ turni, eccezioni, dataInizio, dataFine, fes
       if (tariffa === null) g.tariffaMancante = true;
     } else {
       const d = new Date(o.data + "T00:00:00");
-      if (!gruppiExtra.has(o.data)) {
-        gruppiExtra.set(o.data, {
-          label: `Corso ${GIORNI_LABEL[d.getDay()]} ${d.getDate()} ${MESI[d.getMonth()]}`,
+      const chiaveExtra = `${eSostituzione ? "S" : "C"}|${o.data}`;
+      if (!gruppiExtra.has(chiaveExtra)) {
+        gruppiExtra.set(chiaveExtra, {
+          label: `${eSostituzione ? "Sostituzione" : "Corso"} ${GIORNI_LABEL[d.getDay()]} ${d.getDate()} ${MESI[d.getMonth()]}`,
           data: o.data, giorno: d.getDay(), ore: 0, importo: 0, tariffaMancante: false,
         });
       }
-      const g = gruppiExtra.get(o.data);
+      const g = gruppiExtra.get(chiaveExtra);
       g.ore += Number(o.ore); g.importo += importo;
       if (tariffa === null) g.tariffaMancante = true;
     }
   }
+  // Slot ricorrenti in ordine di orario (prima si vedevano in ordine casuale), poi le
+  // lezioni singole/sostituzioni per data.
   const righeSede = [
-    ...Array.from(gruppiSlot.values()),
+    ...Array.from(gruppiSlot.values()).sort((a, b) => (a.orario || "").localeCompare(b.orario || "") || a.giorno - b.giorno),
     ...Array.from(gruppiExtra.values()).sort((a, b) => a.data.localeCompare(b.data)),
   ];
   return { righeSede, oreSedeTotali, importoSede };
