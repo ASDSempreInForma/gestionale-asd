@@ -154,6 +154,7 @@ export default function GestioneProve() {
   // Salvataggio in corso
   const [saving, setSaving] = useState({});
   const [dataProvaScelta, setDataProvaScelta] = useState({});
+  const [modaleRecupera, setModaleRecupera] = useState(null);
   const [modaleAnnulla, setModaleAnnulla] = useState(null); // { prova, soloEmail } o null
   const [modaleSposta, setModaleSposta] = useState(null); // la prova da spostare su un altro corso, o null
   const [modaleModifica, setModaleModifica] = useState(null); // la prova di cui correggere i dati anagrafici, o null
@@ -452,21 +453,7 @@ export default function GestioneProve() {
     setSaving(s => ({ ...s, [p.id]: false }));
   }
 
-  // ── Recupera prova (05/10/2026, Solomon): una prova segnata in automatico
-  // come "effettuata" (e poi magari "scaduta") ma che in realtà la persona
-  // non ha mai fatto torna "confermata" con una nuova data; si azzerano le
-  // scadenze dei 2 giorni e dell'avviso posti, e riparte l'email di conferma.
-  // Si riusa la liberatoria già firmata, nessun nuovo modulo. ──
-  async function recuperaProva(p, dataScelta) {
-    if (!dataScelta) return;
-    const vecchiaData = p.data_effettuata ? new Date(p.data_effettuata).toLocaleDateString("it-IT") : "precedente";
-    if (!window.confirm(`Recuperare la prova di ${p.nome} ${p.cognome}?\n\nLa lezione del ${vecchiaData} risulterà NON svolta e la prova tornerà "Confermata" per il ${new Date(dataScelta).toLocaleDateString("it-IT")}.${p.email ? "\nLe arriverà l'email con la nuova data." : ""}`)) return;
-    const notaAggiornata = `${p.note ? p.note + " | " : ""}Prova recuperata dalla segreteria il ${new Date().toLocaleDateString("it-IT")}: la lezione del ${vecchiaData} non era stata svolta, nuova data ${new Date(dataScelta).toLocaleDateString("it-IT")}.`;
-    await aggiornaStato(p.id, "confermata", {
-      data_effettuata: dataScelta, scadenza_3gg: null, scadenza_preavviso: null, note: notaAggiornata,
-    });
-    await inviaConfermaProva(p, dataScelta);
-  }
+  // ── Recupera prova: vedi ModaleSpostaProva con recupero=true (05/10/2026) ──
 
   // ── Ripristina una prova annullata: le assegna una nuova data e rimanda
   // l'email di conferma, esattamente come una prima conferma — utile quando
@@ -1049,15 +1036,8 @@ export default function GestioneProve() {
                         {/* 05/10/2026: prova segnata effettuata (anche in automatico) ma mai
                             svolta davvero — si recupera con una nuova data. */}
                         {["effettuata","scaduta"].includes(p.stato) && (
-                          <>
-                            <input type="date" value={dataProvaScelta[p.id] || ""}
-                              onChange={e => setDataProvaScelta(d => ({ ...d, [p.id]: e.target.value }))}
-                              title="Nuova data per recuperare la prova non svolta"
-                              style={{ padding:"5px 8px", border:`1px solid ${BD}`, borderRadius:7, fontSize:11 }} />
-                            <BtnAzione label="↻ Recupera prova (non svolta)" color={BL} bg={BLL}
-                              loading={isSaving} disabled={!dataProvaScelta[p.id]}
-                              onClick={() => recuperaProva(p, dataProvaScelta[p.id])} />
-                          </>
+                          <BtnAzione label="↻ Recupera prova (non svolta)" color={BL} bg={BLL}
+                            loading={isSaving} onClick={() => setModaleRecupera(p)} />
                         )}
                         {["in_attesa","confermata"].includes(p.stato) && !preavvisoAttivo && (
                           <BtnAzione label="⚠️ Posti in esaurimento" color={A} bg={AL}
@@ -1479,6 +1459,15 @@ export default function GestioneProve() {
           onConfermato={() => { setModaleSposta(null); caricaDati(); }}
         />
       )}
+      {modaleRecupera && (
+        <ModaleSpostaProva
+          prova={modaleRecupera}
+          corsi={corsi}
+          recupero
+          onClose={() => setModaleRecupera(null)}
+          onConfermato={() => { setModaleRecupera(null); caricaDati(); }}
+        />
+      )}
       {modaleModifica && (
         <ModaleModificaProva
           prova={modaleModifica}
@@ -1501,25 +1490,38 @@ export default function GestioneProve() {
 // si fa ricompilare una nuova liberatoria: si riusa quella già firmata e si
 // manda una nuova email di conferma con il nuovo corso/data (richiesto da
 // Solomon il 04/09/2026).
-function ModaleSpostaProva({ prova, corsi, onClose, onConfermato }) {
-  const [corsoId, setCorsoId] = useState('')
+// Con recupero=true (05/10/2026, Solomon) serve a recuperare una prova
+// segnata "effettuata"/"scaduta" (anche in automatico) che la persona non ha
+// mai fatto: si sceglie il giorno nuovo — che spesso è un ALTRO corso (es.
+// Zumba venerdì → Zumba lunedì), quindi parte già dal corso attuale ma con
+// gli altri turni della stessa disciplina in cima — e si azzerano le
+// scadenze dei 2 giorni e dell'avviso posti, così non riscade subito.
+function ModaleSpostaProva({ prova, corsi, onClose, onConfermato, recupero = false }) {
+  const [corsoId, setCorsoId] = useState(recupero ? (prova.corso_id || '') : '')
   const [dataScelta, setDataScelta] = useState('')
   const [errore, setErrore] = useState('')
   const [salvando, setSalvando] = useState(false)
 
   const nuovoCorso = corsi.find(c => c.id === corsoId)
+  const corsoAttuale = corsi.find(c => c.id === prova.corso_id)
+  const stessaDisciplina = corsoAttuale ? corsi.filter(c => c.nome === corsoAttuale.nome) : []
+  const altriCorsi = corsoAttuale ? corsi.filter(c => c.nome !== corsoAttuale.nome) : corsi
 
   const conferma = async () => {
     if (!corsoId) { setErrore('Seleziona il nuovo corso.'); return }
     if (!dataScelta) { setErrore('Scegli la data della prova.'); return }
     setSalvando(true)
     const vecchioCorso = corsi.find(c => c.id === prova.corso_id)
-    const notaAggiornata = `${prova.note ? prova.note + " | " : ""}Spostata da "${vecchioCorso?.nome} ${vecchioCorso?.orario}" a "${nuovoCorso.nome} ${nuovoCorso.orario}" il ${new Date().toLocaleDateString("it-IT")} — stessa liberatoria già firmata, nessun nuovo modulo richiesto.`
+    const vecchiaData = prova.data_effettuata ? new Date(prova.data_effettuata).toLocaleDateString("it-IT") : "precedente"
+    const notaAggiornata = recupero
+      ? `${prova.note ? prova.note + " | " : ""}Prova recuperata dalla segreteria il ${new Date().toLocaleDateString("it-IT")}: la lezione del ${vecchiaData} non era stata svolta. Nuova prova: ${nuovoCorso.nome} ${nuovoCorso.orario} il ${new Date(dataScelta).toLocaleDateString("it-IT")}.`
+      : `${prova.note ? prova.note + " | " : ""}Spostata da "${vecchioCorso?.nome} ${vecchioCorso?.orario}" a "${nuovoCorso.nome} ${nuovoCorso.orario}" il ${new Date().toLocaleDateString("it-IT")} — stessa liberatoria già firmata, nessun nuovo modulo richiesto.`
     const { error } = await supabase.from('prove').update({
       corso_id: corsoId,
       stato: 'confermata',
       data_effettuata: dataScelta,
       note: notaAggiornata,
+      ...(recupero ? { scadenza_3gg: null, scadenza_preavviso: null } : {}),
     }).eq('id', prova.id)
     if (error) { setErrore('Errore: ' + error.message); setSalvando(false); return }
     if (prova.email) {
@@ -1541,14 +1543,33 @@ function ModaleSpostaProva({ prova, corsi, onClose, onConfermato }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }} onClick={onClose}>
       <div style={{ background: "white", borderRadius: 12, padding: 20, maxWidth: 420, width: "100%" }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: TX, marginBottom: 4 }}>Sposta su un altro corso</div>
-        <div style={{ fontSize: 13, color: SUB, marginBottom: 14 }}>{prova.nome} {prova.cognome}</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: TX, marginBottom: 4 }}>{recupero ? "Recupera prova non svolta" : "Sposta su un altro corso"}</div>
+        <div style={{ fontSize: 13, color: SUB, marginBottom: 14 }}>
+          {prova.nome} {prova.cognome}
+          {recupero && corsoAttuale && (
+            <div style={{ marginTop: 4, fontSize: 12 }}>
+              Era: {corsoAttuale.nome} — {corsoAttuale.sede} — {corsoAttuale.orario}
+              {prova.data_effettuata ? ` (${new Date(prova.data_effettuata).toLocaleDateString("it-IT")}, non svolta)` : ""}
+            </div>
+          )}
+        </div>
 
-        <label style={{ fontSize: 12, fontWeight: 600, color: TX, display: "block", marginBottom: 5 }}>Nuovo corso</label>
+        <label style={{ fontSize: 12, fontWeight: 600, color: TX, display: "block", marginBottom: 5 }}>{recupero ? "Corso / giorno della nuova prova" : "Nuovo corso"}</label>
         <select value={corsoId} onChange={(e) => setCorsoId(e.target.value)}
           style={{ width: "100%", padding: "7px 9px", border: `1px solid ${BD}`, borderRadius: 8, fontSize: 13, marginBottom: 12 }}>
           <option value="">— Seleziona —</option>
-          {corsi.map((c) => <option key={c.id} value={c.id}>{c.nome} — {c.sede} — {c.orario}</option>)}
+          {recupero && stessaDisciplina.length > 0 ? (
+            <>
+              <optgroup label={`${corsoAttuale?.nome || "Stessa disciplina"} — tutti i turni`}>
+                {stessaDisciplina.map((c) => <option key={c.id} value={c.id}>{c.nome} — {c.sede} — {c.orario}{c.id === prova.corso_id ? " (attuale)" : ""}</option>)}
+              </optgroup>
+              <optgroup label="Altri corsi">
+                {altriCorsi.map((c) => <option key={c.id} value={c.id}>{c.nome} — {c.sede} — {c.orario}</option>)}
+              </optgroup>
+            </>
+          ) : (
+            corsi.map((c) => <option key={c.id} value={c.id}>{c.nome} — {c.sede} — {c.orario}</option>)
+          )}
         </select>
 
         <label style={{ fontSize: 12, fontWeight: 600, color: TX, display: "block", marginBottom: 5 }}>Data della prova</label>
@@ -1569,7 +1590,7 @@ function ModaleSpostaProva({ prova, corsi, onClose, onConfermato }) {
           </button>
           <button onClick={conferma} disabled={salvando}
             style={{ flex: 1, padding: "9px", border: "none", borderRadius: 8, background: BL, color: "white", fontSize: 13, fontWeight: 600, cursor: salvando ? "default" : "pointer" }}>
-            {salvando ? "Salvo…" : "Conferma spostamento"}
+            {salvando ? "Salvo…" : recupero ? "Conferma recupero" : "Conferma spostamento"}
           </button>
         </div>
       </div>
