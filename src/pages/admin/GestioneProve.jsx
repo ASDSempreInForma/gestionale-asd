@@ -18,17 +18,60 @@ const SUPABASE_ANON_KEY =
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const FUNCTION_URL_EMAIL = "https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/invia-email-iscrizione";
+// 05/10/2026 (Solomon): prima, se Brevo rifiutava l'invio (es. limite di
+// 300 email al giorno superato), il gestionale non lo diceva — la prova
+// risultava "Confermata" e la persona non riceveva niente (caso reale:
+// Maria Cristina Codenotti). Ora ogni invio fallito mostra subito un avviso.
 async function inviaEmail(payload) {
+  let esito;
   try {
     const res = await fetch(FUNCTION_URL_EMAIL, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
       body: JSON.stringify(payload),
     });
-    return await res.json();
+    try { esito = await res.json(); } catch { esito = {}; }
+    if (!res.ok) esito = { ...esito, success: false };
   } catch (e) {
-    return { success: false, error: String(e) };
+    esito = { success: false, error: String(e) };
   }
+  if (!esito?.success) {
+    const suggerimento = payload.tipo === "conferma_prova"
+      ? `avvisa la persona su WhatsApp oppure riprova più tardi con "✉️ Rimanda conferma".`
+      : `avvisa la persona su WhatsApp oppure riprova più tardi.`;
+    alert(`⚠️ EMAIL NON INVIATA a ${payload.destinatarioEmail}\n\nMotivo: ${descriviErroreEmail(esito)}\n\nLa modifica nel gestionale è stata salvata comunque: ${suggerimento}`);
+  }
+  return esito || { success: false };
+}
+
+function descriviErroreEmail(esito) {
+  const testo = `${esito?.error || ""} ${typeof esito?.dettaglio === "string" ? esito.dettaglio : JSON.stringify(esito?.dettaglio || "")}`;
+  if (/limit|quota|credit|exceed/i.test(testo)) return "superato il limite giornaliero di email di Brevo (300 al giorno)";
+  if (/Failed to fetch|NetworkError/i.test(testo)) return "connessione internet assente o instabile";
+  return (esito?.error || "errore sconosciuto") + (esito?.dettaglio ? " — " + String(typeof esito.dettaglio === "string" ? esito.dettaglio : JSON.stringify(esito.dettaglio)).slice(0, 200) : "");
+}
+
+// Salva sulla richiesta di prova se l'email con la data è partita davvero
+// (dati_extra.conferma_inviata_il) oppure no (dati_extra.conferma_errore),
+// così sulla scheda si vede a colpo d'occhio chi l'ha ricevuta. Le conferme
+// inviate prima del 05/10/2026 non hanno questa informazione.
+async function registraEsitoConferma(prova, esito, dataProva) {
+  const nuovi = { ...(prova.dati_extra || {}) };
+  const ora = new Date().toISOString();
+  if (esito?.success) {
+    nuovi.conferma_inviata_il = ora;
+    nuovi.conferma_data_prova = dataProva || null;
+    delete nuovi.conferma_errore;
+  } else {
+    nuovi.conferma_errore = { il: ora, motivo: descriviErroreEmail(esito), data_prova: dataProva || null };
+  }
+  await supabase.from("prove").update({ dati_extra: nuovi }).eq("id", prova.id);
+  return nuovi;
+}
+
+function fmtDataOra(iso) {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString("it-IT")} alle ${d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
 // Stesse due edge function già usate in AnagraficaSoci.jsx per mostrare lo
@@ -380,19 +423,49 @@ export default function GestioneProve() {
   // ── Conferma prova: chiede la data, la salva e invia l'email con la data vera ──
   async function confermaConData(p, dataScelta) {
     if (!dataScelta) return;
-    const corso = corsi.find(c => c.id === p.corso_id);
     await aggiornaStato(p.id, "confermata", { data_effettuata: dataScelta });
-    if (p.email) {
-      await inviaEmail({
-        tipo: "conferma_prova",
-        destinatarioEmail: p.email,
-        destinatarioNome: p.nome,
-        corsoNome: corso?.nome,
-        corsoSede: corso?.sede,
-        corsoOrario: corso?.orario,
-        dataProva: dataScelta,
-      });
-    }
+    await inviaConfermaProva(p, dataScelta);
+  }
+
+  // Invia l'email con la data della prova e ne registra l'esito sulla scheda.
+  async function inviaConfermaProva(p, dataScelta) {
+    if (!p.email) return;
+    const corso = corsi.find(c => c.id === p.corso_id);
+    const esito = await inviaEmail({
+      tipo: "conferma_prova",
+      destinatarioEmail: p.email,
+      destinatarioNome: p.nome,
+      corsoNome: corso?.nome,
+      corsoSede: corso?.sede,
+      corsoOrario: corso?.orario,
+      dataProva: dataScelta,
+    });
+    const nuoviExtra = await registraEsitoConferma(p, esito, dataScelta);
+    setProve(prev => prev.map(x => x.id === p.id ? { ...x, dati_extra: nuoviExtra } : x));
+  }
+
+  // ── Rimanda conferma: stessa email con la data già fissata (05/10/2026) ──
+  async function rimandaConferma(p) {
+    if (!window.confirm(`Rimandare a ${p.email} l'email con la data della prova (${new Date(p.data_effettuata).toLocaleDateString("it-IT")})?`)) return;
+    setSaving(s => ({ ...s, [p.id]: true }));
+    await inviaConfermaProva(p, p.data_effettuata);
+    setSaving(s => ({ ...s, [p.id]: false }));
+  }
+
+  // ── Recupera prova (05/10/2026, Solomon): una prova segnata in automatico
+  // come "effettuata" (e poi magari "scaduta") ma che in realtà la persona
+  // non ha mai fatto torna "confermata" con una nuova data; si azzerano le
+  // scadenze dei 2 giorni e dell'avviso posti, e riparte l'email di conferma.
+  // Si riusa la liberatoria già firmata, nessun nuovo modulo. ──
+  async function recuperaProva(p, dataScelta) {
+    if (!dataScelta) return;
+    const vecchiaData = p.data_effettuata ? new Date(p.data_effettuata).toLocaleDateString("it-IT") : "precedente";
+    if (!window.confirm(`Recuperare la prova di ${p.nome} ${p.cognome}?\n\nLa lezione del ${vecchiaData} risulterà NON svolta e la prova tornerà "Confermata" per il ${new Date(dataScelta).toLocaleDateString("it-IT")}.${p.email ? "\nLe arriverà l'email con la nuova data." : ""}`)) return;
+    const notaAggiornata = `${p.note ? p.note + " | " : ""}Prova recuperata dalla segreteria il ${new Date().toLocaleDateString("it-IT")}: la lezione del ${vecchiaData} non era stata svolta, nuova data ${new Date(dataScelta).toLocaleDateString("it-IT")}.`;
+    await aggiornaStato(p.id, "confermata", {
+      data_effettuata: dataScelta, scadenza_3gg: null, scadenza_preavviso: null, note: notaAggiornata,
+    });
+    await inviaConfermaProva(p, dataScelta);
   }
 
   // ── Ripristina una prova annullata: le assegna una nuova data e rimanda
@@ -403,18 +476,8 @@ export default function GestioneProve() {
     if (!dataScelta) return;
     const corso = corsi.find(c => c.id === p.corso_id);
     const notaAggiornata = `${p.note ? p.note + " | " : ""}Prova ripristinata dalla segreteria il ${new Date().toLocaleDateString("it-IT")} con nuova data.`;
-    await aggiornaStato(p.id, "confermata", { data_effettuata: dataScelta, note: notaAggiornata });
-    if (p.email) {
-      await inviaEmail({
-        tipo: "conferma_prova",
-        destinatarioEmail: p.email,
-        destinatarioNome: p.nome,
-        corsoNome: corso?.nome,
-        corsoSede: corso?.sede,
-        corsoOrario: corso?.orario,
-        dataProva: dataScelta,
-      });
-    }
+    await aggiornaStato(p.id, "confermata", { data_effettuata: dataScelta, scadenza_3gg: null, scadenza_preavviso: null, note: notaAggiornata });
+    await inviaConfermaProva(p, dataScelta);
   }
 
   // ── Non presentata: annulla con nota dedicata, la persona deve ricompilare il modulo ──
@@ -895,6 +958,26 @@ export default function GestioneProve() {
                               📅 Prova: {new Date(p.data_effettuata).toLocaleDateString("it-IT")}
                             </div>
                           )}
+                          {["confermata","effettuata"].includes(p.stato) && p.email && (() => {
+                            const ex = p.dati_extra || {};
+                            if (ex.conferma_errore && (!ex.conferma_inviata_il || ex.conferma_errore.il > ex.conferma_inviata_il)) {
+                              return (
+                                <div style={{ fontSize:11, color:R, fontWeight:600, marginTop:1 }}>
+                                  ⚠️ Email di conferma NON inviata ({fmtDataOra(ex.conferma_errore.il)}) — {ex.conferma_errore.motivo}
+                                </div>
+                              );
+                            }
+                            if (ex.conferma_inviata_il) {
+                              const dataDiversa = ex.conferma_data_prova && p.data_effettuata && ex.conferma_data_prova !== p.data_effettuata;
+                              return (
+                                <div style={{ fontSize:11, color: dataDiversa ? A : GD, marginTop:1 }}>
+                                  ✉️ Conferma inviata il {fmtDataOra(ex.conferma_inviata_il)}
+                                  {dataDiversa && ` — ma per il ${new Date(ex.conferma_data_prova).toLocaleDateString("it-IT")}, non per la data attuale`}
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
                           {scadImm && (
                             <div style={{ fontSize:11, color:R, fontWeight:600, marginTop:2 }}>
                               ⏱ Scade tra {Math.ceil(hScad)} ore
@@ -939,6 +1022,10 @@ export default function GestioneProve() {
                               loading={isSaving} onClick={() => aggiornaStato(p.id, "effettuata", {}, p.data_effettuata)} />
                             <BtnAzione label="Non presentata" color={A} bg={AL}
                               loading={isSaving} onClick={() => segnaNonPresentata(p)} />
+                            {p.email && p.data_effettuata && (
+                              <BtnAzione label="✉️ Rimanda conferma" color={BL} bg={BLL}
+                                loading={isSaving} onClick={() => rimandaConferma(p)} />
+                            )}
                           </>
                         )}
                         {p.stato === "effettuata" && (
@@ -958,6 +1045,19 @@ export default function GestioneProve() {
                           <BtnAzione label="✓ Segna iscritta (in ritardo)" color={GD} bg={GL}
                             loading={isSaving}
                             onClick={() => { if (window.confirm(`Confermi che ${p.nome} ${p.cognome} si è poi effettivamente iscritta/o, anche se la richiesta di prova risultava scaduta?`)) aggiornaStato(p.id, "iscritta"); }} />
+                        )}
+                        {/* 05/10/2026: prova segnata effettuata (anche in automatico) ma mai
+                            svolta davvero — si recupera con una nuova data. */}
+                        {["effettuata","scaduta"].includes(p.stato) && (
+                          <>
+                            <input type="date" value={dataProvaScelta[p.id] || ""}
+                              onChange={e => setDataProvaScelta(d => ({ ...d, [p.id]: e.target.value }))}
+                              title="Nuova data per recuperare la prova non svolta"
+                              style={{ padding:"5px 8px", border:`1px solid ${BD}`, borderRadius:7, fontSize:11 }} />
+                            <BtnAzione label="↻ Recupera prova (non svolta)" color={BL} bg={BLL}
+                              loading={isSaving} disabled={!dataProvaScelta[p.id]}
+                              onClick={() => recuperaProva(p, dataProvaScelta[p.id])} />
+                          </>
                         )}
                         {["in_attesa","confermata"].includes(p.stato) && !preavvisoAttivo && (
                           <BtnAzione label="⚠️ Posti in esaurimento" color={A} bg={AL}
@@ -1423,7 +1523,7 @@ function ModaleSpostaProva({ prova, corsi, onClose, onConfermato }) {
     }).eq('id', prova.id)
     if (error) { setErrore('Errore: ' + error.message); setSalvando(false); return }
     if (prova.email) {
-      await inviaEmail({
+      const esito = await inviaEmail({
         tipo: 'conferma_prova',
         destinatarioEmail: prova.email,
         destinatarioNome: prova.nome,
@@ -1432,6 +1532,7 @@ function ModaleSpostaProva({ prova, corsi, onClose, onConfermato }) {
         corsoOrario: nuovoCorso.orario,
         dataProva: dataScelta,
       })
+      await registraEsitoConferma(prova, esito, dataScelta)
     }
     setSalvando(false)
     onConfermato()
@@ -1632,7 +1733,7 @@ function ModaleModificaProva({ prova, corso, onClose, onSalvato }) {
     if (error) { setErrore("Errore: " + error.message); setSalvando(false); return; }
 
     if (emailCambiata && inviaEmailCorretta && infoEmailDaRimandare) {
-      await inviaEmail({
+      const esito = await inviaEmail({
         tipo: infoEmailDaRimandare.tipo,
         destinatarioEmail: campiAggiornati.email,
         destinatarioNome: campiAggiornati.nome,
@@ -1642,6 +1743,9 @@ function ModaleModificaProva({ prova, corso, onClose, onSalvato }) {
         dataProva: prova.data_effettuata,
         motivo: "Correzione indirizzo email da parte della segreteria",
       });
+      if (infoEmailDaRimandare.tipo === "conferma_prova") {
+        campiAggiornati.dati_extra = await registraEsitoConferma(prova, esito, prova.data_effettuata);
+      }
     }
     setSalvando(false);
     onSalvato(campiAggiornati);
