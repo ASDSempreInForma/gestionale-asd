@@ -1490,7 +1490,13 @@ function BtnAzione({ label, color, bg, loading, disabled, onClick }) {
 // la possibilità di avvisare la persona via email — prima cliccando
 // "Annulla" non succedeva nulla lato persona, spariva e basta dalla lista
 // senza nessuna spiegazione (richiesto da Solomon il 04/09/2026).
+// "Su richiesta della persona" (05/10/2026, Solomon): chi chiede di annullare
+// perché malato/impossibilitato riceve un'email diversa, che conferma
+// l'annullamento e lo invita a richiedere una nuova prova quando potrà —
+// prima riceveva il testo "non possiamo darle seguito", pensato per i rifiuti.
+const MOTIVO_SU_RICHIESTA = "Su richiesta della persona (malattia o impossibilità)";
 const MOTIVI_ANNULLA_PROVA = [
+  MOTIVO_SU_RICHIESTA,
   "Corso al completo",
   "Richiesta duplicata",
   "Nessuna risposta ai contatti della segreteria",
@@ -1518,6 +1524,8 @@ function ModaleAnnullaProva({ prova, corso, soloEmail = false, onClose, onConfer
         corsoNome: corso?.nome,
         corsoSede: corso?.sede,
         motivo: motivoFinale,
+        suRichiesta: motivo === MOTIVO_SU_RICHIESTA,
+        dataProva: prova.data_effettuata || undefined,
       });
     }
     setSalvando(false);
@@ -1551,7 +1559,9 @@ function ModaleAnnullaProva({ prova, corso, soloEmail = false, onClose, onConfer
             <input type="checkbox" checked={inviaEmailAllaPersona && !!prova.email} disabled={!prova.email}
               onChange={(e) => setInviaEmailAllaPersona(e.target.checked)} style={{ marginTop: 2 }} />
             {prova.email
-              ? `Avvisa via email (${prova.email}) spiegando il motivo`
+              ? (motivo === MOTIVO_SU_RICHIESTA
+                  ? `Avvisa via email (${prova.email}) confermando l'annullamento e invitando a richiedere una nuova prova`
+                  : `Avvisa via email (${prova.email}) spiegando il motivo`)
               : "Nessuna email in anagrafica: non è possibile avvisarla automaticamente"}
           </label>
         )}
