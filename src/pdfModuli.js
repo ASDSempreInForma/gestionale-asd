@@ -394,3 +394,29 @@ export async function generaPdfLiberatoria({ prova }) {
   const bytes = await pdfDoc.save();
   scaricaPdf(bytes, `Liberatoria_${prova.cognome}_${prova.nome}.pdf`.replace(/\s+/g, "_"));
 }
+
+// Prepara la prima pagina di un PDF di tessera (ASI/Libertas) per farla
+// leggere all'AI: testo selezionabile (se il PDF ne ha) + immagine JPEG in
+// base64. Usata in AnagraficaSoci per riconoscere da solo il numero di
+// tessera al caricamento del PDF (05/10/2026, richiesto da Solomon).
+export async function estraiPaginaTesseraPerAI(file, scala = 2) {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const page = await pdf.getPage(1);
+
+  let testo = "";
+  try {
+    const contenuto = await page.getTextContent();
+    testo = contenuto.items.map((i) => i.str).join(" ").replace(/\s+/g, " ").trim();
+  } catch {
+    // PDF senza testo (solo immagine): si usa solo la foto
+  }
+
+  const viewport = page.getViewport({ scale: scala });
+  const canvas = document.createElement("canvas");
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+  return { testo, base64: dataUrl.split(",")[1], tipo: "image/jpeg" };
+}

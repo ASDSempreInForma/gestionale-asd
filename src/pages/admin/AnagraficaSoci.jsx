@@ -1,9 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../supabase.js'
-import { generaPdfDomandaAdesione, comprimiTesseraPdf } from '../../pdfModuli.js'
+import { generaPdfDomandaAdesione, comprimiTesseraPdf, estraiPaginaTesseraPerAI } from '../../pdfModuli.js'
 import ComboComune from '../../ComboComune.jsx'
 import CampoDocumento from '../../CampoDocumento.jsx'
 import RitaglioDocumento from '../../RitaglioDocumento.jsx'
+
+// Chiave pubblica (anon) per chiamare l'edge function genera-testo-ai,
+// la stessa già usata in AcquisisciModulo.jsx — pubblica per natura.
+const SUPABASE_ANON_KEY_AI =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVic3VxZHhmbHlneGh1cHRubnVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNTU1OTcsImV4cCI6MjA5NzYzMTU5N30.KXgue3EKXZdZZ5vvkmHcEzO5OvFEAQWyuvMtLm2RtV0";
 import { percorsoOriginale, caricaSuStorage, eImmagine, senzaScansione } from '../../scansioneDocumento.js'
 
 const G = "#2D6A4F", GL = "#D8F3DC"
@@ -1558,6 +1563,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
   const [salvandoTessera, setSalvandoTessera] = useState(false)
   const [caricandoPdf, setCaricandoPdf] = useState(false)
   const [erroreePdf, setErrorePdf] = useState('')
+  const [esitoRiconoscimento, setEsitoRiconoscimento] = useState(null) // { tipo: 'ok'|'avviso'|'errore', testo }
   const [modificaAnagrafica, setModificaAnagrafica] = useState(false)
   const [anagrafica, setAnagrafica] = useState({
     nome: socio.nome || '',
@@ -1812,9 +1818,74 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
       return
     }
     const { error: dbErr } = await supabase.from('soci').update({ tessera_ufficiale_url: path }).eq('cf', socio.cf)
+    if (dbErr) { setCaricandoPdf(false); setErrorePdf('File caricato ma errore nel salvataggio: ' + dbErr.message); return }
+    await riconosciNumeroTessera(file)
     setCaricandoPdf(false)
-    if (dbErr) setErrorePdf('File caricato ma errore nel salvataggio: ' + dbErr.message)
-    else onAggiornato()
+    onAggiornato()
+  }
+
+  // ── Riconoscimento automatico del numero di tessera (05/10/2026) ──────────
+  // Dopo il caricamento del PDF l'AI legge la tessera (testo + immagine) e
+  // ricava numero, ente e scadenza. Si salva da solo SOLO se la tessera è
+  // davvero di questo socio (stesso codice fiscale, o stesso cognome se il CF
+  // non si legge) e se il campo era vuoto o uguale; se c'era già un numero
+  // diverso si chiede conferma. Se l'AI non ci riesce, il PDF resta caricato
+  // comunque e il numero si inserisce a mano come prima.
+  const riconosciNumeroTessera = async (file) => {
+    setEsitoRiconoscimento({ tipo: 'info', testo: '🔎 Leggo il numero di tessera dal PDF…' })
+    try {
+      const { testo, base64, tipo } = await estraiPaginaTesseraPerAI(file)
+      const prompt = `Questa è la tessera associativa di un ente di promozione sportiva italiano (ASI oppure Libertas).
+${testo ? `Testo estratto dal PDF (può essere disordinato): """${testo.slice(0, 3000)}"""\n` : ''}Rispondi SOLO con un oggetto JSON, senza altro testo:
+{"numero_tessera": "solo il numero/codice della tessera del socio, senza prefissi come 'N.' o 'Tessera'", "ente": "ASI" oppure "Libertas" oppure null, "cognome": "...", "nome": "...", "codice_fiscale": "... o null", "scadenza": "YYYY-MM-DD o null"}
+Attenzione: NON confondere il numero di tessera con il codice di affiliazione della società (es. BS0905, BS481, 98087620179) né con il codice fiscale. Se un dato non si legge con certezza usa null.`
+      const res = await fetch('https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/genera-testo-ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY_AI, Authorization: `Bearer ${SUPABASE_ANON_KEY_AI}` },
+        body: JSON.stringify({ immagineBase64: base64, immagineTipo: tipo, userPrompt: prompt }),
+      })
+      const dati = await res.json()
+      if (!dati.ok) throw new Error(dati.error || 'risposta AI non valida')
+      const grezzo = (dati.testo || '').replace(/```json|```/g, '')
+      const estratti = JSON.parse(grezzo.slice(grezzo.indexOf('{'), grezzo.lastIndexOf('}') + 1))
+
+      const numero = String(estratti.numero_tessera || '').replace(/^(n\.?|nr\.?|tessera)\s*/i, '').trim()
+      if (!numero || numero.toLowerCase() === 'null') {
+        setEsitoRiconoscimento({ tipo: 'avviso', testo: 'Non sono riuscito a leggere il numero di tessera dal PDF: inseriscilo a mano.' })
+        return
+      }
+
+      // È davvero la tessera di questo socio?
+      const norm = (x) => String(x || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+      const cfLetto = norm(estratti.codice_fiscale)
+      const cognomeLetto = norm(estratti.cognome)
+      const corrisponde = cfLetto.length === 16
+        ? cfLetto === norm(socio.cf)
+        : (cognomeLetto && (cognomeLetto.includes(norm(socio.cognome)) || norm(socio.cognome).includes(cognomeLetto)))
+      if (!corrisponde) {
+        setEsitoRiconoscimento({ tipo: 'errore', testo: `⚠️ Attenzione: il PDF sembra la tessera di ${[estratti.cognome, estratti.nome].filter(Boolean).join(' ') || 'un\'altra persona'}${cfLetto ? ` (CF ${cfLetto})` : ''}, non di ${socio.cognome} ${socio.nome}. Numero letto: ${numero}. Non l'ho salvato: controlla di aver caricato il file giusto.` })
+        return
+      }
+
+      const attuale = String(socio.numero_tessera || '').trim()
+      if (attuale && attuale !== numero) {
+        if (!window.confirm(`Dal PDF leggo il numero di tessera ${numero}${estratti.ente ? ` (${estratti.ente})` : ''}, ma nel gestionale c'è ${attuale}.\n\nVuoi sostituirlo con ${numero}?`)) {
+          setEsitoRiconoscimento({ tipo: 'avviso', testo: `Numero letto dal PDF: ${numero} — lasciato invariato ${attuale} come hai scelto.` })
+          return
+        }
+      }
+
+      const aggiornamento = { numero_tessera: numero }
+      const ente = /asi/i.test(estratti.ente || '') ? 'ASI' : /libertas/i.test(estratti.ente || '') ? 'Libertas' : null
+      if (ente) aggiornamento.ente_tessera = ente
+      if (/^\d{4}-\d{2}-\d{2}$/.test(estratti.scadenza || '')) aggiornamento.scadenza_tessera = estratti.scadenza
+      const { error } = await supabase.from('soci').update(aggiornamento).eq('cf', socio.cf)
+      if (error) throw new Error(error.message)
+      setTessera(numero)
+      setEsitoRiconoscimento({ tipo: 'ok', testo: `✓ Numero di tessera riconosciuto e salvato: ${numero}${ente ? ` (${ente}${aggiornamento.scadenza_tessera ? `, scade ${fmtData(aggiornamento.scadenza_tessera)}` : ''})` : ''}. Controlla che sia giusto.` })
+    } catch (e) {
+      setEsitoRiconoscimento({ tipo: 'avviso', testo: 'Non sono riuscito a leggere il numero di tessera dal PDF (' + e.message + '): inseriscilo a mano.' })
+    }
   }
 
   return (
@@ -1960,7 +2031,13 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
             {caricandoPdf && <span style={{ fontSize: 12, color: SUB, marginLeft: 8 }}>Carico...</span>}
           </div>
           {erroreePdf && <div style={{ color: R, fontSize: 12, marginTop: 6 }}>{erroreePdf}</div>}
-          <div style={{ fontSize: 11, color: SUB, marginTop: 6 }}>Caricare il nuovo PDF sovrascrive quello dell'anno precedente.</div>
+          {esitoRiconoscimento && (
+            <div style={{ fontSize: 12, marginTop: 6, fontWeight: 600,
+              color: esitoRiconoscimento.tipo === 'ok' ? G : esitoRiconoscimento.tipo === 'errore' ? R : esitoRiconoscimento.tipo === 'avviso' ? '#B45309' : SUB }}>
+              {esitoRiconoscimento.testo}
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: SUB, marginTop: 6 }}>Caricare il nuovo PDF sovrascrive quello dell'anno precedente. Il numero di tessera viene letto e salvato in automatico.</div>
         </div>
 
         <div style={{ background: blocco ? RL : '#F8FAFC', borderRadius: 10, padding: 12, marginBottom: 16 }}>
