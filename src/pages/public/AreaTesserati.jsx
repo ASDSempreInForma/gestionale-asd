@@ -4,6 +4,8 @@ import SiteFooter from "../../SiteFooter.jsx";
 import ChatWidget from "../../ChatWidget.jsx";
 import CampoDocumento from "../../CampoDocumento.jsx";
 import { campiUpload } from "../../scansioneDocumento.js";
+import TesseraAssociativa from "../../TesseraAssociativa.jsx";
+import { statoTessera, scaricaTesseraPdf } from "../../tesseraAssociativa.js";
 
 // ─── Giorno/orario effettivo mostrato all'utente ────────────────────────────
 // Se l'iscrizione e' a 1 sola volta a settimana (frequenza "1x" con giorno_scelto
@@ -580,6 +582,7 @@ export default function AreaTesserati() {
   const [modaleCertificatoSede, setModaleCertificatoSede] = useState(false);
   const [modaleRinnovo, setModaleRinnovo] = useState(null);
   const [scaricandoTessera, setScaricandoTessera] = useState(false);
+  const [scaricandoTesseraAssoc, setScaricandoTesseraAssoc] = useState(false);
 
   const callFnWithAuth = (payload) => callFn({ ...payload, cf: sessione.cf, email: sessione.email });
 
@@ -787,7 +790,29 @@ export default function AreaTesserati() {
           </a>
         </div>
 
-        {!soloSede && (
+        {!soloSede && statoTessera(socio) === "valida" && (
+          <div style={{ ...styles.card, marginBottom: 12 }}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>La tua tessera associativa</div>
+            <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>
+              Mostrala dal telefono ai centri medici convenzionati e, se richiesto, in palestra: il QR serve per il check-in.
+            </div>
+            <TesseraAssociativa socio={socio} />
+            <button
+              onClick={async () => {
+                setScaricandoTesseraAssoc(true);
+                try { await scaricaTesseraPdf(socio); }
+                catch (e) { alert("Non è stato possibile preparare il PDF: " + e.message); }
+                finally { setScaricandoTesseraAssoc(false); }
+              }}
+              disabled={scaricandoTesseraAssoc}
+              style={{ ...styles.btnPrimary, marginTop: 14 }}
+            >
+              {scaricandoTesseraAssoc ? "Preparo il file..." : "📄 Scarica la tessera (PDF da stampare)"}
+            </button>
+          </div>
+        )}
+
+        {!soloSede && statoTessera(socio) !== "valida" && (
         <div id="tessera-stampabile" style={{ ...styles.card, marginBottom: 12, display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
           <img
             src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(socio.cf)}`}
@@ -804,6 +829,9 @@ export default function AreaTesserati() {
             <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
               Mostra questo QR all'ingresso in palestra.
             </div>
+            <div style={{ fontSize: 12, color: "#64748b", marginTop: 8 }}>
+              🪪 La tua tessera associativa comparirà qui appena la segreteria avrà registrato il tesseramento per la stagione in corso.
+            </div>
           </div>
         </div>
         )}
@@ -814,14 +842,14 @@ export default function AreaTesserati() {
 
         {socio.tessera_ufficiale_disponibile && (
           <div style={{ ...styles.card, marginBottom: 24 }}>
-            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>La tua tessera</div>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Tessera ufficiale dell'ente</div>
             {socio.numero_tessera && (
               <div style={{ fontSize: 13, color: "#64748b", marginBottom: 10 }}>
                 Tessera n. {socio.numero_tessera}{socio.ente_tessera ? ` (${socio.ente_tessera})` : ""}
               </div>
             )}
             <button onClick={scaricaTesseraUfficiale} disabled={scaricandoTessera} style={styles.btnPrimary}>
-              {scaricandoTessera ? "Preparo il file..." : "📄 Scarica la tua tessera (PDF)"}
+              {scaricandoTessera ? "Preparo il file..." : "📄 Scarica la tessera dell'ente (PDF)"}
             </button>
           </div>
         )}
