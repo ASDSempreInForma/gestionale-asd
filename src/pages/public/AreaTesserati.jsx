@@ -794,7 +794,7 @@ export default function AreaTesserati() {
           <div style={{ ...styles.card, marginBottom: 12 }}>
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>La tua tessera associativa</div>
             <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>
-              Mostrala dal telefono ai centri medici convenzionati e, se richiesto, in palestra: il QR serve per il check-in.
+              È la tua tessera virtuale: mostrala dal telefono ai centri medici convenzionati e all'ingresso in palestra (il QR serve per il check-in). Se preferisci averla su carta, scarica la versione da stampare.
             </div>
             <TesseraAssociativa socio={socio} />
             <button
@@ -805,9 +805,9 @@ export default function AreaTesserati() {
                 finally { setScaricandoTesseraAssoc(false); }
               }}
               disabled={scaricandoTesseraAssoc}
-              style={{ ...styles.btnPrimary, marginTop: 14 }}
+              style={{ ...styles.btnPrimary, marginTop: 16, width: "100%", maxWidth: 380, display: "block", marginLeft: "auto", marginRight: "auto" }}
             >
-              {scaricandoTesseraAssoc ? "Preparo il file..." : "📄 Scarica la tessera (PDF da stampare)"}
+              {scaricandoTesseraAssoc ? "Preparo il file..." : "🖨️ Scarica la versione da stampare (PDF)"}
             </button>
           </div>
         )}
