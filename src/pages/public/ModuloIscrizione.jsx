@@ -803,6 +803,9 @@ export default function ModuloIscrizione() {
 
   // Dati dal DB
   const [corsi, setCorsi] = useState([]);
+  const [corsiTutti, setCorsiTutti] = useState([]); // anche quelli nascosti, per riconoscere i corsi già attivi
+  // Corsi già attivi della persona in questa stagione (per l'integrazione automatica)
+  const [iscrizioniAttiveSocio, setIscrizioniAttiveSocio] = useState([]);
   const [stagione, setStagione] = useState(null);
   const [loadingCorsi, setLoadingCorsi] = useState(true);
   const [erroreCorsi, setErroreCorsi] = useState(null);
@@ -907,12 +910,22 @@ export default function ModuloIscrizione() {
 
         // Conteggio iscritti per corso E per giorno specifico (per il limite posti):
         // chi fa 2x conta su entrambi i giorni della coppia, chi fa 1x solo sul suo giorno_scelto.
-        const { data: iscrizioniStagione, error: errIscr } = await supabase
-          .from("iscrizioni")
-          .select("corso_id, frequenza, giorno_scelto")
-          .eq("stagione_id", stagioni.id)
-          .neq("stato_pagamento", "annullata");
-        if (errIscr) throw errIscr;
+        // 07/10/2026: le iscrizioni NON sono leggibili dal visitatore anonimo
+        // (RLS), quindi la lettura diretta dava sempre 0 iscritti e i corsi pieni
+        // sembravano liberi fino all'invio finale. Ora i conteggi (senza dati
+        // personali) arrivano dalla Edge Function disponibilita-corsi.
+        let iscrizioniStagione = [];
+        try {
+          const rOcc = await fetch(`${SUPABASE_URL}/functions/v1/disponibilita-corsi`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "occupazione", stagione_id: stagioni.id }),
+          });
+          const occ = await rOcc.json();
+          if (occ.ok) iscrizioniStagione = occ.iscrizioni || [];
+        } catch {
+          // se non risponde, il controllo vero resta quello del database all'invio
+        }
 
         // Trasformo nel formato usato dal form
         const corsiFormattati = corsiDB.map((c) => {
@@ -989,6 +1002,7 @@ export default function ModuloIscrizione() {
           : corsiFormattati.filter((c) => c.mese_inizio === "settembre");
 
         setCorsi(corsiVisibili);
+        setCorsiTutti(corsiFormattati);
       } catch (err) {
         console.error("Errore caricamento corsi:", err);
         setErroreCorsi("Impossibile caricare i corsi. Riprova più tardi o contatta la segreteria.");
@@ -1037,6 +1051,35 @@ export default function ModuloIscrizione() {
     });
   }, [corsiScelti, corsi]);
 
+  // Recupera i corsi già attivi della persona (CF + email o telefono uguali
+  // all'anagrafica) quando arriva alla scelta dei corsi.
+  useEffect(() => {
+    if (step !== 3 || !stagione?.id || !validaCodiceFiscale(anagrafica.cf)) return;
+    let annullato = false;
+    (async () => {
+      try {
+        const r = await fetch(`${SUPABASE_URL}/functions/v1/disponibilita-corsi`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "corsi_attivi",
+            stagione_id: stagione.id,
+            cf: anagrafica.cf.toUpperCase(),
+            email: residenza.email,
+            telefono: residenza.telefono,
+          }),
+        });
+        const d = await r.json();
+        if (!annullato && d.ok) setIscrizioniAttiveSocio(d.iscrizioni || []);
+      } catch {
+        // senza risposta si procede come una normale iscrizione
+      }
+    })();
+    return () => { annullato = true; };
+  }, [step, stagione, anagrafica.cf, residenza.email, residenza.telefono]);
+
+  const corsoGiaAttivo = (corsoId) => iscrizioniAttiveSocio.some((i) => i.corso_id === corsoId);
+
   const corsiConCodice = useMemo(
     () =>
       corsiScelti
@@ -1061,6 +1104,47 @@ export default function ModuloIscrizione() {
 
   const prezzoTotale = useMemo(() => calcolaPrezzoTotale(corsiConCodice), [corsiConCodice]);
 
+  // ── INTEGRAZIONE AUTOMATICA (07/10/2026) ──
+  // Chi ha già un corso pagato (o con ricevuta in verifica) in questa stagione e
+  // ne aggiunge un altro paga solo la DIFFERENZA: prezzo di tutti i corsi
+  // insieme meno il prezzo dei soli corsi già attivi, calcolati con lo stesso
+  // motore e alla stessa data (regola del caso Bersi, 25/09/2026).
+  const corsiGiaPagati = useMemo(
+    () =>
+      iscrizioniAttiveSocio
+        .filter((i) => ["confermato", "dichiarato"].includes(i.stato_pagamento))
+        .map((i) => {
+          let corso = corsiTutti.find((x) => x.id === i.corso_id) || null;
+          if (corso && corso.quota_annuale_under65) {
+            const residenteBovezzo = (residenza.comune || "").trim().toLowerCase() === "bovezzo";
+            if (!(eta !== null && eta >= 65 && residenteBovezzo)) corso = { ...corso, quota_annuale: corso.quota_annuale_under65 };
+          }
+          const pagamento = i.tipo_pagamento === "quad1" ? "q1" : i.tipo_pagamento === "quad2" ? "q2" : "annuale";
+          return {
+            corso,
+            corsoId: i.corso_id,
+            frequenza: i.frequenza || "2x",
+            giornoScelto: i.giorno_scelto,
+            pagamento,
+            inizioPersonalizzato: i.inizio_personalizzato,
+            stato: i.stato_pagamento,
+            codiceCompleto: componiCodice(corso, i.frequenza, pagamento),
+          };
+        }),
+    [iscrizioniAttiveSocio, corsiTutti, eta, residenza.comune]
+  );
+  const integrazione = useMemo(() => {
+    if (corsiGiaPagati.length === 0 || corsiConCodice.length === 0) return null;
+    const base = calcolaPrezzoTotale(corsiGiaPagati);
+    const insieme = calcolaPrezzoTotale([...corsiGiaPagati, ...corsiConCodice]);
+    const calcolabile = corsiGiaPagati.every((c) => c.corso) && base.totale !== null && insieme.totale !== null;
+    return {
+      calcolabile,
+      importo: calcolabile ? Math.max(0, Math.round((insieme.totale - base.totale) * 100) / 100) : null,
+      totaleInsieme: insieme.totale,
+    };
+  }, [corsiGiaPagati, corsiConCodice]);
+
   // ── Extra "corso a settembre" (sovrapprezzo fisso, separato dal motore prezzi) ──
   const oggiESettembre = new Date().getMonth() === 8; // 8 = settembre (mesi 0-indicizzati)
   const corsiSettembreDisponibili = corsi.filter((c) => c.mese_inizio === "settembre");
@@ -1079,6 +1163,12 @@ export default function ModuloIscrizione() {
     prezzoTotale.totale !== null && prezzoTotale.totale !== undefined
       ? prezzoTotale.totale + sovrapprezzoSettembre
       : prezzoTotale.totale;
+  // Importo che la persona deve davvero versare: con un corso già pagato è solo
+  // l'integrazione; se l'integrazione non è calcolabile resta "da verificare".
+  const quotaDaVersare = integrazione
+    ? (integrazione.calcolabile ? integrazione.importo + sovrapprezzoSettembre : null)
+    : totaleConExtraSettembre;
+  const quotaDaVerificare = integrazione ? !integrazione.calcolabile : prezzoTotale.incompleto;
 
   // Vero se almeno un corso nel carrello sta beneficiando dello sconto per
   // stagione già iniziata (mesi già trascorsi dall'inizio del corso), per
@@ -1099,8 +1189,8 @@ export default function ModuloIscrizione() {
   const causaleCompleta = useMemo(() => {
     if (!anagrafica.nome || !anagrafica.cognome || corsiConCodice.length === 0) return "";
     const codici = corsiConCodice.map((c) => c.codiceCompleto).join(" + ");
-    return `${anagrafica.nome.toUpperCase()} ${anagrafica.cognome.toUpperCase()} ${codici}`;
-  }, [anagrafica, corsiConCodice]);
+    return `${anagrafica.nome.toUpperCase()} ${anagrafica.cognome.toUpperCase()} ${codici}${integrazione ? " INTEGRAZIONE" : ""}`;
+  }, [anagrafica, corsiConCodice, integrazione]);
 
   // ------------------------------------------------------------------
   // VALIDAZIONE STEP
@@ -1109,7 +1199,7 @@ export default function ModuloIscrizione() {
   const puoiProseguire = () => {
     if (step === 1) return anagrafica.nome && anagrafica.cognome && anagrafica.dataNascita && anagrafica.cf && validaCodiceFiscale(anagrafica.cf);
     if (step === 2) return residenza.indirizzo && residenza.comune && residenza.email;
-    if (step === 3) return corsiConCodice.length > 0 && corsiConCodice.every((c) => c.corso?.mese_inizio !== "settembre" || c.inizioPersonalizzato) && corsiConCodice.every(sceltaValidaPerPosti) && (!vuoleExtraSettembre || corsoExtraSettembreId);
+    if (step === 3) return corsiConCodice.length > 0 && corsiConCodice.every((c) => c.corso?.mese_inizio !== "settembre" || c.inizioPersonalizzato) && corsiConCodice.every(sceltaValidaPerPosti) && !corsiConCodice.some((c) => corsoGiaAttivo(c.corso.id)) && (!vuoleExtraSettembre || corsoExtraSettembreId);
     if (step === 4) return regolamenti.statuto && regolamenti.privacy;
     if (step === 5) return firmaSocio && (!isMinorenne || firmaGenitore) && luogoFirma && dichiarazioneFirma;
     return true;
@@ -1129,14 +1219,9 @@ export default function ModuloIscrizione() {
       // ripetere il modulo (deve solo completare il pagamento con la segreteria).
       const corsiDaVerificare = corsiConCodice.filter((c) => c.pagamento === "q2").map((c) => c.corso.id);
       if (corsiDaVerificare.length > 0) {
-        const { data: giaIscritto, error: errCheck } = await supabase
-          .from("iscrizioni")
-          .select("corso_id")
-          .eq("socio_cf", cfUpper)
-          .eq("stagione_id", stagione.id)
-          .neq("stato_pagamento", "annullata")
-          .in("corso_id", corsiDaVerificare);
-        if (errCheck) throw errCheck;
+        // (la tabella iscrizioni non è leggibile dal modulo pubblico: si usa
+        // l'elenco dei corsi già attivi arrivato dalla Edge Function)
+        const giaIscritto = iscrizioniAttiveSocio.filter((i) => corsiDaVerificare.includes(i.corso_id));
         if (giaIscritto && giaIscritto.length > 0) {
           setErroreInvio(
             "Risulti già iscritto/a a uno dei corsi selezionati per questa stagione. Non è necessario ripetere il modulo: contatta la segreteria (327 868 1393) per completare il pagamento del 2° quadrimestre."
@@ -1233,7 +1318,7 @@ export default function ModuloIscrizione() {
         giorno_scelto: c.frequenza === "1x" && c.corso.ha_variante_frequenza ? c.giornoScelto : null,
         inizio_personalizzato: c.corso.mese_inizio === "settembre" ? c.inizioPersonalizzato : null,
         tipo_pagamento: c.pagamento === "q1" ? "quad1" : c.pagamento === "q2" ? "quad2" : "annuale",
-        importo_dichiarato: totaleConExtraSettembre ?? null,
+        importo_dichiarato: quotaDaVersare ?? null,
         nota_socio:
           sovrapprezzoSettembre > 0 && corsoExtraSettembre
             ? `🎯 Include anche ${corsoExtraSettembre.nomeVisualizzato || corsoExtraSettembre.corso} (${corsoExtraSettembre.sede}), ${frequenzaExtraSettembre === "2x" ? "2 volte" : "1 volta"} a settimana, a partire da settembre.`
@@ -1270,7 +1355,10 @@ export default function ModuloIscrizione() {
           isMinorenne ? `Genitore: ${genitore.nome} ${genitore.cognome} (${genitore.cf})` : null,
           `Luogo firma: ${luogoFirma}`,
           `Data iscrizione: ${new Date().toLocaleDateString("it-IT")}`,
-          prezzoTotale.incompleto ? "ATTENZIONE: quota non calcolabile automaticamente, verificare a mano" : null,
+          quotaDaVerificare ? "ATTENZIONE: quota non calcolabile automaticamente, verificare a mano" : null,
+          integrazione
+            ? `INTEGRAZIONE: già attivi ${corsiGiaPagati.map((g) => g.codiceCompleto || "?").join(" + ")}${integrazione.calcolabile ? ` · totale di tutti i corsi ${integrazione.totaleInsieme}€, da versare la differenza ${quotaDaVersare}€` : ""}`
+            : null,
           sovrapprezzoSettembre > 0 && corsoExtraSettembre
             ? `EXTRA SETTEMBRE (da aggiungere a mano al gruppo): ${corsoExtraSettembre.nomeVisualizzato || corsoExtraSettembre.corso} (${corsoExtraSettembre.sede}), ${frequenzaExtraSettembre === "2x" ? "2 volte" : "1 volta"}/sett, +${sovrapprezzoSettembre}€`
             : null,
@@ -1350,7 +1438,22 @@ export default function ModuloIscrizione() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            tipo: "conferma_iscrizione",
+            // Con un corso già pagato si manda l'email di INTEGRAZIONE (stessa
+            // usata dal pulsante in Anagrafica Soci): corso aggiunto, corsi già
+            // attivi, importo della differenza e causale.
+            tipo: integrazione ? "richiesta_integrazione" : "conferma_iscrizione",
+            ...(integrazione
+              ? {
+                  corsiGiaAttivi: corsiGiaPagati.filter((g) => g.corso).map((g) => {
+                    let go = g.corso.orario;
+                    if (g.frequenza === "1x" && g.corso.ha_variante_frequenza && g.giornoScelto) {
+                      const t = estraiGiorniSingoli(g.corso.orario).find((p) => p.giorno === g.giornoScelto);
+                      if (t) go = `${t.giorno} ${t.orario}`;
+                    }
+                    return { nome: g.corso.nomeVisualizzato || g.corso.corso, sede: g.corso.sede, giorniOrari: go, codiceCompleto: g.codiceCompleto };
+                  }),
+                }
+              : {}),
             destinatarioEmail: residenza.email,
             destinatarioNome: `${anagrafica.nome} ${anagrafica.cognome}`,
             corsi: [
@@ -1378,7 +1481,7 @@ export default function ModuloIscrizione() {
                   }]
                 : []),
             ],
-            quotaTotale: totaleConExtraSettembre,
+            quotaTotale: quotaDaVersare,
             causale: causaleCompleta,
             tipoPagamentoLabel: labelPagamento,
             richiedeIscrizione: true,
@@ -1654,6 +1757,12 @@ export default function ModuloIscrizione() {
                           })}
                         </div>
                       )}
+                      {corso && corsoGiaAttivo(corso.id) && (
+                        <div className="mt-2 text-sm px-3 py-2 rounded-lg border bg-red-50 border-red-200 text-red-700">
+                          Risulti già iscritto/a a questo corso per la stagione in corso. Se vuoi passare da 1 a 2 volte a
+                          settimana o cambiare giorno, scrivi alla segreteria (WhatsApp 327 868 1393).
+                        </div>
+                      )}
                       {corso && unGiornoPieno(corso) && (
                         <div className="mt-2 text-sm px-3 py-2 rounded-lg border bg-amber-50 border-amber-200 text-amber-800">
                           {corso.ha_variante_frequenza
@@ -1741,6 +1850,14 @@ export default function ModuloIscrizione() {
                     </div>
                   );
                 })}
+
+                {corsiGiaPagati.length > 0 && (
+                  <div className="text-sm px-3 py-2 rounded-lg border bg-emerald-50 border-emerald-200 text-emerald-800">
+                    ✅ Risulti già iscritto/a a{" "}
+                    <b>{corsiGiaPagati.map((g) => (g.corso ? `${g.corso.nomeVisualizzato || g.corso.corso} (${g.corso.sede})` : "un corso")).join(", ")}</b>.
+                    Qui scegli solo il corso da <b>aggiungere</b>: pagherai soltanto la differenza (integrazione).
+                  </div>
+                )}
 
                 <button
                   type="button"
@@ -1966,14 +2083,25 @@ export default function ModuloIscrizione() {
                   <span className="text-xs text-[#C24709]"> (extra settembre, {frequenzaExtraSettembre === "2x" ? "2 volte" : "1 volta"}/sett)</span>
                 </p>
               )}
+              {corsiGiaPagati.length > 0 && (
+                <p className="text-slate-500 text-xs">
+                  Già attivi: {corsiGiaPagati.map((g) => (g.corso ? `${g.corso.nomeVisualizzato || g.corso.corso} — ${g.corso.sede}` : "un corso")).join(", ")}
+                </p>
+              )}
               <div className="border-t pt-2 mt-2 flex justify-between items-center">
-                <span className="text-slate-500">Quota da versare:</span>
-                {prezzoTotale.incompleto ? (
+                <span className="text-slate-500">{integrazione ? "Integrazione da versare:" : "Quota da versare:"}</span>
+                {quotaDaVerificare ? (
                   <span className="text-amber-600 font-medium">Da verificare in segreteria</span>
                 ) : (
-                  <span className="font-semibold text-[#C24709] text-base">{totaleConExtraSettembre}€</span>
+                  <span className="font-semibold text-[#C24709] text-base">{quotaDaVersare}€</span>
                 )}
               </div>
+              {integrazione?.calcolabile && (
+                <p className="text-xs text-slate-400 -mt-1">
+                  Hai già versato la quota dei corsi attivi: paghi solo la differenza per il corso aggiunto
+                  (l'iscrizione da 40€ non si paga di nuovo).
+                </p>
+              )}
               {mostraNotaMesiTrascorsi && (
                 <p className="text-xs text-slate-400 -mt-1">
                   Il prezzo tiene già conto dei mesi di stagione già trascorsi.

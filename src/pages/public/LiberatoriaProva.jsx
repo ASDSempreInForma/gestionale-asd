@@ -223,13 +223,32 @@ export default function LiberatoriaProva() {
           .select(`
             id, codice_corso, disciplina, giorni_orari,
             capienza_max, capienza_giorno1, capienza_giorno2, prove_attive, mese_inizio,
-            sedi ( nome ),
-            iscrizioni!iscrizioni_corso_id_fkey ( id, stato_pagamento, frequenza, giorno_scelto ),
-            prove ( id, stato, frequenza_desiderata, giorno_preferito )
+            sedi ( nome )
           `)
           .eq("stagione_id", stag.id)
           .order("codice_corso");
         if (errC) throw errC;
+
+        // 07/10/2026: iscrizioni e prove non sono leggibili dal visitatore
+        // anonimo (RLS): leggendole qui risultavano sempre 0 e i corsi pieni
+        // sembravano liberi. I conteggi (senza dati personali) arrivano ora
+        // dalla Edge Function disponibilita-corsi.
+        let occ = { iscrizioni: [], prove: [] };
+        try {
+          const rOcc = await fetch("https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/disponibilita-corsi", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "occupazione", stagione_id: stag.id }),
+          });
+          const j = await rOcc.json();
+          if (j.ok) occ = j;
+        } catch {
+          // senza risposta i corsi risultano liberi, come prima
+        }
+        corsiDB.forEach((c) => {
+          c.iscrizioni = (occ.iscrizioni || []).filter((i) => i.corso_id === c.id);
+          c.prove = (occ.prove || []).filter((p) => p.corso_id === c.id);
+        });
 
         const corsiFormattati = corsiDB.map(c => {
           const iscrizioniAttive = (c.iscrizioni || []).filter(i => i.stato_pagamento !== "annullata");

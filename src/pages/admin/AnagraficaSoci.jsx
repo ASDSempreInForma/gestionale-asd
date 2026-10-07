@@ -2184,7 +2184,8 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
                 )}
               />
               {['in_attesa', 'rifiutato', 'dichiarato'].includes(i.stato_pagamento) && (() => {
-                const confermate = iscrizioni.filter(a => a.id !== i.id && a.stagione_id === i.stagione_id && a.stato_pagamento === 'confermato')
+                // 07/10/2026: vale anche se il corso già attivo ha la ricevuta ancora "in verifica"
+                const confermate = iscrizioni.filter(a => a.id !== i.id && a.stagione_id === i.stagione_id && ['confermato', 'dichiarato'].includes(a.stato_pagamento))
                 return confermate.length > 0 ? <RichiestaIntegrazione iscrizione={i} socio={socio} altreConfermate={confermate} /> : null
               })()}
             </div>
