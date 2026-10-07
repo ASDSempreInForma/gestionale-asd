@@ -748,6 +748,48 @@ function FirmaCanvas({ label, onChange }) {
 // ---------------------------------------------------------------------
 // COMPONENTE PRINCIPALE
 // ---------------------------------------------------------------------
+
+// ─── Regole di disponibilità (07/10/2026, Solomon) ──────────────────────────
+// 1) La scelta "Da subito (settembre) / Dal 1° ottobre" vale solo fino al
+//    30 settembre: da ottobre in poi un corso iniziato a settembre si paga e si
+//    frequenta dal 1° ottobre, senza chiedere niente.
+function sceltaInizioSettembreAperta(corso) {
+  const anno = corso?.annoInizioStagione || new Date().getFullYear();
+  return new Date() < new Date(anno, 9, 1); // 1° ottobre dell'anno di inizio stagione
+}
+// 2) Corso bisettimanale con UN solo giorno al completo: non ci si può più
+//    iscrivere "2 volte a settimana"; resta solo l'altro giorno (1 volta), se il
+//    corso prevede la frequenza singola. Stessa regola già applicata dal
+//    database al momento dell'invio (inserisci_iscrizione_con_capienza): qui la
+//    si mostra subito, invece di far arrivare la persona fino in fondo.
+function giornoPieno(p) {
+  return p && p.disponibili !== null && p.disponibili !== undefined && p.disponibili <= 0;
+}
+function giorniLiberi(corso) {
+  return (corso?.posti || []).filter((p) => !giornoPieno(p));
+}
+function unGiornoPieno(corso) {
+  const posti = corso?.posti || [];
+  return posti.length === 2 && posti.some(giornoPieno) && !posti.every(giornoPieno);
+}
+// Il corso non è selezionabile: tutto pieno, oppure un giorno pieno e niente frequenza singola.
+function corsoNonDisponibile(corso) {
+  if (!corso) return false;
+  if (corso.tuttiPostiEsauriti) return true;
+  return unGiornoPieno(corso) && !corso.ha_variante_frequenza;
+}
+// La scelta fatta su questo corso è ancora valida rispetto ai posti?
+function sceltaValidaPerPosti(c) {
+  const corso = c.corso;
+  if (!corso || corsoNonDisponibile(corso)) return false;
+  if ((corso.posti || []).length !== 2) return true;
+  if (c.frequenza === "1x" && corso.ha_variante_frequenza) {
+    const g = corso.posti.find((p) => p.giorno === c.giornoScelto);
+    return !g || !giornoPieno(g); // senza giorno scelto la validazione dell'invio lo chiede comunque
+  }
+  return !corso.posti.some(giornoPieno);
+}
+
 export default function ModuloIscrizione() {
   const [step, setStep] = useState(1);
   // Blocco per certificato mancante l'anno precedente o altro motivo deciso
@@ -968,6 +1010,33 @@ export default function ModuloIscrizione() {
   const aggiornaCorso = (idx, campo, valore) =>
     setCorsiScelti((p) => p.map((c, i) => (i === idx ? { ...c, [campo]: valore } : c)));
 
+  // Adegua da sola la scelta alle regole di disponibilità (vedi sopra):
+  // da ottobre "dal 1° ottobre" automatico; con un solo giorno libero passa a
+  // "1 volta a settimana" su quel giorno.
+  useEffect(() => {
+    setCorsiScelti((prev) => {
+      let cambiato = false;
+      const nuovi = prev.map((sel) => {
+        const corso = corsi.find((x) => x.id === sel.corsoId);
+        if (!corso) return sel;
+        let n = sel;
+        if (corso.mese_inizio === "settembre" && !sceltaInizioSettembreAperta(corso) && sel.inizioPersonalizzato !== "ottobre") {
+          n = { ...n, inizioPersonalizzato: "ottobre" };
+        }
+        if (unGiornoPieno(corso) && corso.ha_variante_frequenza) {
+          const liberi = giorniLiberi(corso);
+          const sceltoPieno = n.frequenza === "1x" && n.giornoScelto && !liberi.some((p) => p.giorno === n.giornoScelto);
+          if (n.frequenza === "2x" || sceltoPieno || (n.frequenza === "1x" && !n.giornoScelto && liberi.length === 1)) {
+            n = { ...n, frequenza: "1x", giornoScelto: liberi[0]?.giorno || null };
+          }
+        }
+        if (n !== sel) cambiato = true;
+        return n;
+      });
+      return cambiato ? nuovi : prev;
+    });
+  }, [corsiScelti, corsi]);
+
   const corsiConCodice = useMemo(
     () =>
       corsiScelti
@@ -1040,7 +1109,7 @@ export default function ModuloIscrizione() {
   const puoiProseguire = () => {
     if (step === 1) return anagrafica.nome && anagrafica.cognome && anagrafica.dataNascita && anagrafica.cf && validaCodiceFiscale(anagrafica.cf);
     if (step === 2) return residenza.indirizzo && residenza.comune && residenza.email;
-    if (step === 3) return corsiConCodice.length > 0 && corsiConCodice.every((c) => c.corso?.mese_inizio !== "settembre" || c.inizioPersonalizzato) && (!vuoleExtraSettembre || corsoExtraSettembreId);
+    if (step === 3) return corsiConCodice.length > 0 && corsiConCodice.every((c) => c.corso?.mese_inizio !== "settembre" || c.inizioPersonalizzato) && corsiConCodice.every(sceltaValidaPerPosti) && (!vuoleExtraSettembre || corsoExtraSettembreId);
     if (step === 4) return regolamenti.statuto && regolamenti.privacy;
     if (step === 5) return firmaSocio && (!isMinorenne || firmaGenitore) && luogoFirma && dichiarazioneFirma;
     return true;
@@ -1560,7 +1629,7 @@ export default function ModuloIscrizione() {
                           >
                             <option value="">Seleziona…</option>
                             {corsiSede.map((c) => {
-                              const pieno = c.tuttiPostiEsauriti;
+                              const pieno = corsoNonDisponibile(c);
                               return (
                                 <option key={c.id} value={c.id} disabled={pieno}>
                                   {c.nomeVisualizzato || c.corso} — {c.orario}{pieno ? " — AL COMPLETO" : ""}
@@ -1583,6 +1652,13 @@ export default function ModuloIscrizione() {
                               </div>
                             );
                           })}
+                        </div>
+                      )}
+                      {corso && unGiornoPieno(corso) && (
+                        <div className="mt-2 text-sm px-3 py-2 rounded-lg border bg-amber-50 border-amber-200 text-amber-800">
+                          {corso.ha_variante_frequenza
+                            ? <>Il <b>{corso.posti.filter(giornoPieno).map((p) => p.giorno).join(", ")}</b> è al completo: per questo corso puoi iscriverti solo <b>1 volta a settimana</b>, il <b>{giorniLiberi(corso).map((p) => p.giorno).join(", ")}</b>.</>
+                            : <>Il <b>{corso.posti.filter(giornoPieno).map((p) => p.giorno).join(", ")}</b> è al completo e questo corso non prevede la frequenza di un solo giorno. Contatta la segreteria (327 868 1393) per la lista d'attesa.</>}
                         </div>
                       )}
                       {corso && corso.posti && corso.posti.length === 1 && corso.posti[0].disponibili !== null && corso.posti[0].disponibili <= 0 && (
@@ -1643,7 +1719,7 @@ export default function ModuloIscrizione() {
                         </div>
                       )}
 
-                      {corso?.mese_inizio === "settembre" && (
+                      {corso?.mese_inizio === "settembre" && sceltaInizioSettembreAperta(corso) && (
                         <div className="mt-3">
                           <p className="text-xs text-[#C24709] mb-1.5">
                             ✨ Questo corso è già iniziato a settembre (soglia minima raggiunta). Da quando vuoi iniziare a frequentarlo?

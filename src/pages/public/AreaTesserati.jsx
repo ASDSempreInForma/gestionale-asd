@@ -3,7 +3,7 @@ import SiteHeader from "../../SiteHeader.jsx";
 import SiteFooter from "../../SiteFooter.jsx";
 import ChatWidget from "../../ChatWidget.jsx";
 import CampoDocumento from "../../CampoDocumento.jsx";
-import { campiUpload } from "../../scansioneDocumento.js";
+import { campiUpload, tipoDaBytes } from "../../scansioneDocumento.js";
 import TesseraAssociativa from "../../TesseraAssociativa.jsx";
 import { statoTessera, scaricaTesseraPdf } from "../../tesseraAssociativa.js";
 
@@ -411,7 +411,7 @@ function ModaleRinnovo({ iscrizione, stagioneAttivaNome, onClose, onDone, callFn
 }
 
 // ─── Card di una singola iscrizione ─────────────────────────────────────────
-function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato }) {
+function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato, onVediDocumento }) {
   const corso = iscrizione.corsi;
   return (
     <div style={styles.card}>
@@ -462,6 +462,13 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato }) {
         {["mancante", "scaduto", "rifiutato"].includes(certificatoStatoEffettivo(iscrizione.stato_certificato, iscrizione.data_scadenza_certificato)) && (
           <button style={styles.btnSmall} onClick={onApriCertificato}>🩺 Invia certificato</button>
         )}
+        {/* 07/10/2026: il socio può rivedere i documenti che ha caricato */}
+        {iscrizione.ricevuta_url && (
+          <button style={styles.btnVedi} onClick={() => onVediDocumento("ricevuta", iscrizione.id)}>👁 Vedi ricevuta</button>
+        )}
+        {iscrizione.certificato_url && (
+          <button style={styles.btnVedi} onClick={() => onVediDocumento("certificato", iscrizione.id)}>👁 Vedi certificato</button>
+        )}
       </div>
     </div>
   );
@@ -474,7 +481,7 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato }) {
 // ─── Card SEDE (Via del Brolo) ──────────────────────────────────────────────
 const GIORNI_SETTIMANA = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
 
-function CardSede({ sede, onApriCertificato }) {
+function CardSede({ sede, onApriCertificato, onVediDocumento }) {
   const cert = sede.certificato || {};
   const stato = cert.presente ? "valido" : "mancante";
   const scaduto = certificatoStatoEffettivo(stato, cert.data_scadenza) === "scaduto";
@@ -504,6 +511,11 @@ function CardSede({ sede, onApriCertificato }) {
       <button onClick={onApriCertificato} style={{ ...styles.btnSmall, marginTop: 12 }}>
         📎 {cert.presente ? "Carica un nuovo certificato" : "Carica il certificato medico"}
       </button>
+      {cert.presente && (
+        <button onClick={() => onVediDocumento("certificato_sede")} style={{ ...styles.btnVedi, marginTop: 12, marginLeft: 8 }}>
+          👁 Vedi certificato
+        </button>
+      )}
     </div>
   );
 }
@@ -592,6 +604,34 @@ export default function AreaTesserati() {
     setScaricandoTessera(false);
     if (r.ok) window.open(r.url, "_blank");
     else alert(r.error || "Impossibile scaricare la tessera in questo momento.");
+  };
+
+  // Apre la ricevuta o il certificato caricati (07/10/2026). La scheda si apre
+  // subito al clic, altrimenti il browser la blocca come popup. I vecchi file
+  // senza estensione vengono scaricati e aperti con il tipo giusto, così si
+  // vedono invece di finire tra i download come file sconosciuto.
+  const vediDocumento = async (tipo, iscrizioneId) => {
+    const finestra = window.open("", "_blank");
+    const r = await callFnWithAuth({ action: "url_documento", tipo, iscrizione_id: iscrizioneId });
+    if (!r.ok) {
+      if (finestra) finestra.close();
+      alert(r.error || "Impossibile aprire il documento in questo momento.");
+      return;
+    }
+    let url = r.url;
+    if (!r.ha_estensione) {
+      try {
+        const blob = await (await fetch(r.url)).blob();
+        const testa = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
+        const mime = tipoDaBytes(testa) || blob.type || "application/octet-stream";
+        url = URL.createObjectURL(new Blob([blob], { type: mime }));
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } catch {
+        // se non riesce, si prova comunque con il link diretto
+      }
+    }
+    if (finestra) finestra.location.href = url;
+    else window.open(url, "_blank");
   };
 
   // Ripristina la sessione salvata sul dispositivo
@@ -837,7 +877,7 @@ export default function AreaTesserati() {
         )}
 
         {sede && (
-          <CardSede sede={sede} onApriCertificato={() => setModaleCertificatoSede(true)} />
+          <CardSede sede={sede} onApriCertificato={() => setModaleCertificatoSede(true)} onVediDocumento={vediDocumento} />
         )}
 
         {socio.tessera_ufficiale_disponibile && (
@@ -868,6 +908,7 @@ export default function AreaTesserati() {
               iscrizione={i}
               onApriRicevuta={() => setModaleRicevuta(i)}
               onApriCertificato={() => setModaleCertificato(i)}
+              onVediDocumento={vediDocumento}
             />
           ))}
         </div>
@@ -967,6 +1008,7 @@ const styles = {
   btnPrimary: { background: "#F5A623", color: "#fff", border: "none", padding: "10px 16px", borderRadius: 8, fontWeight: 600, cursor: "pointer" },
   btnSecondary: { background: "#e2e8f0", color: "#334155", border: "none", padding: "10px 16px", borderRadius: 8, fontWeight: 600, cursor: "pointer" },
   btnSmall: { background: "#FEF3E2", color: "#92400E", border: "1px solid #FBD38D", padding: "6px 10px", borderRadius: 8, fontSize: 13, cursor: "pointer" },
+  btnVedi: { background: "#fff", color: "#334155", border: "1px solid #CBD5E1", padding: "6px 10px", borderRadius: 8, fontSize: 13, cursor: "pointer" },
   linkBtn: { background: "none", border: "none", color: "#F5A623", fontSize: 12, cursor: "pointer", marginTop: 4 },
   quickRow: { display: "flex", gap: 10, flexWrap: "wrap", margin: "16px 0 24px" },
   quickBtn: { background: "#fff", border: "1px solid #e2e8f0", padding: "10px 14px", borderRadius: 10, textDecoration: "none", color: "#334155", fontSize: 14, fontWeight: 500 },
