@@ -1146,14 +1146,23 @@ export default function ModuloIscrizione() {
   const integrazione = useMemo(() => {
     if (corsiGiaPagati.length === 0 || corsiConCodice.length === 0) return null;
     const base = calcolaPrezzoTotale(corsiGiaPagati);
-    const insieme = calcolaPrezzoTotale([...corsiGiaPagati, ...corsiConCodice]);
+    // Da gennaio (regola di Solomon, 07/10/2026) il nuovo totale si calcola
+    // TUTTO a tariffa quadrimestrale ("quota da gennaio"), anche per il corso
+    // già pagato con l'annuale: lo sconto pacchetto/combinazione vale solo sul
+    // quadrimestrale. Si toglie poi la parte di annuale già versata per i mesi
+    // che restano (calcolaPrezzoTotale la riduce già dei mesi trascorsi).
+    // Esempio: Step 1 volta annuale 180€ + 2ª lezione a gennaio = 50€.
+    const giaPerCalcolo = mostraQ2
+      ? corsiGiaPagati.map((g) => (g.pagamento === "annuale" ? { ...g, pagamento: "q2" } : g))
+      : corsiGiaPagati;
+    const insieme = calcolaPrezzoTotale([...giaPerCalcolo, ...corsiConCodice]);
     const calcolabile = corsiGiaPagati.every((c) => c.corso) && base.totale !== null && insieme.totale !== null;
     return {
       calcolabile,
       importo: calcolabile ? Math.max(0, Math.round((insieme.totale - base.totale) * 100) / 100) : null,
       totaleInsieme: insieme.totale,
     };
-  }, [corsiGiaPagati, corsiConCodice]);
+  }, [corsiGiaPagati, corsiConCodice, mostraQ2]);
 
   // ── Extra "corso a settembre" (sovrapprezzo fisso, separato dal motore prezzi) ──
   const oggiESettembre = new Date().getMonth() === 8; // 8 = settembre (mesi 0-indicizzati)
