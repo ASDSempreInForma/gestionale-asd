@@ -39,8 +39,13 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const PAGAMENTI = [
   { value: "annuale", label: "Quota annuale", nota: "Pagamento in un'unica soluzione, entro l'inizio del corso." },
   { value: "q1", label: "1ª rata quadrimestrale", nota: "Scadenza: fine gennaio." },
-  { value: "q2", label: "Nuovo tesserato da Gennaio", nota: "Solo per chi NON era già iscritto nel 1° quadrimestre. Quota 1ª rata + 1 mese aggiuntivo (comprende iscrizione)." },
+  { value: "q2", label: "Quota da gennaio", nota: "Da gennaio la quota annuale non è più disponibile: si paga la quota quadrimestrale adattata ai mesi che restano (5 mesi se ti iscrivi a gennaio, fino a fine maggio)." },
 ];
+// Regola di Solomon (07/10/2026): la quota annuale (e la 1ª rata quadrimestrale)
+// si possono scegliere fino al 31 dicembre. Da gennaio chiunque si iscriva o
+// aggiunga un corso (integrazione) paga la quota "q2": quota di 4 mesi più 1
+// mese (gennaio), cioè 5 mesi a gennaio, poi un mese in meno per ogni mese
+// già trascorso (vedi importoCorso).
 
 // ---------------------------------------------------------------------
 // EXTRA "CORSO A SETTEMBRE" (richiesto da Solomon il 02/09/2026)
@@ -343,6 +348,8 @@ function calcolaPrezzoTotale(corsiSelezionati) {
   const ZUMBA_MULTI_PURO = {
     annuale: { 2: 180, 3: 260 }, // 220-40, 300-40
     q1: { 2: 110, 3: 150 },      // 150-40, 190-40
+    // Da gennaio (07/10/2026): stessa tariffa del quadrimestre più 1 mese
+    q2: { 2: 110 * 5 / 4, 3: 150 * 5 / 4 },
   };
   const zumbaMulti = altri.filter((c) => c.corso.corso === "Zumba");
   const altriNonZumba = altri.filter((c) => c.corso.corso !== "Zumba");
@@ -360,12 +367,12 @@ function calcolaPrezzoTotale(corsiSelezionati) {
     const sediUniche = [...new Set(zumbaMulti.map((c) => c.corso.sede))];
     const contaValidaPerTariffaFissa = zumbaMulti.length === 2 || (zumbaMulti.length === 3 && sediUniche.length === 1);
     const pagamentiUnici = [...new Set(zumbaMulti.map((c) => c.pagamento))];
-    if (contaValidaPerTariffaFissa && pagamentiUnici.length === 1 && pagamentiUnici[0] !== "q2") {
+    if (contaValidaPerTariffaFissa && pagamentiUnici.length === 1) {
       const tabella = ZUMBA_MULTI_PURO[pagamentiUnici[0]];
       const puroFisso = tabella ? tabella[zumbaMulti.length] : undefined;
       if (puroFisso !== undefined) {
         zumbaSpecialeAttivo = true;
-        zumbaMesiRiferimento = pagamentiUnici[0] === "annuale" ? 8 : 4;
+        zumbaMesiRiferimento = pagamentiUnici[0] === "annuale" ? 8 : pagamentiUnici[0] === "q2" ? 5 : 4;
       }
     }
   }
@@ -418,7 +425,7 @@ function calcolaPrezzoTotale(corsiSelezionati) {
       while (candidati.length >= 2) {
         const a = candidati.shift();
         const b = candidati.shift();
-        const stessoPagamento = a.pagamento === b.pagamento && a.pagamento !== "q2";
+        const stessoPagamento = a.pagamento === b.pagamento;
         const stessoMese = meseInizioEffettivo(a) === meseInizioEffettivo(b);
         // Serve un corso "di riferimento" che abbia davvero la tariffa
         // standard "2 volte a settimana" nei campi quota_annuale/quota_quad1.
@@ -499,7 +506,7 @@ function calcolaPrezzoTotale(corsiSelezionati) {
     // I 3 turni Zumba partono tutti a ottobre, quindi il riferimento è sempre
     // il 1° ottobre — uso comunque il mese_inizio vero del corso per sicurezza.
     const corsoRif = zumbaMulti[0].corso;
-    const meseInizioNum = corsoRif.mese_inizio === "settembre" ? 9 : 10;
+    const meseInizioNum = zumbaMulti[0].pagamento === "q2" ? 1 : corsoRif.mese_inizio === "settembre" ? 9 : 10;
     const annoBase = corsoRif.annoInizioStagione || new Date().getFullYear();
     const mesiTrascorsiZumba = mesiTrascorsiDal(annoBase, meseInizioNum, zumbaMesiRiferimento, zumbaMulti[0].pagamento);
     if (mesiTrascorsiZumba > 0) {
@@ -1034,6 +1041,9 @@ export default function ModuloIscrizione() {
         const corso = corsi.find((x) => x.id === sel.corsoId);
         if (!corso) return sel;
         let n = sel;
+        // Da gennaio solo "quota da gennaio"; prima di gennaio non esiste.
+        if (mostraQ2 && n.pagamento !== "q2") n = { ...n, pagamento: "q2" };
+        if (!mostraQ2 && n.pagamento === "q2") n = { ...n, pagamento: "annuale" };
         if (corso.mese_inizio === "settembre" && !sceltaInizioSettembreAperta(corso) && sel.inizioPersonalizzato !== "ottobre") {
           n = { ...n, inizioPersonalizzato: "ottobre" };
         }
@@ -1049,7 +1059,7 @@ export default function ModuloIscrizione() {
       });
       return cambiato ? nuovi : prev;
     });
-  }, [corsiScelti, corsi]);
+  }, [corsiScelti, corsi, mostraQ2]);
 
   // Recupera i corsi già attivi della persona (CF + email o telefono uguali
   // all'anagrafica) quando arriva alla scelta dei corsi.
@@ -1815,7 +1825,7 @@ export default function ModuloIscrizione() {
                         <div className="mt-3">
                           <label className="text-xs font-medium text-slate-600 block mb-1">Tipo pagamento</label>
                           <div className="flex flex-col gap-1.5">
-                            {PAGAMENTI.filter((p) => (p.value !== "q2" || mostraQ2) && (p.value !== "q1" || corso.quota_quad1)).map((p) => (
+                            {PAGAMENTI.filter((p) => (p.value === "q2" ? mostraQ2 : !mostraQ2) && (p.value !== "q1" || corso.quota_quad1)).map((p) => (
                               <label key={p.value} className="flex items-start gap-2 text-sm cursor-pointer">
                                 <input type="radio" className="mt-0.5" checked={sel.pagamento === p.value} onChange={() => aggiornaCorso(idx, "pagamento", p.value)} />
                                 <span>
