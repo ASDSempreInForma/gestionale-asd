@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { scadenzaPerNuovoNumero } from '../../tesseraAssociativa.js'
 import { supabase } from '../../supabase.js'
 import { percorsoOriginale } from '../../scansioneDocumento.js'
 
@@ -239,7 +240,7 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
   const salvaTessera = async () => {
     if (!tessera.trim()) return
     setSalvandoTessera(true)
-    const { error } = await supabase.from('soci').update({ numero_tessera: tessera.trim() }).eq('cf', socio.cf)
+    const { error } = await supabase.from('soci').update({ numero_tessera: tessera.trim(), ...scadenzaPerNuovoNumero(socio, tessera) }).eq('cf', socio.cf)
     setSalvandoTessera(false)
     if (error) alert('Errore nel salvare il numero tessera: ' + error.message)
     else onAggiorna()
@@ -600,7 +601,7 @@ export default function VerificaDocumenti() {
         id, tipo_pagamento, stato_pagamento, importo_dichiarato, data_pagamento, ricevuta_url, nota_pagamento,
         stato_certificato, data_scadenza_certificato, certificato_url, verificato_da, verificato_il,
         frequenza, giorno_scelto,
-        soci ( cf, nome, cognome, email, numero_tessera ),
+        soci ( cf, nome, cognome, email, numero_tessera, scadenza_tessera ),
         corsi!iscrizioni_corso_id_fkey ( disciplina, giorni_orari, sedi ( nome ) )
       `)
       .order('data_iscrizione', { ascending: false })

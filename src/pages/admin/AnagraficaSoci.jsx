@@ -3,7 +3,7 @@ import { supabase } from '../../supabase.js'
 import { generaPdfDomandaAdesione, comprimiTesseraPdf, estraiPaginaTesseraPerAI } from '../../pdfModuli.js'
 import ComboComune from '../../ComboComune.jsx'
 import CampoDocumento from '../../CampoDocumento.jsx'
-import { statoTessera, scaricaTesseraPdf } from '../../tesseraAssociativa.js'
+import { statoTessera, scaricaTesseraPdf, scadenzaPerNuovoNumero } from '../../tesseraAssociativa.js'
 import RitaglioDocumento from '../../RitaglioDocumento.jsx'
 
 // Chiave pubblica (anon) per chiamare l'edge function genera-testo-ai,
@@ -1684,7 +1684,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
 
   const salvaTessera = async () => {
     setSalvandoTessera(true)
-    const { error } = await supabase.from('soci').update({ numero_tessera: tessera || null }).eq('cf', socio.cf)
+    const { error } = await supabase.from('soci').update({ numero_tessera: tessera || null, ...scadenzaPerNuovoNumero(socio, tessera) }).eq('cf', socio.cf)
     setSalvandoTessera(false)
     if (error) alert('Errore: ' + error.message)
     else onAggiornato()
@@ -1843,6 +1843,7 @@ Attenzione: NON confondere il numero di tessera con il codice di affiliazione de
       const aggiornamento = { numero_tessera: numero }
       const ente = /asi/i.test(estratti.ente || '') ? 'ASI' : /libertas/i.test(estratti.ente || '') ? 'Libertas' : null
       if (ente) aggiornamento.ente_tessera = ente
+      Object.assign(aggiornamento, scadenzaPerNuovoNumero(socio, numero))
       if (/^\d{4}-\d{2}-\d{2}$/.test(estratti.scadenza || '')) aggiornamento.scadenza_tessera = estratti.scadenza
       const { error } = await supabase.from('soci').update(aggiornamento).eq('cf', socio.cf)
       if (error) throw new Error(error.message)

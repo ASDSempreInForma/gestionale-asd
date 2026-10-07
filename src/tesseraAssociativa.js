@@ -52,6 +52,21 @@ function fmtIt(iso) {
 
 // "valida" = c'è un numero di tessera della stagione in corso;
 // "scaduta" = c'è solo il numero della stagione passata; "mancante" = nessun numero.
+// Campi da aggiungere quando la segreteria registra un numero di tessera:
+// se il numero è nuovo e la scadenza manca o è della stagione passata, la
+// scadenza diventa il 31/08 di fine stagione in corso (06/10/2026: prima i
+// numeri inseriti a mano restavano con la scadenza vecchia e la tessera non
+// compariva nell'area privata).
+export function scadenzaPerNuovoNumero(socio, nuovoNumero) {
+  const n = String(nuovoNumero || "").trim();
+  if (!n || n === String(socio?.numero_tessera || "").trim()) return {};
+  const sc = socio?.scadenza_tessera ? String(socio.scadenza_tessera).slice(0, 10) : null;
+  if (sc && sc >= oggiIso()) return {};
+  const d = new Date();
+  const anno = d.getMonth() >= 8 ? d.getFullYear() + 1 : d.getFullYear();
+  return { scadenza_tessera: `${anno}-08-31` };
+}
+
 export function statoTessera(socio) {
   if (!socio?.numero_tessera) return "mancante";
   if (socio.scadenza_tessera && String(socio.scadenza_tessera).slice(0, 10) < oggiIso()) return "scaduta";
