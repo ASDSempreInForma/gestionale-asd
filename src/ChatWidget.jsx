@@ -110,28 +110,25 @@ COME CI SI ISCRIVE
 CERTIFICATO MEDICO
 - È obbligatorio un certificato di idoneità allo sport non agonistico, da consegnare
   entro 1 mese dall'iscrizione (DM 28/2/1983).
-- Siamo convenzionati con TRE centri medici:
-  • Centro Medico Val Trompia – Via Europa 152, Concesio – visita con ECG a 33€
-  • Poliambulatorio Piscine TIBIDABO – Via Aldo Moro 18, Concesio – visita con ECG a 30€
-  • Medical Sport – Via Bazoli 6, Brescia (Centro Sportivo S. Filippo)
-- Per usufruire di Val Trompia o Tibidabo, il socio deve comunicarlo alla segreteria,
-  che segnala il nominativo alla struttura. Medical Sport invece si prenota
-  direttamente (vedi sotto) senza passare dalla segreteria.
-  - Centro Medico Val Trompia: la segreteria invia al socio la TESSERA VIRTUALE
-    (come sempre) via WhatsApp/email, da presentare il giorno della visita.
-  - Poliambulatorio TIBIDABO: DA QUESTA STAGIONE SPORTIVA il centro richiede una
-    PROPRIA TESSERA CARTACEA (non più la tessera virtuale ASD) da presentare il
-    giorno della visita. Su richiesta del socio, la segreteria consegna la tessera
-    cartacea di persona in palestra, PRIMA della visita medica (il socio deve
-    quindi chiederla con un minimo di anticipo, non il giorno stesso della visita).
-    Se un socio chiede della convenzione Tibidabo, ricordagli che gli servirà
-    questa tessera cartacea e che va ritirata in palestra in anticipo.
-  - Medical Sport: il socio prenota da solo la visita scrivendo un WhatsApp al
-    numero 030-2411109, specificando di essere tesserato A.S.D. Sempre In Forma.
-    Il giorno della visita mostra la TESSERA VIRTUALE, esattamente come per il
-    Centro Medico Val Trompia (la segreteria gliela invia su richiesta, come sempre).
-  - Nei casi che prevedono una tessera (Val Trompia e Medical Sport), questa viene
-    inviata solo su richiesta esplicita del socio, non automaticamente a tutti.
+- Siamo convenzionati con TRE centri medici (testi allineati al volantino
+  "Certificati medici" della segreteria, aggiornato 07/10/2026). In tutti i casi
+  il socio prenota DA SOLO dicendo che è dell'A.S.D. Sempre In Forma:
+  • Poliambulatorio delle Piscine TIBIDABO – Via Aldo Moro 18, Concesio – visita con
+    ECG a 30€ – appuntamento telefonando allo 030 5107505 (dal lunedì al venerdì,
+    dalle 15 alle 18)
+  • Centro Medico Val Trompia – Via Europa 152, Concesio – visita con ECG a 33€ –
+    appuntamento telefonando allo 030 4193773
+  • Medical Sport – Via Bazoli 6, Brescia (Centro Sportivo S. Filippo) – 30€ –
+    prenotazione con un WhatsApp allo 030-2411109
+- Per usufruire della convenzione serve la TESSERA dell'associazione:
+  - chi ha già il numero di tessera della stagione la trova nella propria Area
+    Tesserati (tessera virtuale da mostrare dal telefono, oppure versione da
+    stampare in PDF);
+  - chi non ce l'ha ancora, dopo aver preso l'appuntamento la richiede alla
+    segreteria con un WhatsApp al 327 868 1393;
+  - Poliambulatorio TIBIDABO: richiede la TESSERA CARTACEA. Il socio può prenotare
+    subito, ma deve ricordarsi di ritirare la tessera cartacea in palestra PRIMA
+    della visita (chiedendola con un minimo di anticipo, non il giorno stesso).
 - Senza certificato valido non si può essere riconfermati alla stagione successiva.
 - Una volta ottenuto il certificato (da questi centri o dal proprio medico), va
   CARICATO nell'Area Tesserati del socio (mai via email) — vedi indicazione sopra.
