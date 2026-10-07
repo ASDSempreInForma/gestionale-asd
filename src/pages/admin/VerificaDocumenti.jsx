@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { scadenzaPerNuovoNumero } from '../../tesseraAssociativa.js'
+import { scadenzaPerNuovoNumero, enteIniziale, ENTI_TESSERA } from '../../tesseraAssociativa.js'
 import { supabase } from '../../supabase.js'
 import { percorsoOriginale } from '../../scansioneDocumento.js'
 
@@ -180,6 +180,7 @@ function ModaleConfermaNota({ tipo, onClose, onConfirm }) {
 // si mostra solo il riquadro di quel tipo di documento.
 function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
   const [tessera, setTessera] = useState(row.soci?.numero_tessera || '')
+  const [enteTessera, setEnteTessera] = useState(enteIniziale(row.soci))
   const [salvandoTessera, setSalvandoTessera] = useState(false)
   const [modaleRifiuto, setModaleRifiuto] = useState(null) // 'pagamento' | 'certificato' | null
   const [modaleConfermaNota, setModaleConfermaNota] = useState(null) // 'pagamento' | 'certificato' | null
@@ -239,8 +240,9 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
 
   const salvaTessera = async () => {
     if (!tessera.trim()) return
+    if (!enteTessera) { alert("Scegli l'ente della tessera (Libertas o ASI) prima di salvare."); return }
     setSalvandoTessera(true)
-    const { error } = await supabase.from('soci').update({ numero_tessera: tessera.trim(), ...scadenzaPerNuovoNumero(socio, tessera) }).eq('cf', socio.cf)
+    const { error } = await supabase.from('soci').update({ numero_tessera: tessera.trim(), ...scadenzaPerNuovoNumero(socio, tessera), ente_tessera: enteTessera }).eq('cf', socio.cf)
     setSalvandoTessera(false)
     if (error) alert('Errore nel salvare il numero tessera: ' + error.message)
     else onAggiorna()
@@ -260,6 +262,11 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
             placeholder="N. tessera"
             style={{ width: 100, padding: '6px 8px', borderRadius: 6, border: `1px solid ${BD}`, fontSize: 13 }}
           />
+          <select value={enteTessera} onChange={e => setEnteTessera(e.target.value)} aria-label="Ente della tessera"
+            style={{ padding: '6px 8px', borderRadius: 6, border: `1px solid ${enteTessera ? BD : '#F59E0B'}`, fontSize: 13, background: 'white' }}>
+            <option value="">Ente…</option>
+            {ENTI_TESSERA.map(e => <option key={e} value={e}>{e}</option>)}
+          </select>
           <button onClick={salvaTessera} disabled={salvandoTessera} style={{ background: GL, border: 'none', padding: '6px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
             {salvandoTessera ? '...' : 'Salva'}
           </button>
@@ -601,7 +608,7 @@ export default function VerificaDocumenti() {
         id, tipo_pagamento, stato_pagamento, importo_dichiarato, data_pagamento, ricevuta_url, nota_pagamento,
         stato_certificato, data_scadenza_certificato, certificato_url, verificato_da, verificato_il,
         frequenza, giorno_scelto,
-        soci ( cf, nome, cognome, email, numero_tessera, scadenza_tessera ),
+        soci ( cf, nome, cognome, email, numero_tessera, scadenza_tessera, ente_tessera ),
         corsi!iscrizioni_corso_id_fkey ( disciplina, giorni_orari, sedi ( nome ) )
       `)
       .order('data_iscrizione', { ascending: false })

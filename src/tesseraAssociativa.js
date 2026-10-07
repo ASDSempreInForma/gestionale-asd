@@ -52,18 +52,32 @@ function fmtIt(iso) {
 
 // "valida" = c'è un numero di tessera della stagione in corso;
 // "scaduta" = c'è solo il numero della stagione passata; "mancante" = nessun numero.
-// Campi da aggiungere quando la segreteria registra un numero di tessera:
-// se il numero è nuovo e la scadenza manca o è della stagione passata, la
-// scadenza diventa il 31/08 di fine stagione in corso (06/10/2026).
+// Campi da aggiungere quando la segreteria registra un numero di tessera
+// NUOVO (06–07/10/2026): l'ente della stagione passata viene azzerato (il
+// numero è di un tesseramento nuovo, l'ente va scelto di nuovo: Libertas e
+// ASI ripartono ogni anno da 1, quindi non si può dedurre dal numero) e, se
+// la scadenza manca o è della stagione passata, diventa il 31/08 di fine
+// stagione in corso. Chi chiama poi imposta ente_tessera con quello scelto.
 export function scadenzaPerNuovoNumero(socio, nuovoNumero) {
   const n = String(nuovoNumero || "").trim();
   if (!n || n === String(socio?.numero_tessera || "").trim()) return {};
+  const campi = { ente_tessera: null };
   const sc = socio?.scadenza_tessera ? String(socio.scadenza_tessera).slice(0, 10) : null;
-  if (sc && sc >= oggiIso()) return {};
-  const d = new Date();
-  const anno = d.getMonth() >= 8 ? d.getFullYear() + 1 : d.getFullYear();
-  return { scadenza_tessera: `${anno}-08-31` };
+  if (!sc || sc < oggiIso()) {
+    const d = new Date();
+    const anno = d.getMonth() >= 8 ? d.getFullYear() + 1 : d.getFullYear();
+    campi.scadenza_tessera = `${anno}-08-31`;
+  }
+  return campi;
 }
+
+// Ente da proporre nel menu accanto al numero: quello registrato solo se la
+// tessera è della stagione in corso, altrimenti nessuno (va scelto).
+export function enteIniziale(socio) {
+  return statoTessera(socio) === "valida" ? (socio?.ente_tessera || "") : "";
+}
+
+export const ENTI_TESSERA = ["Libertas", "ASI"];
 
 export function statoTessera(socio) {
   if (!socio?.numero_tessera) return "mancante";

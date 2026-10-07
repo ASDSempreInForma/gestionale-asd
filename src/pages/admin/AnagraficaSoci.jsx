@@ -3,7 +3,7 @@ import { supabase } from '../../supabase.js'
 import { generaPdfDomandaAdesione, comprimiTesseraPdf, estraiPaginaTesseraPerAI } from '../../pdfModuli.js'
 import ComboComune from '../../ComboComune.jsx'
 import CampoDocumento from '../../CampoDocumento.jsx'
-import { statoTessera, scaricaTesseraPdf, scadenzaPerNuovoNumero } from '../../tesseraAssociativa.js'
+import { statoTessera, scaricaTesseraPdf, scadenzaPerNuovoNumero, enteIniziale, ENTI_TESSERA } from '../../tesseraAssociativa.js'
 import RitaglioDocumento from '../../RitaglioDocumento.jsx'
 
 // Chiave pubblica (anon) per chiamare l'edge function genera-testo-ai,
@@ -1525,6 +1525,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
   const [salvandoNota, setSalvandoNota] = useState(false)
   const [notaSalvata, setNotaSalvata] = useState(false)
   const [tessera, setTessera] = useState(socio.numero_tessera || '')
+  const [enteTessera, setEnteTessera] = useState(enteIniziale(socio))
   const [salvandoTessera, setSalvandoTessera] = useState(false)
   const [caricandoPdf, setCaricandoPdf] = useState(false)
   const [erroreePdf, setErrorePdf] = useState('')
@@ -1683,8 +1684,9 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
   }
 
   const salvaTessera = async () => {
+    if (tessera && !enteTessera) { alert("Scegli l'ente della tessera (Libertas o ASI) prima di salvare."); return }
     setSalvandoTessera(true)
-    const { error } = await supabase.from('soci').update({ numero_tessera: tessera || null, ...scadenzaPerNuovoNumero(socio, tessera) }).eq('cf', socio.cf)
+    const { error } = await supabase.from('soci').update({ numero_tessera: tessera || null, ...scadenzaPerNuovoNumero(socio, tessera), ...(tessera ? { ente_tessera: enteTessera || null } : {}) }).eq('cf', socio.cf)
     setSalvandoTessera(false)
     if (error) alert('Errore: ' + error.message)
     else onAggiornato()
@@ -1803,7 +1805,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
       const prompt = `Questa è la tessera associativa di un ente di promozione sportiva italiano (ASI oppure Libertas).
 ${testo ? `Testo estratto dal PDF (può essere disordinato): """${testo.slice(0, 3000)}"""\n` : ''}Rispondi SOLO con un oggetto JSON, senza altro testo:
 {"numero_tessera": "solo il numero/codice della tessera del socio, senza prefissi come 'N.' o 'Tessera'", "ente": "ASI" oppure "Libertas" oppure null, "cognome": "...", "nome": "...", "codice_fiscale": "... o null", "scadenza": "YYYY-MM-DD o null"}
-Attenzione: NON confondere il numero di tessera con il codice di affiliazione della società (es. BS0905, BS481, 98087620179) né con il codice fiscale. Se un dato non si legge con certezza usa null.`
+Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; se compare \"ASI\" o il codice BS0905 e' \"ASI\". Attenzione: NON confondere il numero di tessera con il codice di affiliazione della società (es. BS0905, BS481, 98087620179) né con il codice fiscale. Se un dato non si legge con certezza usa null.`
       const res = await fetch('https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/genera-testo-ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY_AI, Authorization: `Bearer ${SUPABASE_ANON_KEY_AI}` },
@@ -1840,14 +1842,17 @@ Attenzione: NON confondere il numero di tessera con il codice di affiliazione de
         }
       }
 
-      const aggiornamento = { numero_tessera: numero }
-      const ente = /asi/i.test(estratti.ente || '') ? 'ASI' : /libertas/i.test(estratti.ente || '') ? 'Libertas' : null
-      if (ente) aggiornamento.ente_tessera = ente
-      Object.assign(aggiornamento, scadenzaPerNuovoNumero(socio, numero))
+      // prima le regole del numero nuovo (ente vecchio azzerato, scadenza di
+      // stagione), poi l'ente letto dal PDF, che ha la precedenza
+      const aggiornamento = { numero_tessera: numero, ...scadenzaPerNuovoNumero(socio, numero) }
+      const enteLetto = /asi/i.test(estratti.ente || '') ? 'ASI' : /libertas/i.test(estratti.ente || '') ? 'Libertas' : null
+      if (enteLetto) aggiornamento.ente_tessera = enteLetto
+      const ente = aggiornamento.ente_tessera ?? socio.ente_tessera ?? null
       if (/^\d{4}-\d{2}-\d{2}$/.test(estratti.scadenza || '')) aggiornamento.scadenza_tessera = estratti.scadenza
       const { error } = await supabase.from('soci').update(aggiornamento).eq('cf', socio.cf)
       if (error) throw new Error(error.message)
       setTessera(numero)
+      setEnteTessera(aggiornamento.ente_tessera || '')
       setEsitoRiconoscimento({ tipo: 'ok', testo: `✓ Numero di tessera riconosciuto e salvato: ${numero}${ente ? ` (${ente}${aggiornamento.scadenza_tessera ? `, scade ${fmtData(aggiornamento.scadenza_tessera)}` : ''})` : ''}. Controlla che sia giusto.` })
     } catch (e) {
       setEsitoRiconoscimento({ tipo: 'avviso', testo: 'Non sono riuscito a leggere il numero di tessera dal PDF (' + e.message + '): inseriscilo a mano.' })
@@ -1959,6 +1964,11 @@ Attenzione: NON confondere il numero di tessera con il codice di affiliazione de
             <div style={{ display: 'flex', gap: 6 }}>
               <input value={tessera} onChange={e => setTessera(e.target.value)}
                 style={{ width: 110, padding: '6px 8px', borderRadius: 6, border: `1px solid ${BD}`, fontSize: 13 }} />
+              <select value={enteTessera} onChange={e => setEnteTessera(e.target.value)} aria-label="Ente della tessera"
+                style={{ padding: '6px 8px', borderRadius: 6, border: `1px solid ${enteTessera ? BD : '#F59E0B'}`, fontSize: 13, background: 'white' }}>
+                <option value="">Ente…</option>
+                {ENTI_TESSERA.map(e => <option key={e} value={e}>{e}</option>)}
+              </select>
               <button onClick={salvaTessera} disabled={salvandoTessera} style={{ background: GL, border: 'none', borderRadius: 6, padding: '6px 10px', fontSize: 12, cursor: 'pointer' }}>
                 {salvandoTessera ? '...' : 'Salva'}
               </button>
