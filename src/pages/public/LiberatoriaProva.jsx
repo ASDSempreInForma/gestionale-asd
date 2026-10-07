@@ -343,6 +343,13 @@ export default function LiberatoriaProva() {
     if (s === 4) {
       if (!d.corsoProvaId) e.corsoProvaId = "Seleziona un corso";
       if (d.frequenzaDesiderata === "1x" && !d.giornoPreferito) e.giornoPreferito = "Seleziona quale dei due giorni";
+      // 07/10/2026: se uno dei due giorni è al completo, si può proseguire solo
+      // scegliendo l'altro giorno (1 volta a settimana).
+      const cs = corsi.find((c) => c.id === d.corsoProvaId);
+      const gPieno = (cs?.giorni || []).find((g) => g.liberi <= 0);
+      if (cs?.giorni?.length === 2 && gPieno && !(d.frequenzaDesiderata === "1x" && d.giornoPreferito && d.giornoPreferito !== gPieno.giorno)) {
+        e.giornoPreferito = `Il ${gPieno.giorno} è al completo: puoi provare e iscriverti solo 1 volta a settimana, nell'altro giorno.`;
+      }
     }
     if (s === 6) {
       if (!d.luogo.trim()) e.luogo = "Obbligatorio";
@@ -683,7 +690,13 @@ export default function LiberatoriaProva() {
                     const isBlocked = stato === "pieno" || stato === "prove_bloccate";
                     const isSelected = d.corsoProvaId === c.id;
                     return (
-                      <div key={c.id} onClick={() => !isBlocked && (setLimiteBloccato(null), setD((prev) => ({ ...prev, corsoProvaId: c.id, frequenzaDesiderata: "", giornoPreferito: "" })))}
+                      <div key={c.id} onClick={() => !isBlocked && (setLimiteBloccato(null), setD((prev) => {
+                        // 07/10/2026: se un giorno è pieno, si preseleziona l'unico giorno libero
+                        const gg = c.giorni || [];
+                        const liberi = gg.filter((g) => g.liberi > 0);
+                        const unoPieno = gg.length === 2 && liberi.length === 1;
+                        return { ...prev, corsoProvaId: c.id, frequenzaDesiderata: unoPieno ? "1x" : "", giornoPreferito: unoPieno ? liberi[0].giorno : "" };
+                      }))}
                         style={{ border: `1.5px solid ${isSelected?G:isBlocked?"#E5E7EB":BD}`, borderRadius: 10, padding: "11px 14px",
                           cursor: isBlocked?"not-allowed":"pointer", background: isSelected?GL:isBlocked?"#FAFAFA":"white",
                           opacity: isBlocked?0.7:1, transition: "all .15s" }}>
@@ -719,6 +732,15 @@ export default function LiberatoriaProva() {
                 const entrambiDisponibili = !corsoSel?.giorni || corsoSel.giorni.every((g) => g.liberi > 0);
                 return (
                   <div style={{ background: "#F8FAFC", border: `1px solid ${BD}`, borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
+                    {!entrambiDisponibili && (() => {
+                      const pieno = corsoSel.giorni.find((g) => g.liberi <= 0);
+                      const libero = corsoSel.giorni.find((g) => g.liberi > 0);
+                      return (
+                        <div style={{ background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 8, padding: "8px 10px", fontSize: 12.5, color: "#92400E", marginBottom: 10 }}>
+                          ⚠️ Il <b>{pieno?.giorno}</b> è al completo: puoi provare e poi iscriverti solo <b>1 volta a settimana</b>{libero ? <>, il <b>{libero.giorno}</b></> : ""}.
+                        </div>
+                      );
+                    })()}
                     <div style={{ fontSize: 13, fontWeight: 500, color: TX, marginBottom: 8 }}>
                       Questo corso si svolge 2 volte a settimana. Se poi deciderai di iscriverti, vorresti frequentarlo:
                     </div>
