@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import RitaglioDocumento from "./RitaglioDocumento.jsx";
-import { eImmagine, senzaScansione } from "./scansioneDocumento.js";
+import { eImmagine, senzaScansione, riconosciFile } from "./scansioneDocumento.js";
 
 /* =====================================================================
    CAMPO DOCUMENTO — sostituisce il vecchio <input type="file">
@@ -19,6 +19,7 @@ export default function CampoDocumento({ onChange, colore = "#2A6F86", accept = 
   async function scelto(file) {
     if (inputRef.current) inputRef.current.value = ""; // permette di riscegliere lo stesso file
     if (!file) return;
+    file = await riconosciFile(file); // file senza estensione/tipo (alcuni telefoni)
     if (eImmagine(file)) {
       setDaRitagliare(file);
       return;

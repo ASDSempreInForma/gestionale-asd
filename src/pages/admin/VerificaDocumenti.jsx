@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { scadenzaPerNuovoNumero, enteIniziale, ENTI_TESSERA } from '../../tesseraAssociativa.js'
 import { supabase } from '../../supabase.js'
-import { percorsoOriginale } from '../../scansioneDocumento.js'
+import { percorsoOriginale, apriDocumentoStorage } from '../../scansioneDocumento.js'
 
 const G = "#2D6A4F", GL = "#D8F3DC"
 const BD = "#E8E4DC", TX = "#1A1A1A", SUB = "#6B7280"
@@ -55,13 +55,8 @@ function fmtData(d) {
 }
 
 async function apriDocumento(path) {
-  if (!path) return
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 120)
-  if (error) {
-    alert('Impossibile aprire il documento: ' + error.message)
-    return
-  }
-  window.open(data.signedUrl, '_blank')
+  // riconosce anche i file caricati senza estensione (07/10/2026)
+  await apriDocumentoStorage(supabase, BUCKET, path)
 }
 
 // Apre la foto originale (copia di sicurezza) di un documento "scansionato".

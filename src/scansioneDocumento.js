@@ -350,6 +350,72 @@ export async function convertiSeHeic(file) {
   }
 }
 
+// ─── Riconoscimento del tipo di file dal contenuto (07/10/2026) ──────────
+// Alcuni telefoni caricano file senza estensione e senza tipo (caso reale:
+// ricevuta "Mineo_ricevuta_pagamwnto" salvata come file generico, che non
+// si apriva). Si guardano i primi byte, che dicono sempre cos'è il file.
+const ESTENSIONI = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png", "image/heic": "heic", "image/gif": "gif", "image/webp": "webp" };
+
+export function tipoDaBytes(b) {
+  if (!b || b.length < 12) return null;
+  if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return "application/pdf"; // %PDF
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return "image/gif";
+  if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return "image/webp";
+  const ftyp = String.fromCharCode(b[4], b[5], b[6], b[7]);
+  const marca = String.fromCharCode(b[8], b[9], b[10], b[11]);
+  if (ftyp === "ftyp" && /^(heic|heix|hevc|hevx|mif1|msf1|heim|heis)$/.test(marca)) return "image/heic";
+  return null;
+}
+
+// Restituisce lo stesso file con tipo ed estensione giusti, se si capisce dal
+// contenuto; altrimenti il file così com'è.
+export async function riconosciFile(file) {
+  if (!file) return file;
+  try {
+    const testa = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+    const tipo = tipoDaBytes(testa);
+    if (!tipo) return file;
+    const ext = ESTENSIONI[tipo];
+    const nomeOk = new RegExp(`\\.${ext === "jpg" ? "(jpg|jpeg)" : ext}$`, "i").test(file.name || "");
+    if (file.type === tipo && nomeOk) return file;
+    const base = (file.name || "documento").replace(/\.[^./]{1,5}$/, "");
+    return new File([file], `${base}.${ext}`, { type: tipo, lastModified: file.lastModified });
+  } catch {
+    return file;
+  }
+}
+
+// Apre un documento dello storage in una nuova scheda. Se il file non ha
+// un'estensione riconoscibile (vecchi caricamenti), lo scarica, ne riconosce
+// il tipo dal contenuto e lo apre con il tipo giusto, così si vede invece di
+// essere scaricato come file sconosciuto. La finestra si apre subito al clic
+// (altrimenti il browser la blocca come popup).
+export async function apriDocumentoStorage(supabase, bucket, path) {
+  if (!path) return;
+  const w = window.open("", "_blank");
+  const conEstensione = /\.(pdf|jpe?g|png|gif|webp|heic|heif)$/i.test(path);
+  try {
+    if (conEstensione) {
+      const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 120);
+      if (error) throw error;
+      if (w) w.location.href = data.signedUrl; else window.open(data.signedUrl, "_blank");
+      return;
+    }
+    const { data: blob, error } = await supabase.storage.from(bucket).download(path);
+    if (error) throw error;
+    const testa = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
+    const tipo = tipoDaBytes(testa) || blob.type || "application/octet-stream";
+    const url = URL.createObjectURL(new Blob([blob], { type: tipo }));
+    if (w) w.location.href = url; else window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    if (w) w.close();
+    alert("Impossibile aprire il documento: " + (e?.message || e));
+  }
+}
+
 export function eImmagine(file) {
   return !!file && ((file.type || "").startsWith("image/") || isHeic(file));
 }
@@ -451,6 +517,7 @@ export async function produciScansione(canvas, angoli, fileSorgente) {
 // Da usare quando la persona sceglie "usa la foto così com'è" oppure quando
 // il file non è un'immagine (es. PDF della banca): nessuna elaborazione.
 export async function senzaScansione(file) {
+  file = await riconosciFile(file);
   if (!eImmagine(file)) {
     return { scansionato: file, ritagliatoColore: file, originale: null, anteprima: null, nonElaborato: true };
   }
