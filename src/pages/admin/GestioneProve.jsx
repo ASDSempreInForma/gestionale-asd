@@ -151,6 +151,7 @@ export default function GestioneProve() {
   // prova fissata — utile per vedere in fila le prossime lezioni di prova.
   const [ordinamentoProve, setOrdinamentoProve] = useState("richiesta_desc"); // richiesta_desc | prova_asc | prova_desc
   const [vistaProve, setVistaProve] = useState("attive"); // attive | storico
+  const [mostraScadenze, setMostraScadenze] = useState(false); // 08/10/2026: elenco scadenze chiuso di default
 
   // Salvataggio in corso
   const [saving, setSaving] = useState({});
@@ -784,10 +785,12 @@ export default function GestioneProve() {
             {vistaProve === "attive" && scadenze.length > 0 && (
               <div style={{ background:RL, border:`1px solid ${R}33`, borderRadius:10,
                 padding:"12px 14px", marginBottom:14 }}>
-                <div style={{ fontSize:12, fontWeight:700, color:R, marginBottom:6 }}>
-                  ⚠️ Scadenze nelle prossime 24 ore
-                </div>
-                {scadenze.map(p => (
+                <button onClick={() => setMostraScadenze(v => !v)}
+                  style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", background:"none", border:"none", padding:0, cursor:"pointer", fontSize:12, fontWeight:700, color:R, marginBottom: mostraScadenze ? 6 : 0 }}>
+                  <span>⚠️ Scadenze nelle prossime 24 ore ({scadenze.length})</span>
+                  <span style={{ fontWeight:600 }}>{mostraScadenze ? "▲ Nascondi" : "▼ Mostra"}</span>
+                </button>
+                {mostraScadenze && scadenze.map(p => (
                   <div key={p.id} style={{ fontSize:12, color:R, marginBottom:4 }}>
                     <strong>{p.nome} {p.cognome}</strong> — {p.corsi?.disciplina}
                     · scade {new Date(p.scadenza_3gg).toLocaleDateString("it-IT")} (fine giornata)
