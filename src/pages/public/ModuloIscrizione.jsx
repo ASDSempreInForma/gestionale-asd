@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import ComboComune from "../../ComboComune.jsx";
+import { caricaComuni, comuneDaCodiceFiscale, capUnicoDelComune } from "../../comuniItaliani.js";
 import SiteHeader from "../../SiteHeader.jsx";
 import SiteFooter from "../../SiteFooter.jsx";
 import ChatWidget from "../../ChatWidget.jsx";
@@ -439,6 +440,30 @@ export default function ModuloIscrizione() {
   const [erroreInvio, setErroreInvio] = useState(null);
 
   const eta = calcolaEta(anagrafica.dataNascita);
+
+  // 08/10/2026: compilazioni automatiche per non perdere dati utili
+  // all'assicurazione. Il luogo di nascita si ricava dal codice fiscale
+  // (se il campo è vuoto e la persona è nata in Italia); il CAP dal comune
+  // di residenza quando il comune ne ha uno solo. Restano modificabili.
+  useEffect(() => {
+    if (anagrafica.luogoNascita.trim() || !validaCodiceFiscale(anagrafica.cf)) return;
+    let annullato = false;
+    caricaComuni().then((comuni) => {
+      const c = comuneDaCodiceFiscale(comuni, anagrafica.cf);
+      if (!annullato && c) setAnagrafica((a) => (a.luogoNascita.trim() ? a : { ...a, luogoNascita: c.nome, provinciaNascita: c.sigla }));
+    });
+    return () => { annullato = true; };
+  }, [anagrafica.cf, anagrafica.luogoNascita]);
+
+  useEffect(() => {
+    if (String(residenza.cap || "").trim() || !residenza.comune.trim()) return;
+    let annullato = false;
+    caricaComuni().then((comuni) => {
+      const cap = capUnicoDelComune(comuni, residenza.comune);
+      if (!annullato && cap) setResidenza((r) => (String(r.cap || "").trim() ? r : { ...r, cap }));
+    });
+    return () => { annullato = true; };
+  }, [residenza.comune, residenza.cap]);
   const isMinorenne = eta !== null && eta < 18;
 
   // "q2" (nuovo tesserato da gennaio) va mostrato solo da gennaio della STAGIONE
@@ -801,8 +826,10 @@ export default function ModuloIscrizione() {
   // ------------------------------------------------------------------
   const totaleSteps = 5;
   const puoiProseguire = () => {
-    if (step === 1) return anagrafica.nome && anagrafica.cognome && anagrafica.dataNascita && anagrafica.cf && validaCodiceFiscale(anagrafica.cf);
-    if (step === 2) return residenza.indirizzo && residenza.comune && residenza.email;
+    // 08/10/2026: luogo di nascita, CAP e telefono obbligatori (servono per
+    // l'assicurazione Libertas/ASI; caso Stanzani Marzia arrivata senza)
+    if (step === 1) return anagrafica.nome && anagrafica.cognome && anagrafica.dataNascita && anagrafica.luogoNascita.trim() && anagrafica.cf && validaCodiceFiscale(anagrafica.cf);
+    if (step === 2) return residenza.indirizzo && residenza.comune && /^\d{5}$/.test(String(residenza.cap || "").trim()) && String(residenza.telefono || "").replace(/\D/g, "").length >= 6 && residenza.email;
     if (step === 3) return corsiConCodice.length > 0 && corsiConCodice.every((c) => c.corso?.mese_inizio !== "settembre" || c.inizioPersonalizzato) && corsiConCodice.every(sceltaValidaPerPosti) && !corsiConCodice.some((c) => corsoGiaAttivo(c.corso.id)) && (!vuoleExtraSettembre || corsoExtraSettembreId);
     if (step === 4) return regolamenti.statuto && regolamenti.privacy;
     if (step === 5) return firmaSocio && (!isMinorenne || firmaGenitore) && luogoFirma && dichiarazioneFirma;
@@ -1197,7 +1224,7 @@ export default function ModuloIscrizione() {
               <Campo label="Cognome *" value={anagrafica.cognome} onChange={(v) => setAnagrafica({ ...anagrafica, cognome: v })} />
               <Campo type="date" label="Data di nascita *" className="min-w-0" value={anagrafica.dataNascita} onChange={(v) => setAnagrafica({ ...anagrafica, dataNascita: v })} />
               <div>
-                <label className="text-xs font-medium text-slate-600">Luogo di nascita</label>
+                <label className="text-xs font-medium text-slate-600">Luogo di nascita *</label>
                 <div className="mt-1">
                   <ComboComune
                     value={anagrafica.luogoNascita}
@@ -1260,8 +1287,8 @@ export default function ModuloIscrizione() {
                   />
                 </div>
               </div>
-              <Campo label="CAP" value={residenza.cap} onChange={(v) => setResidenza({ ...residenza, cap: v })} />
-              <Campo label="Telefono" value={residenza.telefono} onChange={(v) => setResidenza({ ...residenza, telefono: v })} />
+              <Campo label="CAP *" value={residenza.cap} onChange={(v) => setResidenza({ ...residenza, cap: v })} maxLength={5} />
+              <Campo label="Telefono *" value={residenza.telefono} onChange={(v) => setResidenza({ ...residenza, telefono: v })} />
               <Campo type="email" label="Email *" value={residenza.email} onChange={(v) => setResidenza({ ...residenza, email: v })} />
             </div>
             {isMinorenne && (

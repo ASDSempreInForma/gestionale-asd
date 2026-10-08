@@ -15,7 +15,9 @@ export function caricaComuni() {
   promessaInCorso = fetch("https://raw.githubusercontent.com/matteocontrini/comuni-json/master/comuni.json")
     .then((res) => res.json())
     .then((dati) => {
-      cacheComuni = dati.map((c) => ({ nome: c.nome, sigla: c.sigla }));
+      // 08/10/2026: anche codice catastale (per ricavare il comune di nascita
+      // dal codice fiscale) e CAP (per compilarlo dal comune di residenza)
+      cacheComuni = dati.map((c) => ({ nome: c.nome, sigla: c.sigla, codice: c.codiceCatastale, cap: c.cap }));
       return cacheComuni;
     })
     .catch((e) => {
@@ -25,4 +27,22 @@ export function caricaComuni() {
     });
 
   return promessaInCorso;
+}
+
+// Comune di nascita dal codice fiscale (caratteri 12-15 = codice catastale).
+// Ritorna null per i nati all'estero (codici Z...) o se non si trova.
+export function comuneDaCodiceFiscale(comuni, cf) {
+  const codice = String(cf || "").toUpperCase().slice(11, 15);
+  if (!/^[A-Y]\d{3}$/.test(codice)) return null;
+  return (comuni || []).find((c) => c.codice === codice) || null;
+}
+
+// CAP del comune di residenza, solo se il comune ne ha uno solo (le città
+// grandi ne hanno più d'uno: lì il CAP lo scrive la persona).
+export function capUnicoDelComune(comuni, nome) {
+  const n = String(nome || "").trim().toLowerCase();
+  if (!n) return null;
+  const c = (comuni || []).find((x) => x.nome.toLowerCase() === n);
+  const caps = Array.isArray(c?.cap) ? c.cap : c?.cap ? [c.cap] : [];
+  return caps.length === 1 ? String(caps[0]) : null;
 }
