@@ -6,6 +6,7 @@ import CampoDocumento from "../../CampoDocumento.jsx";
 import { campiUpload, tipoDaBytes } from "../../scansioneDocumento.js";
 import TesseraAssociativa from "../../TesseraAssociativa.jsx";
 import { statoTessera, scaricaTesseraPdf } from "../../tesseraAssociativa.js";
+import { componiCodice, importoSecondaRata } from "../../motorePrezzi.js";
 
 // ─── Giorno/orario effettivo mostrato all'utente ────────────────────────────
 // Se l'iscrizione e' a 1 sola volta a settimana (frequenza "1x" con giorno_scelto
@@ -289,6 +290,201 @@ function ModaleRicevuta({ iscrizionePrincipale, altreIscrizioni, onClose, onDone
   );
 }
 
+
+// ─── 2ª RATA QUADRIMESTRALE (07/10/2026, regole di Solomon) ─────────────────
+// Dal 1° al 25 gennaio chi ha pagato la 1ª rata (quad1) risponde, corso per
+// corso, "Vuoi rinnovare la tua iscrizione per il secondo quadrimestre?".
+// Chi dice Sì vede l'importo (quota 1ª rata dei corsi rinnovati, combinazioni
+// comprese, meno i 40€ di iscrizione), la causale e carica la ricevuta; chi
+// dice No libera il posto dal 25 gennaio. La finestra di date la decide il
+// server (edge function area-tesserati), qui si mostra soltanto.
+const IBAN_ASSOCIAZIONE = "IT11R0760111200000023388259";
+const CC_POSTALE = "23388259";
+
+function corsoPerMotore(i) {
+  const c = i.corsi || {};
+  return {
+    corso: c.disciplina,
+    nomeVisualizzato: c.nome_visualizzato || c.disciplina,
+    sede: c.sedi?.nome,
+    codice_corso: c.codice_corso,
+    orario: c.giorni_orari,
+    ha_variante_frequenza: c.ha_variante_frequenza,
+    mese_inizio: c.mese_inizio,
+    quota_annuale: c.quota_annuale,
+    quota_quad1: c.quota_quad1,
+    quota_annuale_1x: c.quota_annuale_1x,
+    quota_quad1_1x: c.quota_quad1_1x,
+    quota_annuale_badia: c.quota_annuale_badia,
+    quota_quad1_badia: c.quota_quad1_badia,
+    quota_adesione: c.quota_adesione,
+    annoInizioStagione: Number(String(i.stagioni?.data_inizio || "").slice(0, 4)) || new Date().getFullYear(),
+  };
+}
+
+function BadgeRata2({ stato }) {
+  const map = {
+    dichiarato: { label: "⏳ Ricevuta 2ª rata in verifica", cls: "warn" },
+    confermato: { label: "✅ 2ª rata confermata", cls: "ok" },
+    rifiutato: { label: "❌ Ricevuta 2ª rata rifiutata", cls: "bad" },
+  };
+  const s = map[stato];
+  return s ? <span className={`badge ${s.cls}`}>{s.label}</span> : null;
+}
+
+function CardRinnovoRata2({ socio, iscrizioni, finestra, onCarica, onVediDocumento, callFnWithAuth, onFatto }) {
+  const bloccata = (i) => ["dichiarato", "confermato"].includes(i.stato_pagamento_rata2);
+  const [scelte, setScelte] = useState(() =>
+    Object.fromEntries(iscrizioni.map((i) => [i.id, i.rinnovo_rata2_risposta === "no" ? false : i.rinnovo_rata2_risposta === "si" ? true : null]))
+  );
+  const [salvando, setSalvando] = useState(false);
+  const [errore, setErrore] = useState("");
+
+  const conSi = iscrizioni.filter((i) => i.rinnovo_rata2_risposta === "si");
+  const anno = corsoPerMotore(iscrizioni[0]).annoInizioStagione;
+  const importo = conSi.length
+    ? importoSecondaRata(conSi.map((i) => ({ corso: corsoPerMotore(i), frequenza: i.frequenza || "2x", giornoScelto: i.giorno_scelto })), anno)
+    : null;
+  const causale = conSi.length
+    ? `${(socio.nome || "").trim().toUpperCase()} ${(socio.cognome || "").trim().toUpperCase()} ${conSi
+        .map((i) => componiCodice(corsoPerMotore(i), i.frequenza, "q2"))
+        .join(" + ")}`
+    : "";
+  const daPagare = conSi.filter((i) => !bloccata(i));
+  const modificabili = iscrizioni.filter((i) => !bloccata(i));
+  const tutteRisposte = modificabili.every((i) => scelte[i.id] !== null && scelte[i.id] !== undefined);
+  const cambiate = modificabili.some((i) => (scelte[i.id] === true ? "si" : scelte[i.id] === false ? "no" : null) !== (i.rinnovo_rata2_risposta || null));
+
+  const conferma = async () => {
+    if (!tutteRisposte) { setErrore("Rispondi Sì o No per ogni corso."); return; }
+    setSalvando(true); setErrore("");
+    const r = await callFnWithAuth({
+      action: "risposta_rinnovo_rata2",
+      scelte: modificabili.map((i) => ({ iscrizione_id: i.id, rinnova: scelte[i.id] === true })),
+    });
+    setSalvando(false);
+    if (r.ok) onFatto(r.message);
+    else setErrore(r.error || "Errore durante il salvataggio.");
+  };
+
+  const pill = (attivo, colore) => ({
+    border: `1.5px solid ${attivo ? colore : "#cbd5e1"}`, background: attivo ? colore : "#fff", color: attivo ? "#fff" : "#334155",
+    borderRadius: 20, padding: "5px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+  });
+
+  return (
+    <div style={{ ...styles.card, marginBottom: 24, border: "2px solid #F5A623", background: "#FFFBF2" }}>
+      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>🔁 Vuoi rinnovare la tua iscrizione per il secondo quadrimestre?</div>
+      <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>
+        {finestra.aperta
+          ? <>Puoi rispondere e pagare la 2ª rata fino al <b>{fmtData(finestra.al)}</b>. Dopo questa data i posti di chi non ha rinnovato vengono liberati.</>
+          : <>Il periodo per rinnovare si è chiuso il {fmtData(finestra.al)}.</>}
+      </div>
+
+      {iscrizioni.map((i) => (
+        <div key={i.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", borderTop: "1px solid #F1E3C8", padding: "10px 0" }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>{i.corsi?.nome_visualizzato || i.corsi?.disciplina}</div>
+            <div style={{ fontSize: 12.5, color: "#64748b" }}>{giorniOrariVisualizzati(i.corsi, i.frequenza, i.giorno_scelto)} · {i.corsi?.sedi?.nome}</div>
+          </div>
+          {bloccata(i) ? (
+            <BadgeRata2 stato={i.stato_pagamento_rata2} />
+          ) : finestra.aperta ? (
+            <div style={{ display: "flex", gap: 6 }}>
+              <button style={pill(scelte[i.id] === true, "#16a34a")} onClick={() => setScelte((p) => ({ ...p, [i.id]: true }))}>Sì, rinnovo</button>
+              <button style={pill(scelte[i.id] === false, "#64748b")} onClick={() => setScelte((p) => ({ ...p, [i.id]: false }))}>No</button>
+            </div>
+          ) : (
+            <span style={{ fontSize: 13, color: "#64748b" }}>{i.rinnovo_rata2_risposta === "si" ? "Rinnovo richiesto" : i.rinnovo_rata2_risposta === "no" ? "Non rinnovato" : "Nessuna risposta"}</span>
+          )}
+          {i.stato_pagamento_rata2 === "rifiutato" && i.rata2_nota && (
+            <div style={{ width: "100%", fontSize: 12.5, color: "#991B1B" }}><b>Motivo:</b> {i.rata2_nota}</div>
+          )}
+        </div>
+      ))}
+
+      {finestra.aperta && modificabili.length > 0 && (cambiate || !tutteRisposte) && (
+        <div style={{ marginTop: 8 }}>
+          <button onClick={conferma} disabled={salvando} style={styles.btnPrimary}>{salvando ? "Salvataggio..." : "Conferma la mia scelta"}</button>
+          {errore && <p style={styles.errore}>{errore}</p>}
+        </div>
+      )}
+
+      {conSi.length > 0 && !cambiate && (
+        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: 12, marginTop: 12, fontSize: 13.5 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <span>Quota 2ª rata da versare:</span>
+            <b style={{ fontSize: 17, color: "#C24709" }}>{importo !== null ? `${importo}€` : "da verificare in segreteria"}</b>
+          </div>
+          <div style={{ color: "#475569", lineHeight: 1.5 }}>
+            Bonifico: IBAN <b style={{ fontFamily: "monospace" }}>{IBAN_ASSOCIAZIONE}</b><br />
+            Bollettino: c/c postale <b>{CC_POSTALE}</b><br />
+            Intestato a <b>ASSOCIAZIONE SEMPRE IN FORMA</b>
+          </div>
+          <div style={{ marginTop: 8, fontSize: 12, color: "#64748b" }}>Causale:</div>
+          <div style={{ fontFamily: "monospace", background: "#F8FAFC", border: "1px solid #e2e8f0", borderRadius: 6, padding: "6px 8px" }}>{causale}</div>
+          {daPagare.length > 0 && (
+            <button onClick={() => onCarica({ iscrizioni: daPagare, importo })} style={{ ...styles.btnPrimary, marginTop: 12 }}>
+              📄 Carica la ricevuta della 2ª rata
+            </button>
+          )}
+          {conSi.filter((i) => i.ricevuta_rata2_url).slice(0, 1).map((i) => (
+            <button key={i.id} style={{ ...styles.btnVedi, marginTop: 12, marginLeft: 8 }} onClick={() => onVediDocumento("ricevuta_rata2", i.id)}>👁 Vedi ricevuta caricata</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ModaleRicevutaRata2({ dati, onClose, onDone, callFnWithAuth }) {
+  const [importo, setImporto] = useState(dati.importo !== null && dati.importo !== undefined ? String(dati.importo) : "");
+  const [dataPagamento, setDataPagamento] = useState("");
+  const [nota, setNota] = useState("");
+  const [documento, setDocumento] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [errore, setErrore] = useState("");
+
+  const invia = async () => {
+    if (!documento || !dataPagamento || !importo) { setErrore("Compila importo, data e allega la ricevuta."); return; }
+    setLoading(true); setErrore("");
+    const r = await callFnWithAuth({
+      action: "upload_documento",
+      tipo: "ricevuta_rata2",
+      iscrizione_ids: dati.iscrizioni.map((i) => i.id),
+      dichiarazione: { importo: Number(String(importo).replace(",", ".")), data_pagamento: dataPagamento, nota: nota || null },
+      ...(await campiUpload(documento)),
+    });
+    setLoading(false);
+    if (r.ok) onDone(r.message);
+    else setErrore(r.error || "Errore durante l'invio.");
+  };
+
+  return (
+    <div style={styles.overlay} onClick={onClose}>
+      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <h3>Ricevuta della 2ª rata</h3>
+        <p style={{ color: "#64748b", fontSize: 13, marginTop: -6 }}>
+          Per: <b>{dati.iscrizioni.map((i) => i.corsi?.nome_visualizzato || i.corsi?.disciplina).join(", ")}</b>
+        </p>
+        <label style={styles.label}>Importo versato (€)</label>
+        <input type="number" value={importo} onChange={(e) => setImporto(e.target.value)} style={styles.input} />
+        <label style={styles.label}>Data del pagamento</label>
+        <input type="date" value={dataPagamento} onChange={(e) => setDataPagamento(e.target.value)} style={styles.input} />
+        <label style={styles.label}>Foto o PDF della ricevuta</label>
+        <CampoDocumento onChange={setDocumento} colore={G} etichettaPulsante="📷 Fotografa o scegli la ricevuta" />
+        <label style={styles.label}>Nota per la segreteria (facoltativa)</label>
+        <textarea value={nota} onChange={(e) => setNota(e.target.value)} rows={2} style={{ ...styles.input, resize: "vertical", fontFamily: "inherit" }} />
+        {errore && <p style={styles.errore}>{errore}</p>}
+        <div style={styles.modalActions}>
+          <button onClick={onClose} style={styles.btnSecondary}>Annulla</button>
+          <button onClick={invia} disabled={loading} style={styles.btnPrimary}>{loading ? "Invio..." : "Invia"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Modale upload certificato ──────────────────────────────────────────────
 // `perSede` (28/09/2026): chi frequenta la SEDE (Via del Brolo) carica il
 // certificato sulla propria scheda SEDE (azione upload_certificato_sede), non
@@ -427,7 +623,7 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato, onVediD
         {iscrizione.tipo_pagamento && (
           <div>
             Tipo pagamento: {iscrizione.tipo_pagamento}
-            {iscrizione.stagioni?.data_fine && ` · termine corso il ${fmtData(fineCorso(iscrizione.stagioni.data_fine, iscrizione.tipo_pagamento))}`}
+            {iscrizione.stagioni?.data_fine && ` · termine corso il ${fmtData(fineCorso(iscrizione.stagioni.data_fine, iscrizione.stato_pagamento_rata2 === "confermato" ? "quad2" : iscrizione.tipo_pagamento))}`}
           </div>
         )}
         {iscrizione.data_scadenza_certificato && (() => {
@@ -468,6 +664,9 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato, onVediD
         )}
         {iscrizione.certificato_url && (
           <button style={styles.btnVedi} onClick={() => onVediDocumento("certificato", iscrizione.id)}>👁 Vedi certificato</button>
+        )}
+        {iscrizione.ricevuta_rata2_url && (
+          <button style={styles.btnVedi} onClick={() => onVediDocumento("ricevuta_rata2", iscrizione.id)}>👁 Vedi ricevuta 2ª rata</button>
         )}
       </div>
     </div>
@@ -593,6 +792,7 @@ export default function AreaTesserati() {
   const [modaleCertificato, setModaleCertificato] = useState(null);
   const [modaleCertificatoSede, setModaleCertificatoSede] = useState(false);
   const [modaleRinnovo, setModaleRinnovo] = useState(null);
+  const [modaleRata2, setModaleRata2] = useState(null); // { iscrizioni, importo }
   const [scaricandoTessera, setScaricandoTessera] = useState(false);
   const [scaricandoTesseraAssoc, setScaricandoTesseraAssoc] = useState(false);
 
@@ -792,6 +992,15 @@ export default function AreaTesserati() {
 
   const idsCertificatoAttivi = iscrizioniAttive.map((i) => i.id);
 
+  // 2ª rata: iscrizioni con la 1ª rata quadrimestrale (pagata o in verifica)
+  const finestraRata2 = dati.rinnovo_rata2;
+  const iscrizioniQuad1 = iscrizioniAttive.filter(
+    (i) => i.tipo_pagamento === "quad1" && ["confermato", "dichiarato"].includes(i.stato_pagamento)
+  );
+  const mostraRata2 =
+    !!finestraRata2 && iscrizioniQuad1.length > 0 &&
+    (finestraRata2.aperta || (finestraRata2.chiusa && iscrizioniQuad1.some((i) => i.rinnovo_rata2_risposta === "si" || i.stato_pagamento_rata2)));
+
   return (
     <>
       <IntestazioneScura sottotitolo="AREA TESSERATI" />
@@ -896,6 +1105,18 @@ export default function AreaTesserati() {
 
         <SezioneAttestati callFnWithAuth={callFnWithAuth} />
 
+        {!soloSede && mostraRata2 && (
+          <CardRinnovoRata2
+            socio={socio}
+            iscrizioni={iscrizioniQuad1}
+            finestra={finestraRata2}
+            onCarica={setModaleRata2}
+            onVediDocumento={vediDocumento}
+            callFnWithAuth={callFnWithAuth}
+            onFatto={(msg) => { setMessaggio(msg); caricaDati(); }}
+          />
+        )}
+
         {!soloSede && (<>
         <h3>La tua stagione in corso {stagioneAttivaNome ? `— ${stagioneAttivaNome}` : ""}</h3>
         {iscrizioniAttive.length === 0 && (
@@ -971,6 +1192,18 @@ export default function AreaTesserati() {
           callFnWithAuth={callFnWithAuth}
           onDone={(msg) => {
             setModaleCertificatoSede(false);
+            setMessaggio(msg);
+            caricaDati();
+          }}
+        />
+      )}
+      {modaleRata2 && (
+        <ModaleRicevutaRata2
+          dati={modaleRata2}
+          onClose={() => setModaleRata2(null)}
+          callFnWithAuth={callFnWithAuth}
+          onDone={(msg) => {
+            setModaleRata2(null);
             setMessaggio(msg);
             caricaDati();
           }}

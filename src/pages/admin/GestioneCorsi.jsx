@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../../supabase.js";
 import CalendarioCorsi from "./CalendarioCorsi.jsx";
+import { postoLiberatoRata2 } from "../../rata2.js";
 
 /* =====================================================================
    GESTIONE CORSI — A.S.D. Sempre In Forma
@@ -92,7 +93,7 @@ export default function GestioneCorsi() {
     try {
       const { data: stagione, error: errS } = await supabase
         .from("stagioni")
-        .select("id, nome")
+        .select("id, nome, data_inizio")
         .eq("attiva", true)
         .single();
       if (errS) throw errS;
@@ -108,12 +109,14 @@ export default function GestioneCorsi() {
         .order("codice_corso");
       if (errC) throw errC;
 
-      const { data: iscrizioni, error: errI } = await supabase
+      const { data: iscrizioniTutte, error: errI } = await supabase
         .from("iscrizioni")
-        .select("corso_id, frequenza, giorno_scelto")
+        .select("corso_id, frequenza, giorno_scelto, tipo_pagamento, rinnovo_rata2_risposta, stato_pagamento_rata2")
         .eq("stagione_id", stagione.id)
         .neq("stato_pagamento", "annullata");
       if (errI) throw errI;
+      // 07/10/2026: chi non rinnova il 2° quadrimestre libera il posto (vedi src/rata2.js)
+      const iscrizioni = (iscrizioniTutte || []).filter((i) => !postoLiberatoRata2(i, stagione.data_inizio));
 
       setCorsi(
         corsiDB.map((c) => {

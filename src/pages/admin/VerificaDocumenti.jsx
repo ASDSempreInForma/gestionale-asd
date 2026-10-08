@@ -347,6 +347,42 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
             )}
           </div>
         )}
+        {/* 2ª RATA QUADRIMESTRALE (07/10/2026): ricevuta separata dalla 1ª */}
+        {row.ricevuta_rata2_url && solo !== 'certificati' && (
+          <div style={{ background: '#FFFBF2', border: '1px solid #FDE68A', borderRadius: 10, padding: 14 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
+              🔁 Ricevuta 2ª rata {row.stato_pagamento_rata2 === 'confermato' && <span style={{ color: '#166534' }}>✓ confermata</span>}
+              {row.stato_pagamento_rata2 === 'rifiutato' && <span style={{ color: '#991B1B' }}>✕ rifiutata</span>}
+            </div>
+            <div style={{ fontSize: 12.5, color: SUB, lineHeight: 1.6 }}>
+              Importo dichiarato: <b>€{row.importo_rata2 ?? '—'}</b><br />
+              Data pagamento: <b>{fmtData(row.data_pagamento_rata2)}</b>
+              {row.rata2_verificata_il && <><br />Verificata il {fmtData(row.rata2_verificata_il.slice(0, 10))}</>}
+            </div>
+            {row.rata2_nota && (
+              <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 7, padding: '7px 9px', fontSize: 12, color: '#92400E', marginTop: 8 }}>
+                💬 {row.rata2_nota}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+              <button onClick={() => apriDocumento(row.ricevuta_rata2_url)} style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>👁️ Apri file</button>
+              <button onClick={() => apriOriginale(row.ricevuta_rata2_url)} title="Foto originale, prima del ritaglio" style={{ background: 'none', color: '#64748b', border: 'none', padding: '7px 4px', fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}>Vedi foto originale</button>
+              {!soloConsultazione && row.stato_pagamento_rata2 === 'dichiarato' && (
+                <>
+                  <button
+                    onClick={() => {
+                      aggiornaIscrizione({ stato_pagamento_rata2: 'confermato', rata2_verificata_il: new Date().toISOString() })
+                      inviaEmailDocumento({ tipo: 'documento_confermato', tipoDocumento: 'ricevuta', socio })
+                    }}
+                    style={{ background: '#DCFCE7', color: '#166534', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer', fontWeight: 600 }}
+                  >✓ Conferma 2ª rata</button>
+                  <button onClick={() => setModaleRifiuto('rata2')} style={{ background: '#FEE2E2', color: '#991B1B', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>✕ Rifiuta</button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
 
         {row.certificato_url && solo !== 'pagamenti' && (
           <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 14 }}>
@@ -425,11 +461,13 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
           onConfirm={(motivo) => {
             const payload = modaleRifiuto === 'pagamento'
               ? { stato_pagamento: 'rifiutato', note: motivo }
+              : modaleRifiuto === 'rata2'
+              ? { stato_pagamento_rata2: 'rifiutato', rata2_nota: motivo }
               : { stato_certificato: 'rifiutato', note: motivo }
             aggiornaIscrizione(payload)
             inviaEmailDocumento({
               tipo: 'documento_rifiutato',
-              tipoDocumento: modaleRifiuto === 'pagamento' ? 'ricevuta' : 'certificato',
+              tipoDocumento: modaleRifiuto === 'certificato' ? 'certificato' : 'ricevuta',
               socio,
               motivo,
             })
@@ -589,6 +627,113 @@ function PannelloScadenzeCertificati() {
   )
 }
 
+
+// ── Pannello rinnovi 2° quadrimestre (07/10/2026) ─────────────────────────
+// Chi ha pagato la 1ª rata quadrimestrale risponde dall'area privata dal 1° al
+// 25 gennaio se rinnova. Qui la segreteria vede chi ha detto Sì (e a che punto è
+// la 2ª rata), chi ha detto No e chi non ha risposto, con i posti che si
+// liberano per corso (No dal 25 gennaio, nessuna risposta dopo il 25).
+function PannelloRinnoviRata2() {
+  const [righe, setRighe] = useState(null)
+  const [errore, setErrore] = useState('')
+  const [filtro, setFiltro] = useState('tutti')
+
+  useEffect(() => {
+    (async () => {
+      const { data: st } = await supabase.from('stagioni').select('id, data_inizio').eq('attiva', true).maybeSingle()
+      if (!st) { setRighe([]); return }
+      const { data, error } = await supabase
+        .from('iscrizioni')
+        .select(`id, frequenza, giorno_scelto, stato_pagamento, rinnovo_rata2_risposta, rinnovo_rata2_risposta_il,
+          stato_pagamento_rata2, importo_rata2, rinnovo_rata2_email_il, rinnovo_rata2_sollecito_il,
+          soci ( cf, nome, cognome, email, telefono ),
+          corsi!iscrizioni_corso_id_fkey ( codice_corso, disciplina, giorni_orari, sedi ( nome ) )`)
+        .eq('stagione_id', st.id)
+        .eq('tipo_pagamento', 'quad1')
+        .in('stato_pagamento', ['confermato', 'dichiarato'])
+      if (error) setErrore(error.message)
+      else setRighe((data || []).sort((a, b) => `${a.soci?.cognome} ${a.soci?.nome}`.localeCompare(`${b.soci?.cognome} ${b.soci?.nome}`)))
+    })()
+  }, [])
+
+  if (errore) return <div style={{ color: '#DC2626' }}>Errore: {errore}</div>
+  if (!righe) return <div style={{ color: SUB }}>Caricamento...</div>
+
+  const stato = (r) => {
+    if (r.stato_pagamento_rata2 === 'confermato') return { k: 'pagato', l: '✅ 2ª rata confermata', c: '#166534', b: '#DCFCE7' }
+    if (r.stato_pagamento_rata2 === 'dichiarato') return { k: 'verifica', l: '⏳ Ricevuta da verificare', c: '#92400E', b: '#FEF3C7' }
+    if (r.rinnovo_rata2_risposta === 'si') return { k: 'si', l: r.stato_pagamento_rata2 === 'rifiutato' ? '❌ Sì, ricevuta rifiutata' : '🟡 Sì, da pagare', c: '#92400E', b: '#FFFBEB' }
+    if (r.rinnovo_rata2_risposta === 'no') return { k: 'no', l: '🚪 Non rinnova', c: '#475569', b: '#F1F5F9' }
+    return { k: 'nessuna', l: '❔ Nessuna risposta', c: '#991B1B', b: '#FEE2E2' }
+  }
+  const conta = (k) => righe.filter(r => stato(r).k === k).length
+  const visibili = righe.filter(r => filtro === 'tutti' || stato(r).k === filtro || (filtro === 'si' && ['si', 'verifica', 'pagato'].includes(stato(r).k)))
+
+  // posti che si liberano per corso (No + nessuna risposta)
+  const perCorso = {}
+  righe.forEach(r => {
+    const k = stato(r).k
+    if (k !== 'no' && k !== 'nessuna') return
+    const nome = `${r.corsi?.codice_corso} · ${r.corsi?.disciplina} (${r.corsi?.sedi?.nome})`
+    perCorso[nome] = perCorso[nome] || { no: 0, nessuna: 0 }
+    perCorso[nome][k]++
+  })
+
+  const chip = (id, label) => (
+    <button key={id} onClick={() => setFiltro(id)}
+      style={{ background: filtro === id ? G : 'white', color: filtro === id ? 'white' : TX, border: `1px solid ${filtro === id ? G : BD}`, borderRadius: 10, padding: '7px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+      {label}
+    </button>
+  )
+
+  return (
+    <div>
+      <p style={{ color: SUB, fontSize: 13, marginTop: 0 }}>
+        Iscrizioni con la 1ª rata quadrimestrale pagata: <b>{righe.length}</b>. Dal 1° al 25 gennaio i soci rispondono dall'area privata;
+        il 4 gennaio parte l'email di avviso e il 25 gennaio il sollecito a chi non ha ancora rinnovato.
+      </p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        {chip('tutti', `📋 Tutti (${righe.length})`)}
+        {chip('si', `✅ Rinnovano (${conta('si') + conta('verifica') + conta('pagato')})`)}
+        {chip('verifica', `⏳ Ricevute da verificare (${conta('verifica')})`)}
+        {chip('no', `🚪 Non rinnovano (${conta('no')})`)}
+        {chip('nessuna', `❔ Nessuna risposta (${conta('nessuna')})`)}
+      </div>
+
+      {Object.keys(perCorso).length > 0 && (
+        <div style={{ background: 'white', border: `1px solid ${BD}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 6 }}>Posti che si liberano dopo il 25 gennaio</div>
+          {Object.entries(perCorso).sort().map(([nome, v]) => (
+            <div key={nome} style={{ fontSize: 12.5, color: TX, padding: '3px 0' }}>
+              {nome}: <b>{v.no + v.nessuna}</b> <span style={{ color: SUB }}>({v.no} non rinnovano, {v.nessuna} senza risposta)</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {visibili.length === 0 && <div style={{ color: SUB, fontSize: 14, padding: 16 }}>Nessuna persona in questo elenco.</div>}
+      {visibili.map(r => {
+        const st = stato(r)
+        return (
+          <div key={r.id} style={{ background: 'white', border: `1px solid ${BD}`, borderRadius: 10, padding: '10px 14px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{r.soci?.cognome} {r.soci?.nome}</div>
+              <div style={{ fontSize: 12, color: SUB }}>
+                {r.corsi?.disciplina} — {giorniOrariVisualizzati(r.corsi, r.frequenza, r.giorno_scelto)} ({r.corsi?.sedi?.nome})
+                {r.soci?.telefono ? ` · 📞 ${r.soci.telefono}` : ''}{!r.soci?.email ? ' · ✉️ senza email' : ''}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <span style={{ background: st.b, color: st.c, borderRadius: 20, padding: '4px 10px', fontSize: 12, fontWeight: 600 }}>{st.l}</span>
+              {r.importo_rata2 != null && <div style={{ fontSize: 11.5, color: SUB, marginTop: 4 }}>€{r.importo_rata2}</div>}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function VerificaDocumenti() {
   const [righe, setRighe] = useState(null)
   const [errore, setErrore] = useState('')
@@ -603,15 +748,16 @@ export default function VerificaDocumenti() {
         id, tipo_pagamento, stato_pagamento, importo_dichiarato, data_pagamento, ricevuta_url, nota_pagamento,
         stato_certificato, data_scadenza_certificato, certificato_url, verificato_da, verificato_il,
         frequenza, giorno_scelto,
+        stato_pagamento_rata2, importo_rata2, data_pagamento_rata2, ricevuta_rata2_url, rata2_verificata_il, rata2_nota,
         soci ( cf, nome, cognome, email, numero_tessera, scadenza_tessera, ente_tessera ),
         corsi!iscrizioni_corso_id_fkey ( disciplina, giorni_orari, sedi ( nome ) )
       `)
       .order('data_iscrizione', { ascending: false })
 
     if (vista === 'in_attesa') {
-      query = query.or('stato_pagamento.eq.dichiarato,stato_certificato.eq.dichiarato')
+      query = query.or('stato_pagamento.eq.dichiarato,stato_certificato.eq.dichiarato,stato_pagamento_rata2.eq.dichiarato')
     } else {
-      query = query.or('ricevuta_url.not.is.null,certificato_url.not.is.null')
+      query = query.or('ricevuta_url.not.is.null,certificato_url.not.is.null,ricevuta_rata2_url.not.is.null')
     }
 
     const { data, error } = await query
@@ -619,22 +765,22 @@ export default function VerificaDocumenti() {
     else setRighe(data || [])
   }
 
-  useEffect(() => { if (vista !== 'scadenze') carica() }, [vista])
+  useEffect(() => { if (vista !== 'scadenze' && vista !== 'rata2') carica() }, [vista])
 
   if (errore) return <div style={{ padding: 24, color: '#DC2626' }}>Errore: {errore}</div>
-  if (vista !== 'scadenze' && !righe) return <div style={{ padding: 24, color: SUB }}>Caricamento...</div>
+  if (vista !== 'scadenze' && vista !== 'rata2' && !righe) return <div style={{ padding: 24, color: SUB }}>Caricamento...</div>
 
   const righeFiltrate = (righe || []).filter(r => {
     // Filtro per tipo di documento: in "Da verificare" conta lo stato
     // dichiarato, nello storico basta che il documento sia stato caricato
-    if (tipoFiltro === 'pagamenti' && !(vista === 'in_attesa' ? r.stato_pagamento === 'dichiarato' : r.ricevuta_url)) return false
+    if (tipoFiltro === 'pagamenti' && !(vista === 'in_attesa' ? (r.stato_pagamento === 'dichiarato' || r.stato_pagamento_rata2 === 'dichiarato') : (r.ricevuta_url || r.ricevuta_rata2_url))) return false
     if (tipoFiltro === 'certificati' && !(vista === 'in_attesa' ? r.stato_certificato === 'dichiarato' : r.certificato_url)) return false
     if (!ricerca.trim()) return true
     const q = ricerca.trim().toLowerCase()
     return `${r.soci?.nome} ${r.soci?.cognome} ${r.soci?.cf}`.toLowerCase().includes(q)
   })
 
-  const nPagamenti = (righe || []).filter(r => r.stato_pagamento === 'dichiarato').length
+  const nPagamenti = (righe || []).filter(r => r.stato_pagamento === 'dichiarato' || r.stato_pagamento_rata2 === 'dichiarato').length
   const nCertificati = (righe || []).filter(r => r.stato_certificato === 'dichiarato').length
 
   return (
@@ -663,11 +809,18 @@ export default function VerificaDocumenti() {
         >
           🩺 Scadenze certificati
         </button>
+        <button
+          onClick={() => setVista('rata2')}
+          style={{ background: vista === 'rata2' ? G : 'white', color: vista === 'rata2' ? 'white' : TX, border: `1px solid ${vista === 'rata2' ? G : BD}`, borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+        >
+          🔁 Rinnovi 2° quadrimestre
+        </button>
       </div>
 
       {vista === 'scadenze' && <PannelloScadenzeCertificati />}
+      {vista === 'rata2' && <PannelloRinnoviRata2 />}
 
-      {vista !== 'scadenze' && (
+      {vista !== 'scadenze' && vista !== 'rata2' && (
         <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ fontSize: 12.5, color: SUB }}>Mostra:</span>
           {[
@@ -696,13 +849,13 @@ export default function VerificaDocumenti() {
         />
       )}
 
-      {vista !== 'scadenze' && righeFiltrate.length === 0 && (
+      {vista !== 'scadenze' && vista !== 'rata2' && righeFiltrate.length === 0 && (
         <div style={{ color: SUB, fontSize: 14, padding: 20, textAlign: 'center', background: 'white', borderRadius: 12, border: `1px solid ${BD}` }}>
           {vista === 'in_attesa' ? 'Nessun documento in attesa di verifica. ✅' : 'Nessun documento trovato.'}
         </div>
       )}
 
-      {vista !== 'scadenze' && righeFiltrate.map(r => <RigaIscritto key={r.id} row={r} soloConsultazione={vista === 'storico'} onAggiorna={carica} solo={tipoFiltro} />)}
+      {vista !== 'scadenze' && vista !== 'rata2' && righeFiltrate.map(r => <RigaIscritto key={r.id} row={r} soloConsultazione={vista === 'storico'} onAggiorna={carica} solo={tipoFiltro} />)}
     </div>
   )
 }

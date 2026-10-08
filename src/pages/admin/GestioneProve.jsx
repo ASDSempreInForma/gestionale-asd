@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { generaPdfLiberatoria } from "../../pdfModuli.js";
 import { generaRegistroProvaPDF, generaRegistroProvaExcel, RIGHE_PER_PAGINA } from "../../elencoProvaPDF.js";
+import { postoLiberatoRata2 } from "../../rata2.js";
 
 /* =====================================================================
    GESTIONE PROVE — A.S.D. Sempre In Forma (pannello admin)
@@ -189,7 +190,7 @@ export default function GestioneProve() {
 
       // Stagione attiva
       const { data: stag, error: errS } = await supabase
-        .from("stagioni").select("id,nome").eq("attiva", true).single();
+        .from("stagioni").select("id,nome,data_inizio").eq("attiva", true).single();
       if (errS) throw errS;
       setStagione(stag);
 
@@ -200,7 +201,7 @@ export default function GestioneProve() {
           id, codice_corso, disciplina, giorni_orari,
           capienza_max, capienza_giorno1, capienza_giorno2, prove_attive,
           sedi ( nome ),
-          iscrizioni!iscrizioni_corso_id_fkey ( id, stato_pagamento, frequenza, giorno_scelto ),
+          iscrizioni!iscrizioni_corso_id_fkey ( id, stato_pagamento, frequenza, giorno_scelto, tipo_pagamento, rinnovo_rata2_risposta, stato_pagamento_rata2 ),
           prove ( id, stato, data_effettuata, frequenza_desiderata, giorno_preferito )
         `)
         .eq("stagione_id", stag.id)
@@ -208,7 +209,8 @@ export default function GestioneProve() {
       if (errC) throw errC;
 
       const corsiFormattati = corsiDB.map(c => {
-        const iscrizioniAttive = (c.iscrizioni || []).filter(i => i.stato_pagamento !== "annullata");
+        // 07/10/2026: chi non rinnova il 2° quadrimestre libera il posto (src/rata2.js)
+        const iscrizioniAttive = (c.iscrizioni || []).filter(i => i.stato_pagamento !== "annullata" && !postoLiberatoRata2(i, stag.data_inizio));
         const proveAttiveList = (c.prove || []).filter(p =>
           ["in_attesa", "confermata", "effettuata"].includes(p.stato)
         );
