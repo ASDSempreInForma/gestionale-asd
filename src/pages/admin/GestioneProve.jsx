@@ -152,6 +152,7 @@ export default function GestioneProve() {
   const [ordinamentoProve, setOrdinamentoProve] = useState("richiesta_desc"); // richiesta_desc | prova_asc | prova_desc
   const [vistaProve, setVistaProve] = useState("attive"); // attive | storico
   const [mostraScadenze, setMostraScadenze] = useState(false); // 08/10/2026: elenco scadenze chiuso di default
+  const [mostraProveOggi, setMostraProveOggi] = useState(false); // 08/10/2026: elenco prove di oggi chiuso di default
 
   // Salvataggio in corso
   const [saving, setSaving] = useState({});
@@ -803,10 +804,12 @@ export default function GestioneProve() {
             {vistaProve === "attive" && proveOggi.length > 0 && (
               <div style={{ background:BLL, border:`1px solid ${BL}33`, borderRadius:10,
                 padding:"12px 14px", marginBottom:14 }}>
-                <div style={{ fontSize:12, fontWeight:700, color:BL, marginBottom:6 }}>
-                  📅 Prove di oggi ({proveOggi.length})
-                </div>
-                {proveOggi.map(p => (
+                <button onClick={() => setMostraProveOggi(v => !v)}
+                  style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", background:"none", border:"none", padding:0, cursor:"pointer", fontSize:12, fontWeight:700, color:BL, marginBottom: mostraProveOggi ? 6 : 0 }}>
+                  <span>📅 Prove di oggi ({proveOggi.length})</span>
+                  <span style={{ fontWeight:600 }}>{mostraProveOggi ? "▲ Nascondi" : "▼ Mostra"}</span>
+                </button>
+                {mostraProveOggi && proveOggi.map(p => (
                   <div key={p.id} style={{ fontSize:12, color:BL, marginBottom:4 }}>
                     <strong>{p.nome} {p.cognome}</strong> — {p.corsi?.disciplina} · {p.corsi?.sedi?.nome}
                     {p.telefono && <> · {p.telefono}</>}
