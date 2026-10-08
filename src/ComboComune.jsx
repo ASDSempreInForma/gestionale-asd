@@ -31,8 +31,28 @@ export default function ComboComune({
     return () => document.removeEventListener("mousedown", chiudiSeFuori);
   }, []);
 
+  // 08/10/2026: se il testo scritto è esattamente un comune (anche senza
+  // cliccare il suggerimento, con maiuscole o spazi diversi) si compila
+  // comunque la provincia; all'uscita dal campo il nome viene sistemato
+  // come nell'elenco ufficiale (es. "BRESCIA " -> "Brescia").
+  const comuneEsatto = (testo) => {
+    const q = String(testo || "").trim().toLowerCase();
+    if (!q) return null;
+    const trovati = comuni.filter((c) => c.nome.toLowerCase() === q);
+    return trovati.length === 1 ? trovati[0] : null;
+  };
+
+  const sistemaAllUscita = () => {
+    const c = comuneEsatto(value);
+    if (!c) return;
+    if (c.nome !== value) onChange(c.nome);
+    if (onSiglaProvincia) onSiglaProvincia(c.sigla);
+  };
+
   const gestisciInput = (testo) => {
     onChange(testo);
+    const esatto = comuneEsatto(testo);
+    if (esatto && onSiglaProvincia) onSiglaProvincia(esatto.sigla);
     if (testo.trim().length < 2 || comuni.length === 0) {
       setSuggerimenti([]);
       return;
@@ -56,6 +76,7 @@ export default function ComboComune({
         value={value}
         onChange={(e) => gestisciInput(e.target.value)}
         onFocus={() => suggerimenti.length > 0 && setAperto(true)}
+        onBlur={sistemaAllUscita}
         placeholder={placeholder}
         autoComplete="off"
         style={{ width: "100%", padding: "7px 9px", borderRadius: 7, border: "1px solid #E8E4DC", fontSize: 13, boxSizing: "border-box" }}
