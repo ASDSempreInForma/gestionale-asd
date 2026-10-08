@@ -816,7 +816,9 @@ export default function VerificaDocumenti() {
     if (tipoFiltro === 'certificati' && !(vista === 'in_attesa' ? r.stato_certificato === 'dichiarato' : r.certificato_url)) return false
     if (!ricerca.trim()) return true
     const q = ricerca.trim().toLowerCase()
-    return `${r.soci?.nome} ${r.soci?.cognome} ${r.soci?.cf}`.toLowerCase().includes(q)
+    // ogni parola deve comparire (es. "rossi pilates", "maria rossi")
+    const testo = `${r.soci?.nome} ${r.soci?.cognome} ${r.soci?.cf} ${r.corsi?.disciplina} ${r.corsi?.sedi?.nome}`.toLowerCase()
+    return q.split(/\s+/).every(p => testo.includes(p))
   })
 
   const nPagamenti = (righe || []).filter(r => r.stato_pagamento === 'dichiarato' || r.stato_pagamento_rata2 === 'dichiarato' || r.integrazione_stato === 'dichiarato').length
@@ -879,11 +881,12 @@ export default function VerificaDocumenti() {
         </div>
       )}
 
-      {vista === 'storico' && (
+      {/* 08/10/2026: ricerca anche in "Da verificare" (richiesta di Solomon) */}
+      {vista !== 'scadenze' && vista !== 'rata2' && (
         <input
           value={ricerca}
           onChange={e => setRicerca(e.target.value)}
-          placeholder="🔍 Cerca per nome, cognome o codice fiscale..."
+          placeholder="🔍 Cerca per nome, cognome, codice fiscale o corso..."
           style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${BD}`, fontSize: 14, marginBottom: 16, boxSizing: 'border-box' }}
         />
       )}
