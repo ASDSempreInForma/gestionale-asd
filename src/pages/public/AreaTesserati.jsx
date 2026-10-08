@@ -6,7 +6,7 @@ import CampoDocumento from "../../CampoDocumento.jsx";
 import { campiUpload, tipoDaBytes } from "../../scansioneDocumento.js";
 import TesseraAssociativa from "../../TesseraAssociativa.jsx";
 import { statoTessera, scaricaTesseraPdf } from "../../tesseraAssociativa.js";
-import { componiCodice, importoSecondaRata } from "../../motorePrezzi.js";
+import { componiCodice, importoSecondaRata, calcolaPrezzoTotale } from "../../motorePrezzi.js";
 
 // ─── Giorno/orario effettivo mostrato all'utente ────────────────────────────
 // Se l'iscrizione e' a 1 sola volta a settimana (frequenza "1x" con giorno_scelto
@@ -437,7 +437,7 @@ function CardRinnovoRata2({ socio, iscrizioni, finestra, onCarica, onVediDocumen
   );
 }
 
-function ModaleRicevutaRata2({ dati, onClose, onDone, callFnWithAuth }) {
+function ModaleRicevutaRata2({ dati, onClose, onDone, callFnWithAuth, tipo = "ricevuta_rata2", titolo = "Ricevuta della 2ª rata" }) {
   const [importo, setImporto] = useState(dati.importo !== null && dati.importo !== undefined ? String(dati.importo) : "");
   const [dataPagamento, setDataPagamento] = useState("");
   const [nota, setNota] = useState("");
@@ -450,7 +450,7 @@ function ModaleRicevutaRata2({ dati, onClose, onDone, callFnWithAuth }) {
     setLoading(true); setErrore("");
     const r = await callFnWithAuth({
       action: "upload_documento",
-      tipo: "ricevuta_rata2",
+      tipo,
       iscrizione_ids: dati.iscrizioni.map((i) => i.id),
       dichiarazione: { importo: Number(String(importo).replace(",", ".")), data_pagamento: dataPagamento, nota: nota || null },
       ...(await campiUpload(documento)),
@@ -463,7 +463,7 @@ function ModaleRicevutaRata2({ dati, onClose, onDone, callFnWithAuth }) {
   return (
     <div style={styles.overlay} onClick={onClose}>
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-        <h3>Ricevuta della 2ª rata</h3>
+        <h3>{titolo}</h3>
         <p style={{ color: "#64748b", fontSize: 13, marginTop: -6 }}>
           Per: <b>{dati.iscrizioni.map((i) => i.corsi?.nome_visualizzato || i.corsi?.disciplina).join(", ")}</b>
         </p>
@@ -481,6 +481,122 @@ function ModaleRicevutaRata2({ dati, onClose, onDone, callFnWithAuth }) {
           <button onClick={invia} disabled={loading} style={styles.btnPrimary}>{loading ? "Invio..." : "Invia"}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+
+// ─── DA 1 A 2 VOLTE A SETTIMANA (08/10/2026) ────────────────────────────────
+// Chi frequenta 1 volta un corso "a coppia" (e ha già pagato o caricato la
+// ricevuta) può aggiungere l'altro giorno da qui. L'integrazione è la
+// differenza tra il prezzo di tutti i suoi corsi con questo a 2 volte e il
+// prezzo di oggi, con lo stesso motore del modulo di iscrizione; da gennaio i
+// corsi pagati con l'annuale si ricalcolano sulla quota da gennaio (regola di
+// Solomon del 07/10/2026). Il server controlla che l'altro giorno abbia posto.
+function pagamentoMotore(tipo) {
+  return tipo === "quad1" ? "q1" : tipo === "quad2" ? "q2" : "annuale";
+}
+
+function calcolaIntegrazioneSeconda(target, iscrizioniAttive) {
+  const pagate = iscrizioniAttive.filter((i) => ["confermato", "dichiarato"].includes(i.stato_pagamento));
+  if (!pagate.some((i) => i.id === target.id)) return null;
+  const sel = (i, cambia) => ({
+    corso: corsoPerMotore(i),
+    frequenza: cambia ? "2x" : i.frequenza || "2x",
+    giornoScelto: cambia ? null : i.giorno_scelto,
+    pagamento: pagamentoMotore(i.tipo_pagamento),
+    inizioPersonalizzato: i.inizio_personalizzato,
+  });
+  const anno = corsoPerMotore(target).annoInizioStagione;
+  const daGennaio = new Date() >= new Date(anno + 1, 0, 1);
+  const prima = pagate.map((i) => sel(i, false));
+  const dopo = pagate.map((i) => {
+    const s = sel(i, i.id === target.id);
+    return daGennaio && s.pagamento === "annuale" ? { ...s, pagamento: "q2" } : s;
+  });
+  const a = calcolaPrezzoTotale(prima).totale;
+  const b = calcolaPrezzoTotale(dopo).totale;
+  if (a === null || a === undefined || b === null || b === undefined) return null;
+  return Math.max(0, Math.round((b - a) * 100) / 100);
+}
+
+function ModaleSecondaFrequenza({ iscrizione, importo, causale, onClose, onDone, callFnWithAuth }) {
+  const [loading, setLoading] = useState(false);
+  const [errore, setErrore] = useState("");
+  const giorni = estraiGiorniSingoli(iscrizione.corsi?.giorni_orari);
+  const altro = giorni.find((g) => g.giorno !== iscrizione.giorno_scelto);
+
+  const conferma = async () => {
+    setLoading(true); setErrore("");
+    const r = await callFnWithAuth({ action: "aggiungi_seconda_frequenza", iscrizione_id: iscrizione.id, importo, causale });
+    setLoading(false);
+    if (r.ok) onDone(r.message);
+    else setErrore(r.error || "Errore durante la richiesta.");
+  };
+
+  return (
+    <div style={styles.overlay} onClick={onClose}>
+      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <h3>Aggiungi la seconda lezione</h3>
+        <p style={{ fontSize: 14, color: "#334155" }}>
+          <b>{iscrizione.corsi?.nome_visualizzato || iscrizione.corsi?.disciplina}</b> ({iscrizione.corsi?.sedi?.nome})<br />
+          Oggi frequenti il <b>{iscrizione.giorno_scelto}</b>: aggiungi anche il <b>{altro ? `${altro.giorno} ${altro.orario}` : "secondo giorno"}</b>.
+        </p>
+        <div style={{ background: "#FFFBF2", border: "1px solid #FDE68A", borderRadius: 10, padding: 12, fontSize: 13.5 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>Integrazione da versare:</span>
+            <b style={{ fontSize: 17, color: "#C24709" }}>{importo !== null ? `${importo}€` : "da calcolare in segreteria"}</b>
+          </div>
+          <div style={{ color: "#64748b", fontSize: 12.5, marginTop: 6 }}>
+            Paghi solo la differenza rispetto a quanto hai già versato. Dopo la conferma il posto nel secondo giorno è tuo:
+            ricevi un'email con le coordinate e carichi qui la ricevuta.
+          </div>
+          {causale && (
+            <>
+              <div style={{ marginTop: 8, fontSize: 12, color: "#64748b" }}>Causale:</div>
+              <div style={{ fontFamily: "monospace", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 6, padding: "6px 8px" }}>{causale}</div>
+            </>
+          )}
+        </div>
+        {errore && <p style={styles.errore}>{errore}</p>}
+        <div style={styles.modalActions}>
+          <button onClick={onClose} style={styles.btnSecondary}>Annulla</button>
+          <button onClick={conferma} disabled={loading} style={styles.btnPrimary}>{loading ? "Invio..." : "Conferma, frequento 2 volte"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BoxIntegrazione({ iscrizione, causale, onCarica, onVediDocumento }) {
+  const stato = iscrizione.integrazione_stato;
+  const etichette = {
+    in_attesa: { t: "🔴 Integrazione da pagare", c: "#991B1B" },
+    dichiarato: { t: "⏳ Ricevuta integrazione in verifica", c: "#92400E" },
+    confermato: { t: "✅ Integrazione confermata", c: "#166534" },
+    rifiutato: { t: "❌ Ricevuta integrazione rifiutata", c: "#991B1B" },
+  };
+  const e = etichette[stato];
+  if (!e) return null;
+  return (
+    <div style={{ background: "#FFFBF2", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 10px", fontSize: 12.5, marginBottom: 10 }}>
+      <div style={{ fontWeight: 600, color: e.c }}>
+        {e.t}{iscrizione.integrazione_importo != null ? ` · ${iscrizione.integrazione_importo}€` : ""}
+      </div>
+      <div style={{ color: "#64748b" }}>2ª lezione aggiunta{iscrizione.integrazione_giorno_precedente ? ` (prima frequentavi solo il ${iscrizione.integrazione_giorno_precedente})` : ""}.</div>
+      {stato === "rifiutato" && iscrizione.integrazione_nota && <div style={{ color: "#991B1B" }}><b>Motivo:</b> {iscrizione.integrazione_nota}</div>}
+      {["in_attesa", "rifiutato"].includes(stato) && (
+        <>
+          <div style={{ marginTop: 6, color: "#475569" }}>
+            IBAN <b style={{ fontFamily: "monospace" }}>{IBAN_ASSOCIAZIONE}</b> · c/c postale <b>{CC_POSTALE}</b><br />
+            Causale: <span style={{ fontFamily: "monospace" }}>{causale}</span>
+          </div>
+          <button style={{ ...styles.btnSmall, marginTop: 8 }} onClick={onCarica}>📄 Carica ricevuta integrazione</button>
+        </>
+      )}
+      {iscrizione.integrazione_ricevuta_url && (
+        <button style={{ ...styles.btnVedi, marginTop: 8, marginLeft: 6 }} onClick={() => onVediDocumento("ricevuta_integrazione", iscrizione.id)}>👁 Vedi ricevuta integrazione</button>
+      )}
     </div>
   );
 }
@@ -607,7 +723,7 @@ function ModaleRinnovo({ iscrizione, stagioneAttivaNome, onClose, onDone, callFn
 }
 
 // ─── Card di una singola iscrizione ─────────────────────────────────────────
-function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato, onVediDocumento }) {
+function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato, onVediDocumento, puoAggiungereSeconda, onAggiungiSeconda, causaleIntegrazione, onCaricaIntegrazione }) {
   const corso = iscrizione.corsi;
   return (
     <div style={styles.card}>
@@ -641,6 +757,7 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato, onVediD
           );
         })()}
       </div>
+      <BoxIntegrazione iscrizione={iscrizione} causale={causaleIntegrazione} onCarica={onCaricaIntegrazione} onVediDocumento={onVediDocumento} />
       {(iscrizione.stato_pagamento === "rifiutato" || iscrizione.stato_certificato === "rifiutato") && iscrizione.note && (
         <div style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "8px 10px", fontSize: 12.5, color: "#991B1B", marginBottom: 10 }}>
           <b>Motivo del rifiuto:</b> {iscrizione.note}
@@ -667,6 +784,11 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato, onVediD
         )}
         {iscrizione.ricevuta_rata2_url && (
           <button style={styles.btnVedi} onClick={() => onVediDocumento("ricevuta_rata2", iscrizione.id)}>👁 Vedi ricevuta 2ª rata</button>
+        )}
+        {puoAggiungereSeconda && (
+          <button style={{ ...styles.btnSmall, background: "#ECFDF5", color: "#065F46", border: "1px solid #A7F3D0" }} onClick={onAggiungiSeconda}>
+            ➕ Aggiungi la 2ª lezione
+          </button>
         )}
       </div>
     </div>
@@ -793,6 +915,8 @@ export default function AreaTesserati() {
   const [modaleCertificatoSede, setModaleCertificatoSede] = useState(false);
   const [modaleRinnovo, setModaleRinnovo] = useState(null);
   const [modaleRata2, setModaleRata2] = useState(null); // { iscrizioni, importo }
+  const [modaleSeconda, setModaleSeconda] = useState(null); // { iscrizione, importo, causale }
+  const [modaleIntegrazione, setModaleIntegrazione] = useState(null); // { iscrizioni, importo }
   const [scaricandoTessera, setScaricandoTessera] = useState(false);
   const [scaricandoTesseraAssoc, setScaricandoTesseraAssoc] = useState(false);
 
@@ -997,6 +1121,14 @@ export default function AreaTesserati() {
   const iscrizioniQuad1 = iscrizioniAttive.filter(
     (i) => i.tipo_pagamento === "quad1" && ["confermato", "dichiarato"].includes(i.stato_pagamento)
   );
+  // 2ª lezione dello stesso corso (08/10/2026)
+  const puoAggiungereSeconda = (i) =>
+    i.frequenza === "1x" && !!i.corsi?.ha_variante_frequenza && !!i.giorno_scelto &&
+    ["confermato", "dichiarato"].includes(i.stato_pagamento) &&
+    !["in_attesa", "dichiarato"].includes(i.integrazione_stato);
+  const causaleIntegrazione = (i) =>
+    `${(socio.nome || "").trim().toUpperCase()} ${(socio.cognome || "").trim().toUpperCase()} ${componiCodice(corsoPerMotore(i), "2x", pagamentoMotore(i.tipo_pagamento))} INTEGRAZIONE`;
+
   const mostraRata2 =
     !!finestraRata2 && iscrizioniQuad1.length > 0 &&
     (finestraRata2.aperta || (finestraRata2.chiusa && iscrizioniQuad1.some((i) => i.rinnovo_rata2_risposta === "si" || i.stato_pagamento_rata2)));
@@ -1130,6 +1262,10 @@ export default function AreaTesserati() {
               onApriRicevuta={() => setModaleRicevuta(i)}
               onApriCertificato={() => setModaleCertificato(i)}
               onVediDocumento={vediDocumento}
+              puoAggiungereSeconda={puoAggiungereSeconda(i)}
+              onAggiungiSeconda={() => setModaleSeconda({ iscrizione: i, importo: calcolaIntegrazioneSeconda(i, iscrizioniAttive), causale: causaleIntegrazione(i) })}
+              causaleIntegrazione={causaleIntegrazione(i)}
+              onCaricaIntegrazione={() => setModaleIntegrazione({ iscrizioni: [i], importo: i.integrazione_importo })}
             />
           ))}
         </div>
@@ -1195,6 +1331,24 @@ export default function AreaTesserati() {
             setMessaggio(msg);
             caricaDati();
           }}
+        />
+      )}
+      {modaleSeconda && (
+        <ModaleSecondaFrequenza
+          {...modaleSeconda}
+          onClose={() => setModaleSeconda(null)}
+          callFnWithAuth={callFnWithAuth}
+          onDone={(msg) => { setModaleSeconda(null); setMessaggio(msg); caricaDati(); }}
+        />
+      )}
+      {modaleIntegrazione && (
+        <ModaleRicevutaRata2
+          dati={modaleIntegrazione}
+          tipo="ricevuta_integrazione"
+          titolo="Ricevuta dell'integrazione"
+          onClose={() => setModaleIntegrazione(null)}
+          callFnWithAuth={callFnWithAuth}
+          onDone={(msg) => { setModaleIntegrazione(null); setMessaggio(msg); caricaDati(); }}
         />
       )}
       {modaleRata2 && (

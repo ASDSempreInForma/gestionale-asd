@@ -347,6 +347,42 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
             )}
           </div>
         )}
+        {/* INTEGRAZIONE 2ª LEZIONE (08/10/2026): ricevuta separata dalla 1ª */}
+        {row.integrazione_stato && solo !== 'certificati' && (
+          <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, padding: 14 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
+              ➕ Integrazione 2ª lezione {row.integrazione_stato === 'confermato' && <span style={{ color: '#166534' }}>✓ confermata</span>}
+              {row.integrazione_stato === 'rifiutato' && <span style={{ color: '#991B1B' }}>✕ rifiutata</span>}
+              {row.integrazione_stato === 'in_attesa' && <span style={{ color: '#991B1B' }}>· ricevuta non ancora caricata</span>}
+            </div>
+            <div style={{ fontSize: 12.5, color: SUB, lineHeight: 1.6 }}>
+              Prima frequentava: <b>{row.integrazione_giorno_precedente || '—'}</b> · ora 2 volte<br />
+              Importo calcolato: <b>€{row.integrazione_importo ?? '—'}</b><br />
+              Data pagamento: <b>{fmtData(row.integrazione_data_pagamento)}</b>
+              {row.integrazione_verificata_il && <><br />Verificata il {fmtData(row.integrazione_verificata_il.slice(0, 10))}</>}
+            </div>
+            {row.integrazione_nota && (
+              <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 7, padding: '7px 9px', fontSize: 12, color: '#92400E', marginTop: 8 }}>
+                💬 {row.integrazione_nota}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+              {row.integrazione_ricevuta_url && <button onClick={() => apriDocumento(row.integrazione_ricevuta_url)} style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>👁️ Apri file</button>}
+              {!soloConsultazione && row.integrazione_stato === 'dichiarato' && (
+                <>
+                  <button
+                    onClick={() => {
+                      aggiornaIscrizione({ integrazione_stato: 'confermato', integrazione_verificata_il: new Date().toISOString() })
+                      inviaEmailDocumento({ tipo: 'documento_confermato', tipoDocumento: 'ricevuta', socio })
+                    }}
+                    style={{ background: '#DCFCE7', color: '#166534', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer', fontWeight: 600 }}
+                  >✓ Conferma integrazione</button>
+                  <button onClick={() => setModaleRifiuto('integrazione')} style={{ background: '#FEE2E2', color: '#991B1B', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>✕ Rifiuta</button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
         {/* 2ª RATA QUADRIMESTRALE (07/10/2026): ricevuta separata dalla 1ª */}
         {row.ricevuta_rata2_url && solo !== 'certificati' && (
           <div style={{ background: '#FFFBF2', border: '1px solid #FDE68A', borderRadius: 10, padding: 14 }}>
@@ -463,6 +499,8 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
               ? { stato_pagamento: 'rifiutato', note: motivo }
               : modaleRifiuto === 'rata2'
               ? { stato_pagamento_rata2: 'rifiutato', rata2_nota: motivo }
+              : modaleRifiuto === 'integrazione'
+              ? { integrazione_stato: 'rifiutato', integrazione_nota: motivo }
               : { stato_certificato: 'rifiutato', note: motivo }
             aggiornaIscrizione(payload)
             inviaEmailDocumento({
@@ -749,15 +787,16 @@ export default function VerificaDocumenti() {
         stato_certificato, data_scadenza_certificato, certificato_url, verificato_da, verificato_il,
         frequenza, giorno_scelto,
         stato_pagamento_rata2, importo_rata2, data_pagamento_rata2, ricevuta_rata2_url, rata2_verificata_il, rata2_nota,
+        integrazione_stato, integrazione_importo, integrazione_giorno_precedente, integrazione_ricevuta_url, integrazione_data_pagamento, integrazione_verificata_il, integrazione_nota,
         soci ( cf, nome, cognome, email, numero_tessera, scadenza_tessera, ente_tessera ),
         corsi!iscrizioni_corso_id_fkey ( disciplina, giorni_orari, sedi ( nome ) )
       `)
       .order('data_iscrizione', { ascending: false })
 
     if (vista === 'in_attesa') {
-      query = query.or('stato_pagamento.eq.dichiarato,stato_certificato.eq.dichiarato,stato_pagamento_rata2.eq.dichiarato')
+      query = query.or('stato_pagamento.eq.dichiarato,stato_certificato.eq.dichiarato,stato_pagamento_rata2.eq.dichiarato,integrazione_stato.eq.dichiarato')
     } else {
-      query = query.or('ricevuta_url.not.is.null,certificato_url.not.is.null,ricevuta_rata2_url.not.is.null')
+      query = query.or('ricevuta_url.not.is.null,certificato_url.not.is.null,ricevuta_rata2_url.not.is.null,integrazione_ricevuta_url.not.is.null')
     }
 
     const { data, error } = await query
@@ -773,14 +812,14 @@ export default function VerificaDocumenti() {
   const righeFiltrate = (righe || []).filter(r => {
     // Filtro per tipo di documento: in "Da verificare" conta lo stato
     // dichiarato, nello storico basta che il documento sia stato caricato
-    if (tipoFiltro === 'pagamenti' && !(vista === 'in_attesa' ? (r.stato_pagamento === 'dichiarato' || r.stato_pagamento_rata2 === 'dichiarato') : (r.ricevuta_url || r.ricevuta_rata2_url))) return false
+    if (tipoFiltro === 'pagamenti' && !(vista === 'in_attesa' ? (r.stato_pagamento === 'dichiarato' || r.stato_pagamento_rata2 === 'dichiarato' || r.integrazione_stato === 'dichiarato') : (r.ricevuta_url || r.ricevuta_rata2_url || r.integrazione_ricevuta_url))) return false
     if (tipoFiltro === 'certificati' && !(vista === 'in_attesa' ? r.stato_certificato === 'dichiarato' : r.certificato_url)) return false
     if (!ricerca.trim()) return true
     const q = ricerca.trim().toLowerCase()
     return `${r.soci?.nome} ${r.soci?.cognome} ${r.soci?.cf}`.toLowerCase().includes(q)
   })
 
-  const nPagamenti = (righe || []).filter(r => r.stato_pagamento === 'dichiarato' || r.stato_pagamento_rata2 === 'dichiarato').length
+  const nPagamenti = (righe || []).filter(r => r.stato_pagamento === 'dichiarato' || r.stato_pagamento_rata2 === 'dichiarato' || r.integrazione_stato === 'dichiarato').length
   const nCertificati = (righe || []).filter(r => r.stato_certificato === 'dichiarato').length
 
   return (

@@ -1363,8 +1363,9 @@ export default function ModuloIscrizione() {
                       )}
                       {corso && corsoGiaAttivo(corso.id) && (
                         <div className="mt-2 text-sm px-3 py-2 rounded-lg border bg-red-50 border-red-200 text-red-700">
-                          Risulti già iscritto/a a questo corso per la stagione in corso. Se vuoi passare da 1 a 2 volte a
-                          settimana o cambiare giorno, scrivi alla segreteria (WhatsApp 327 868 1393).
+                          Risulti già iscritto/a a questo corso per la stagione in corso. Per passare da 1 a 2 volte a
+                          settimana usa il pulsante "Aggiungi la 2ª lezione" nella tua area privata; per cambiare giorno
+                          scrivi alla segreteria (WhatsApp 327 868 1393).
                         </div>
                       )}
                       {corso && unGiornoPieno(corso) && (
