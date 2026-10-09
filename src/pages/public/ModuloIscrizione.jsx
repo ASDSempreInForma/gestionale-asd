@@ -725,14 +725,15 @@ export default function ModuloIscrizione() {
   const prezzoTotale = useMemo(() => calcolaPrezzoTotale(corsiConCodice), [corsiConCodice]);
 
   // ── INTEGRAZIONE AUTOMATICA (07/10/2026) ──
-  // Chi ha già un corso pagato (o con ricevuta in verifica) in questa stagione e
-  // ne aggiunge un altro paga solo la DIFFERENZA: prezzo di tutti i corsi
+  // Chi ha già un corso in questa stagione (pagato, in verifica o ANCHE ancora
+  // da pagare — dal 09/10/2026, caso Uberti) e ne aggiunge un altro paga per il
+  // nuovo solo la DIFFERENZA: prezzo di tutti i corsi
   // insieme meno il prezzo dei soli corsi già attivi, calcolati con lo stesso
   // motore e alla stessa data (regola del caso Bersi, 25/09/2026).
   const corsiGiaPagati = useMemo(
     () =>
       iscrizioniAttiveSocio
-        .filter((i) => ["confermato", "dichiarato"].includes(i.stato_pagamento))
+        .filter((i) => i.stato_pagamento !== "annullata")
         .map((i) => {
           let corso = corsiTutti.find((x) => x.id === i.corso_id) || null;
           if (corso && corso.quota_annuale_under65) {
@@ -748,6 +749,7 @@ export default function ModuloIscrizione() {
             pagamento,
             inizioPersonalizzato: i.inizio_personalizzato,
             stato: i.stato_pagamento,
+            pagato: ["confermato", "dichiarato"].includes(i.stato_pagamento),
             codiceCompleto: componiCodice(corso, i.frequenza, pagamento),
           };
         }),
@@ -1488,6 +1490,11 @@ export default function ModuloIscrizione() {
                     ✅ Risulti già iscritto/a a{" "}
                     <b>{corsiGiaPagati.map((g) => (g.corso ? `${g.corso.nomeVisualizzato || g.corso.corso} (${g.corso.sede})` : "un corso")).join(", ")}</b>.
                     Qui scegli solo il corso da <b>aggiungere</b>: pagherai soltanto la differenza (integrazione).
+                    {corsiGiaPagati.some((g) => !g.pagato) && (
+                      <div className="mt-1 text-amber-800">
+                        ⚠️ {corsiGiaPagati.filter((g) => !g.pagato).map((g) => (g.corso ? g.corso.nomeVisualizzato || g.corso.corso : "Un corso")).join(", ")} non risulta ancora pagato: nel riepilogo trovi il totale da versare per tutto.
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1728,11 +1735,20 @@ export default function ModuloIscrizione() {
                   <span className="font-semibold text-[#C24709] text-base">{quotaDaVersare}€</span>
                 )}
               </div>
-              {integrazione?.calcolabile && (
+              {integrazione?.calcolabile && corsiGiaPagati.every((g) => g.pagato) && (
                 <p className="text-xs text-slate-400 -mt-1">
                   Hai già versato la quota dei corsi attivi: paghi solo la differenza per il corso aggiunto
                   (l'iscrizione da 40€ non si paga di nuovo).
                 </p>
+              )}
+              {integrazione?.calcolabile && corsiGiaPagati.some((g) => !g.pagato) && (
+                <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2">
+                  {corsiGiaPagati.every((g) => !g.pagato) ? (
+                    <>Non hai ancora pagato {corsiGiaPagati.length > 1 ? "i corsi già scelti" : "il corso già scelto"}: il <b>totale di tutti i tuoi corsi è {integrazione.totaleInsieme + sovrapprezzoSettembre}€</b> e puoi versarlo con un unico pagamento.</>
+                  ) : (
+                    <>Ricordati di versare anche la quota dei corsi già scelti e non ancora pagati ({corsiGiaPagati.filter((g) => !g.pagato).map((g) => (g.corso ? g.corso.nomeVisualizzato || g.corso.corso : "un corso")).join(", ")}).</>
+                  )}
+                </div>
               )}
               {mostraNotaMesiTrascorsi && (
                 <p className="text-xs text-slate-400 -mt-1">
