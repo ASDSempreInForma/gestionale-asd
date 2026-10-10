@@ -8,6 +8,9 @@ import { generaFoglioPresenzeSede } from "./foglioPresenzeSede.js";
 import { generaFoglioPresenzeExcelSede } from "./foglioPresenzeExcel.js";
 import CampoDocumento from "../../CampoDocumento.jsx";
 import { caricaSuStorage } from "../../scansioneDocumento.js";
+import ComboComune from "../../ComboComune.jsx";
+import { caricaComuni, capUnicoDelComune } from "../../comuniItaliani.js";
+import { pulisciCF, datiDaCF, problemiCF } from "../../codiceFiscale.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -776,24 +779,81 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
   const [errore, setErrore] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [ricercaEsistente, setRicercaEsistente] = useState("");
+  const [sociPalestre, setSociPalestre] = useState([]);
+  const [comuni, setComuni] = useState([]);
+  const [confermaComunque, setConfermaComunque] = useState(false);
 
-  function campo(k, v) { setForm((prev) => ({ ...prev, [k]: v })); }
+  useEffect(() => { caricaComuni().then(setComuni); }, []);
+
+  function campo(k, v) { setForm((prev) => ({ ...prev, [k]: v })); setConfermaComunque(false); }
+
+  // 10/10/2026: dal codice fiscale si compilano da soli data di nascita,
+  // sesso e comune/provincia di nascita (solo se ancora vuoti).
+  useEffect(() => {
+    const dati = datiDaCF(form.cf);
+    if (!dati) return;
+    const comune = comuni.find((c) => c.codice === dati.codiceComune);
+    setForm((prev) => ({
+      ...prev,
+      data_nascita: prev.data_nascita || dati.dataNascita,
+      sesso: prev.sesso || dati.sesso,
+      comune_nascita: prev.comune_nascita || (comune ? comune.nome : ""),
+      provincia_nascita: prev.provincia_nascita || (comune ? comune.sigla : (dati.codiceComune.startsWith("Z") ? "EE" : "")),
+    }));
+  }, [form.cf, comuni]);
+
+  // CAP compilato da solo se il comune di residenza ne ha uno solo
+  useEffect(() => {
+    if (form.cap) return;
+    const cap = capUnicoDelComune(comuni, form.comune_residenza);
+    if (cap) setForm((prev) => ({ ...prev, cap }));
+  }, [form.comune_residenza, comuni]);
+
+  // 10/10/2026: la ricerca guarda anche gli iscritti delle PALESTRE (tabella
+  // soci), così chi frequenta già un corso non va riscritto a mano.
+  useEffect(() => {
+    if (persona) return;
+    const parole = ricercaEsistente.trim().toLowerCase().replace(/[%,()*]/g, " ").split(/\s+/).filter(Boolean);
+    if (parole.length === 0 || parole.join("").length < 2) { setSociPalestre([]); return; }
+    let annullato = false;
+    const t = setTimeout(async () => {
+      const { data } = await supabase.from("soci")
+        .select("cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email")
+        .or(`cognome.ilike.%${parole[0]}%,nome.ilike.%${parole[0]}%`)
+        .limit(40);
+      if (annullato) return;
+      const filtrati = (data || []).filter((p) => parole.every((w) => `${p.cognome} ${p.nome}`.toLowerCase().includes(w)));
+      setSociPalestre(filtrati.slice(0, 8));
+    }, 250);
+    return () => { annullato = true; clearTimeout(t); };
+  }, [ricercaEsistente, persona]);
+
+  const problemiCodice = problemiCF({ cf: form.cf, cognome: form.cognome, nome: form.nome, dataNascita: form.data_nascita, sesso: form.sesso });
 
   // Ricerca tra le persone già presenti nel gestionale (dedup per CF/nome),
   // per riusarne i dati invece di ricompilarli da zero — richiesto da
   // Solomon il 14/09/2026.
   const risultatiEsistenti = (() => {
     if (persona || ricercaEsistente.trim().length < 2 || !personeEsistenti) return [];
-    const testo = ricercaEsistente.trim().toLowerCase();
+    const parole = ricercaEsistente.trim().toLowerCase().split(/\s+/).filter(Boolean);
     const viste = new Set();
     const risultato = [];
     for (const p of personeEsistenti) {
-      if (!`${p.cognome} ${p.nome}`.toLowerCase().includes(testo)) continue;
+      const nomeCompleto = `${p.cognome} ${p.nome}`.toLowerCase();
+      if (!parole.every((w) => nomeCompleto.includes(w))) continue;
       const chiave = (p.cf || `${p.cognome}|${p.nome}`).toUpperCase();
       if (viste.has(chiave)) continue;
       viste.add(chiave);
       risultato.push(p);
       if (risultato.length >= 8) break;
+    }
+    // Iscritti delle palestre non ancora presenti nella SEDE
+    for (const p of sociPalestre) {
+      const chiave = (p.cf || `${p.cognome}|${p.nome}`).toUpperCase();
+      if (viste.has(chiave)) continue;
+      viste.add(chiave);
+      risultato.push({ ...p, id: `soci-${p.cf}`, daPalestre: true });
+      if (risultato.length >= 12) break;
     }
     return risultato;
   })();
@@ -807,17 +867,28 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
       telefono: p.telefono || "", email: p.email || "", numero_tessera: "", // il numero tessera resta legato alla stagione/turno, non lo riportiamo automaticamente
     });
     setRicercaEsistente("");
+    setConfermaComunque(false);
   }
 
   async function salva() {
     if (!form.nome || !form.cognome) { setErrore("Nome e cognome sono obbligatori."); return; }
+    if (problemiCodice.length > 0 && !confermaComunque) {
+      setErrore(`Controlla il codice fiscale: ${problemiCodice.join(", ")}. Correggi i dati oppure premi di nuovo "Salva comunque".`);
+      setConfermaComunque(true);
+      return;
+    }
     setSalvando(true); setErrore("");
     try {
       // Il backend trova/crea la persona per CF: modificare i dati qui li
       // aggiorna automaticamente ovunque quella persona sia iscritta,
       // senza bisogno di conferme (archivio persone unico, come soci/
       // iscrizioni nel resto del gestionale — 18/09/2026).
-      await chiamaAreaSede("salva_iscritto_turno", { id: persona?.id, turno_id: turnoId, ...form });
+      await chiamaAreaSede("salva_iscritto_turno", {
+        id: persona?.id, turno_id: turnoId, ...form,
+        cf: pulisciCF(form.cf),
+        provincia_nascita: (form.provincia_nascita || "").trim().toUpperCase(),
+        provincia_residenza: (form.provincia_residenza || "").trim().toUpperCase(),
+      });
       onSalvato();
     } catch (err) { setErrore(err.message); }
     finally { setSalvando(false); }
@@ -838,7 +909,7 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
 
         {!persona && (
           <div style={{ position: "relative", marginBottom: 16 }}>
-            <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 4 }}>Cerca tra le persone già nel gestionale (facoltativo)</label>
+            <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 4 }}>Cerca tra le persone già nel gestionale — SEDE e palestre (facoltativo)</label>
             <input type="text" placeholder="Scrivi un nome per riusare i suoi dati…" value={ricercaEsistente} onChange={(e) => setRicercaEsistente(e.target.value)}
               style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 8, fontSize: 13 }} />
             {risultatiEsistenti.length > 0 && (
@@ -847,7 +918,11 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
                   <div key={p.id} onClick={() => usaPersonaEsistente(p)}
                     style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid #f5f5f5" }}>
                     <span style={{ flex: 1 }}>{p.cognome} {p.nome}</span>
-                    <span style={{ color: "#999" }}>{GIORNI_LABEL[p.turno.giorno_settimana].slice(0, 3)} {p.turno.orario?.slice(0, 5)}</span>
+                    {p.daPalestre ? (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#065F46", background: "#D1FAE5", padding: "1px 6px", borderRadius: 5 }}>PALESTRE</span>
+                    ) : (
+                      <span style={{ color: "#999" }}>{p.turno ? `${GIORNI_LABEL[p.turno.giorno_settimana].slice(0, 3)} ${p.turno.orario?.slice(0, 5) || ""}` : "SEDE"}</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -860,7 +935,25 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
           {campiTesto.map(([k, label]) => (
             <div key={k}>
               <label style={{ display: "block", fontSize: 11, color: "#555", marginBottom: 3 }}>{label}</label>
-              <input type="text" value={form[k]} onChange={(e) => campo(k, e.target.value)} style={{ width: "100%", padding: 7, border: "1px solid #ddd", borderRadius: 8, fontSize: 13 }} />
+              {k === "comune_nascita" || k === "comune_residenza" ? (
+                <ComboComune
+                  value={form[k]}
+                  onChange={(v) => campo(k, v)}
+                  onSiglaProvincia={(sigla) => campo(k === "comune_nascita" ? "provincia_nascita" : "provincia_residenza", sigla)}
+                  placeholder="Scrivi e scegli dall'elenco"
+                />
+              ) : (
+                <input type="text" value={form[k]}
+                  onChange={(e) => campo(k, k === "cf" || k.startsWith("provincia") ? e.target.value.toUpperCase() : e.target.value)}
+                  maxLength={k === "cf" ? 16 : k.startsWith("provincia") ? 2 : undefined}
+                  style={{ width: "100%", padding: 7, borderRadius: 8, fontSize: 13,
+                    border: k === "cf" && form.cf && problemiCodice.length > 0 ? "1.5px solid #e67e22" : "1px solid #ddd" }} />
+              )}
+              {k === "cf" && form.cf && (
+                problemiCodice.length > 0
+                  ? <div style={{ fontSize: 11, color: "#b45309", marginTop: 3 }}>⚠️ {problemiCodice.join(", ")}</div>
+                  : pulisciCF(form.cf).length === 16 && <div style={{ fontSize: 11, color: "#1f8a52", marginTop: 3 }}>✓ Codice fiscale coerente</div>
+              )}
             </div>
           ))}
           <div>
@@ -880,7 +973,7 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
         {errore && <div style={{ background: "#fdecea", color: "#c0392b", padding: "8px 10px", borderRadius: 8, fontSize: 13, margin: "12px 0" }}>{errore}</div>}
         <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
           <button onClick={onChiudi} style={{ flex: 1, background: "#f0f0f0", border: "none", borderRadius: 8, padding: "10px 0", cursor: "pointer" }}>Annulla</button>
-          <button onClick={salva} disabled={salvando} style={{ flex: 1, background: C, color: "#fff", border: "none", borderRadius: 8, padding: "10px 0", fontWeight: 600, cursor: "pointer", opacity: salvando ? 0.6 : 1 }}>{salvando ? "Salvo…" : "Salva"}</button>
+          <button onClick={salva} disabled={salvando} style={{ flex: 1, background: C, color: "#fff", border: "none", borderRadius: 8, padding: "10px 0", fontWeight: 600, cursor: "pointer", opacity: salvando ? 0.6 : 1 }}>{salvando ? "Salvo…" : confermaComunque ? "Salva comunque" : "Salva"}</button>
         </div>
       </div>
     </div>
