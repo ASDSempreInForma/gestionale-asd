@@ -94,8 +94,14 @@ function importoCorso(corso, frequenza, pagamento, isolato, forzaOttobre) {
     totaleConIscrizione = Number(totaleConIscrizione) - meseUnitario * mesiTrascorsi;
   }
 
-  return { mesi: mesiRiferimento, puro, totaleConIscrizione: Number(totaleConIscrizione) };
+  // mesiRestanti (10/10/2026): mesi davvero ancora da frequentare. Lo sconto
+  // combinazione (5€/mese) va contato solo su questi, non sull'intero periodo:
+  // prima chi si iscriveva a stagione iniziata riceveva lo sconto anche per i
+  // mesi già trascorsi (es. CrossTraining 1x + Step 1x il 10/10: 225€ invece di 230€).
+  return { mesi: mesiRiferimento, mesiRestanti: mesiRiferimento - mesiTrascorsi, puro, totaleConIscrizione: Number(totaleConIscrizione) };
 }
+
+const mesiEff = (r) => r.mesiRestanti || r.mesi;
 
 function calcolaPrezzoTotale(corsiSelezionati) {
   const validi = corsiSelezionati.filter((c) => c.corso);
@@ -316,13 +322,13 @@ function calcolaPrezzoTotale(corsiSelezionati) {
     // cui TUTTI i corsi scelti sono attivi insieme (perché tutti finiscono nello
     // stesso mese, maggio o gennaio); i valori più grandi rappresentano corsi
     // partiti prima, attivi da soli nei mesi iniziali "extra".
-    const soglie = [...new Set(risultatiAltri.map(({ r }) => r.mesi))].sort((a, b) => a - b);
+    const soglie = [...new Set(risultatiAltri.map(({ r }) => mesiEff(r)))].sort((a, b) => a - b);
     totaleAltri = 0;
     let sogliaPrecedente = 0;
     soglie.forEach((soglia) => {
       const lunghezzaSegmento = soglia - sogliaPrecedente;
-      const attiviInSegmento = risultatiAltri.filter(({ r }) => r.mesi >= soglia);
-      const sommaMensileSegmento = attiviInSegmento.reduce((tot, { r }) => tot + r.puro / r.mesi, 0);
+      const attiviInSegmento = risultatiAltri.filter(({ r }) => mesiEff(r) >= soglia);
+      const sommaMensileSegmento = attiviInSegmento.reduce((tot, { r }) => tot + r.puro / mesiEff(r), 0);
       const scontoMensileSegmento = attiviInSegmento.length >= 2 ? SCONTO_PER_CORSO_AGGIUNTIVO * (attiviInSegmento.length - 1) : 0;
       totaleAltri += (sommaMensileSegmento - scontoMensileSegmento) * lunghezzaSegmento;
       scontoTotaleAltri += scontoMensileSegmento * lunghezzaSegmento;
@@ -333,11 +339,11 @@ function calcolaPrezzoTotale(corsiSelezionati) {
         // Coppia Pilates/Step abbinata: mostro entrambi i corsi originali,
         // con la stessa quota mensile derivata dal pacchetto "2 volte" —
         // così il riepilogo resta trasparente su cosa ha scelto la persona.
-        dettaglio.push({ corso: c.corso.nomeVisualizzato || c.corso.corso, sede: c.corso.sede, mensile: (r.puro / r.mesi) / 2, nota: "Abbinato a 2° lezione, tariffa 2 volte/settimana" });
+        dettaglio.push({ corso: c.corso.nomeVisualizzato || c.corso.corso, sede: c.corso.sede, mensile: (r.puro / mesiEff(r)) / 2, nota: "Abbinato a 2° lezione, tariffa 2 volte/settimana" });
         const b = c.coppiaCon;
-        dettaglio.push({ corso: b.corso.nomeVisualizzato || b.corso.corso, sede: b.corso.sede, mensile: (r.puro / r.mesi) / 2, nota: "Abbinato a 1° lezione, tariffa 2 volte/settimana" });
+        dettaglio.push({ corso: b.corso.nomeVisualizzato || b.corso.corso, sede: b.corso.sede, mensile: (r.puro / mesiEff(r)) / 2, nota: "Abbinato a 1° lezione, tariffa 2 volte/settimana" });
       } else {
-        dettaglio.push({ corso: c.corso.nomeVisualizzato || c.corso.corso, sede: c.corso.sede, mensile: r.puro / r.mesi });
+        dettaglio.push({ corso: c.corso.nomeVisualizzato || c.corso.corso, sede: c.corso.sede, mensile: r.puro / mesiEff(r) });
       }
     });
   }
