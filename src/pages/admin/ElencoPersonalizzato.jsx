@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import { generaFileASI, generaFileLibertas } from "./esportaAssicurazioni.js";
 import { generaRegistroFirmeASI, generaRegistroFirmeLibertas } from "./registroFirme.js";
 import { generaElencoPDF, ORDINE_STAMPA, ALTEZZE_RIGA } from "./elencoPersonalizzatoPDF.js";
+import { statoTessera } from "../../tesseraAssociativa.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -227,6 +228,8 @@ export default function ElencoPersonalizzato() {
   // alla nota interna di Anagrafica Soci per la colonna "Note" (richiesto da
   // Solomon il 08/09/2026).
   const [noteRapidePerCf, setNoteRapidePerCf] = useState({});
+  // CF con tessera della stagione registrata in SEDE (12/10/2026)
+  const [cfTesseratiSede, setCfTesseratiSede] = useState(new Set());
   const [caricando, setCaricando] = useState(true);
   const [errore, setErrore] = useState(null);
 
@@ -302,6 +305,19 @@ export default function ElencoPersonalizzato() {
         mappaNoteRapide[n.socio_cf] = mappaNoteRapide[n.socio_cf] ? mappaNoteRapide[n.socio_cf] + " | " + n.testo : n.testo;
       });
       setNoteRapidePerCf(mappaNoteRapide);
+
+      // Tesserati in SEDE nella stagione in corso (tessera_stagione es. "2026/2027")
+      try {
+        const annoSt = String(stag.data_inizio || "").slice(0, 4);
+        if (annoSt) {
+          const { data: sedeTess } = await supabase
+            .from("sede_persone")
+            .select("cf, numero_tessera, tessera_stagione")
+            .like("tessera_stagione", `${annoSt}%`)
+            .not("numero_tessera", "is", null);
+          setCfTesseratiSede(new Set((sedeTess || []).filter((p) => p.cf && String(p.numero_tessera).trim()).map((p) => String(p.cf).trim().toUpperCase())));
+        }
+      } catch (e) { console.error("Tesserati SEDE non letti:", e); }
 
       // Righe di altri corsi per la stessa persona (per CF), con i dettagli
       // di frequenza necessari a costruire l'abbreviazione della combinazione.
@@ -582,6 +598,22 @@ export default function ElencoPersonalizzato() {
       : `↩️ Tolto il segno "registro ${nomeEnte} già stampato" a ${cfs.length} persone: verranno di nuovo incluse nella stampa.`);
   }
 
+  // 12/10/2026: chi ha già una tessera valida (Libertas o ASI, oppure fatta in
+  // SEDE) non va tesserato una seconda volta, né con lo stesso ente né con l'altro.
+  function tesseraEsistente(r) {
+    const s = r.soci || {};
+    if (statoTessera(s) === "valida") return (s.ente_tessera || "Tessera").toUpperCase().startsWith("ASI") ? "ASI" : (s.ente_tessera ? "LIB" : "TESS.");
+    if (s.cf && cfTesseratiSede.has(String(s.cf).toUpperCase())) return "SEDE";
+    return null;
+  }
+  function escludiGiaTesserati() {
+    setSelezionati((prev) => {
+      const next = new Set(prev);
+      iscrizioni.forEach((r) => { if (next.has(r.id) && tesseraEsistente(r)) next.delete(r.id); });
+      return next;
+    });
+  }
+
   function escludiNonPagati() {
     setSelezionati((prev) => {
       const next = new Set(prev);
@@ -746,6 +778,10 @@ export default function ElencoPersonalizzato() {
                     style={{ fontSize: 11.5, background: "#FEF3C7", color: "#92400E", border: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontWeight: 600 }}>
                     Escludi non pagati
                   </button>
+                  <button onClick={escludiGiaTesserati} title="Toglie dalla selezione chi ha già una tessera valida (Libertas, ASI o fatta in SEDE), per non tesserare due volte la stessa persona"
+                    style={{ fontSize: 11.5, background: "#DBEAFE", color: "#1E40AF", border: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontWeight: 600 }}>
+                    Escludi già tesserati
+                  </button>
                   <button onClick={deselezionaTutti} style={{ fontSize: 11.5, background: "#F3F4F6", color: GR, border: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontWeight: 600 }}>
                     Svuota
                   </button>
@@ -764,6 +800,12 @@ export default function ElencoPersonalizzato() {
                       {r._isProva && (
                         <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#B45309", background: "#FEF3C7", padding: "1px 6px", borderRadius: 5 }}>
                           PROVA
+                        </span>
+                      )}
+                      {tesseraEsistente(r) && (
+                        <span title={tesseraEsistente(r) === "SEDE" ? "Tesserato/a in SEDE per questa stagione" : `Tessera valida${r.soci?.numero_tessera ? " n. " + r.soci.numero_tessera : ""}${r.soci?.ente_tessera ? " (" + r.soci.ente_tessera + ")" : ""}`}
+                          style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#1E40AF", background: "#DBEAFE", padding: "1px 6px", borderRadius: 5 }}>
+                          🪪 {tesseraEsistente(r)}
                         </span>
                       )}
                       {registroGiaStampato(r, "libertas") && (
