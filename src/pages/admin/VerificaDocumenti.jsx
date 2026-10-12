@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { scadenzaPerNuovoNumero, enteIniziale, ENTI_TESSERA } from '../../tesseraAssociativa.js'
 import { supabase } from '../../supabase.js'
 import { percorsoOriginale, apriDocumentoStorage } from '../../scansioneDocumento.js'
-import { calcolaQuotaAttesa, CAMPI_CORSO_MOTORE } from '../../quotaAttesa.js'
+import { calcolaQuotaAttesa, spiegaDifferenza, CAMPI_CORSO_MOTORE } from '../../quotaAttesa.js'
 
 // 12/10/2026: campi necessari anche per calcolare la quota attesa
 const SELECT_ISCRIZIONE = `
@@ -32,6 +32,7 @@ function BoxQuotaAttesa({ quota, dichiarato }) {
       <b>{ok ? '✓ Importo corretto' : dich === null ? 'Importo non indicato' : '⚠️ Importo diverso da quello atteso'}</b>
       {' '}— atteso <b>€{quota.importo}</b>{dich !== null && !ok ? <>, dichiarato <b>€{dich}</b></> : null}<br />
       <span style={{ color: SUB }}>{quota.spiegazione}</span>
+      {!ok && quota.suggerimento && <><br /><span style={{ color: '#1E3A8A' }}>💡 {quota.suggerimento}</span></>}
     </div>
   )
 }
@@ -846,7 +847,15 @@ export default function VerificaDocumenti() {
         ;(altre || []).forEach(i => { (perPersona[`${i.socio_cf}|${i.stagione_id}`] ||= []).push(i) })
       }
     } catch (e) { console.error('Quota attesa non calcolabile:', e) }
-    setRighe(lista.map(r => ({ ...r, _quota: r.ricevuta_url ? calcolaQuotaAttesa(r, perPersona[`${r.socio_cf}|${r.stagione_id}`] || []) : undefined })))
+    setRighe(lista.map(r => {
+      if (!r.ricevuta_url) return r
+      const tutte = perPersona[`${r.socio_cf}|${r.stagione_id}`] || []
+      const q = calcolaQuotaAttesa(r, tutte)
+      if (q && r.importo_dichiarato != null && Math.abs(Number(r.importo_dichiarato) - q.importo) >= 0.5) {
+        q.suggerimento = spiegaDifferenza(r, tutte, r.importo_dichiarato)
+      }
+      return { ...r, _quota: q }
+    }))
   }
 
   useEffect(() => { if (vista !== 'scadenze' && vista !== 'rata2') carica() }, [vista])

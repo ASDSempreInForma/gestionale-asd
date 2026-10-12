@@ -126,3 +126,29 @@ export function calcolaQuotaAttesa(row, tutte) {
     return null;
   }
 }
+
+// Se l'importo dichiarato non torna, prova a capire PERCHÉ: con quale tipo di
+// pagamento (o frequenza) quella cifra sarebbe giusta. Caso Fasolo 12/10/2026:
+// 180€ = Pilates ANNUALE, ma nella ricevuta aveva indicato "1° quadrimestre".
+export function spiegaDifferenza(row, tutte, dichiarato) {
+  const dich = Number(dichiarato);
+  if (!Number.isFinite(dich)) return null;
+  const etichette = { annuale: "quota annuale", quad1: "1° quadrimestre", quad2: "quota da gennaio" };
+  const prove = [];
+  for (const tipo of ["annuale", "quad1", "quad2"]) {
+    for (const freq of row.corsi?.ha_variante_frequenza ? ["1x", "2x"] : [row.frequenza]) {
+      if (tipo === row.tipo_pagamento && freq === row.frequenza) continue;
+      prove.push({ tipo, freq });
+    }
+  }
+  for (const { tipo, freq } of prove) {
+    const q = calcolaQuotaAttesa({ ...row, tipo_pagamento: tipo, frequenza: freq, giorno_scelto: freq === "1x" ? row.giorno_scelto : null }, tutte);
+    if (q && Math.abs(q.importo - dich) < 0.5) {
+      const parti = [];
+      if (tipo !== row.tipo_pagamento) parti.push(etichette[tipo]);
+      if (freq !== row.frequenza) parti.push(freq === "1x" ? "1 volta a settimana" : "2 volte a settimana");
+      return `${dich}€ è giusto se il pagamento è ${parti.join(" e ")}: probabilmente nella ricevuta è stato indicato il tipo sbagliato. Se è così, correggilo con "Modifica pagamento".`;
+    }
+  }
+  return null;
+}
