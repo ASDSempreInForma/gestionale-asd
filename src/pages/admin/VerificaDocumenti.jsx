@@ -2,6 +2,39 @@ import { useState, useEffect } from 'react'
 import { scadenzaPerNuovoNumero, enteIniziale, ENTI_TESSERA } from '../../tesseraAssociativa.js'
 import { supabase } from '../../supabase.js'
 import { percorsoOriginale, apriDocumentoStorage } from '../../scansioneDocumento.js'
+import { calcolaQuotaAttesa, CAMPI_CORSO_MOTORE } from '../../quotaAttesa.js'
+
+// 12/10/2026: campi necessari anche per calcolare la quota attesa
+const SELECT_ISCRIZIONE = `
+        id, socio_cf, stagione_id, data_iscrizione, inizio_personalizzato, note,
+        tipo_pagamento, stato_pagamento, importo_dichiarato, data_pagamento, ricevuta_url, nota_pagamento,
+        stato_certificato, data_scadenza_certificato, certificato_url, verificato_da, verificato_il,
+        frequenza, giorno_scelto,
+        stato_pagamento_rata2, importo_rata2, data_pagamento_rata2, ricevuta_rata2_url, rata2_verificata_il, rata2_nota,
+        integrazione_stato, integrazione_importo, integrazione_giorno_precedente, integrazione_ricevuta_url, integrazione_data_pagamento, integrazione_verificata_il, integrazione_nota,
+        soci ( cf, nome, cognome, email, numero_tessera, scadenza_tessera, ente_tessera, data_nascita, comune_residenza ),
+        corsi!iscrizioni_corso_id_fkey ( ${CAMPI_CORSO_MOTORE}, sedi ( nome ) ),
+        stagioni ( data_inizio )
+      `
+
+// Riquadro "quota attesa" accanto all'importo dichiarato
+function BoxQuotaAttesa({ quota, dichiarato }) {
+  if (quota === undefined) return null
+  if (!quota) {
+    return <div style={{ fontSize: 11.5, color: SUB, marginTop: 4 }}>Quota attesa: non calcolabile in automatico, controlla a mano.</div>
+  }
+  const dich = dichiarato === null || dichiarato === undefined || dichiarato === '' ? null : Number(dichiarato)
+  const ok = dich !== null && Math.abs(dich - quota.importo) < 0.5
+  const colore = dich === null ? '#92400E' : ok ? '#166534' : '#991B1B'
+  const sfondo = dich === null ? '#FFFBEB' : ok ? '#DCFCE7' : '#FEE2E2'
+  return (
+    <div style={{ background: sfondo, color: colore, borderRadius: 7, padding: '6px 9px', fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
+      <b>{ok ? '✓ Importo corretto' : dich === null ? 'Importo non indicato' : '⚠️ Importo diverso da quello atteso'}</b>
+      {' '}— atteso <b>€{quota.importo}</b>{dich !== null && !ok ? <>, dichiarato <b>€{dich}</b></> : null}<br />
+      <span style={{ color: SUB }}>{quota.spiegazione}</span>
+    </div>
+  )
+}
 
 const G = "#2D6A4F", GL = "#D8F3DC"
 const BD = "#E8E4DC", TX = "#1A1A1A", SUB = "#6B7280"
@@ -287,6 +320,7 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
               Data pagamento: <b>{fmtData(row.data_pagamento)}</b>
               {row.verificato_il && <><br />Verificato il {fmtData(row.verificato_il.slice(0,10))} da {row.verificato_da || '—'}</>}
             </div>
+            <BoxQuotaAttesa quota={row._quota} dichiarato={row.importo_dichiarato} />
             {row.nota_pagamento && (
               <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 7, padding: '7px 9px', fontSize: 12, color: '#92400E', marginTop: 8 }}>
                 💬 <b>Nota del socio:</b> {row.nota_pagamento}
@@ -356,7 +390,9 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
               {row.integrazione_stato === 'in_attesa' && <span style={{ color: '#991B1B' }}>· ricevuta non ancora caricata</span>}
             </div>
             <div style={{ fontSize: 12.5, color: SUB, lineHeight: 1.6 }}>
-              Prima frequentava: <b>{row.integrazione_giorno_precedente || '—'}</b> · ora 2 volte<br />
+              {row.frequenza === '1x' && row.integrazione_giorno_precedente
+                ? <>Frequenta: <b>{row.integrazione_giorno_precedente}</b> · <b>diventa 2 volte quando confermi l'integrazione</b><br /></>
+                : <>Prima frequentava: <b>{row.integrazione_giorno_precedente || '—'}</b> · ora 2 volte<br /></>}
               Importo calcolato: <b>€{row.integrazione_importo ?? '—'}</b><br />
               Data pagamento: <b>{fmtData(row.integrazione_data_pagamento)}</b>
               {row.integrazione_verificata_il && <><br />Verificata il {fmtData(row.integrazione_verificata_il.slice(0, 10))}</>}
@@ -782,15 +818,7 @@ export default function VerificaDocumenti() {
   const carica = async () => {
     let query = supabase
       .from('iscrizioni')
-      .select(`
-        id, tipo_pagamento, stato_pagamento, importo_dichiarato, data_pagamento, ricevuta_url, nota_pagamento,
-        stato_certificato, data_scadenza_certificato, certificato_url, verificato_da, verificato_il,
-        frequenza, giorno_scelto,
-        stato_pagamento_rata2, importo_rata2, data_pagamento_rata2, ricevuta_rata2_url, rata2_verificata_il, rata2_nota,
-        integrazione_stato, integrazione_importo, integrazione_giorno_precedente, integrazione_ricevuta_url, integrazione_data_pagamento, integrazione_verificata_il, integrazione_nota,
-        soci ( cf, nome, cognome, email, numero_tessera, scadenza_tessera, ente_tessera ),
-        corsi!iscrizioni_corso_id_fkey ( disciplina, giorni_orari, sedi ( nome ) )
-      `)
+      .select(SELECT_ISCRIZIONE)
       .order('data_iscrizione', { ascending: false })
 
     if (vista === 'in_attesa') {
@@ -800,8 +828,25 @@ export default function VerificaDocumenti() {
     }
 
     const { data, error } = await query
-    if (error) setErrore(error.message)
-    else setRighe(data || [])
+    if (error) { setErrore(error.message); return }
+    const lista = data || []
+    // Tutte le iscrizioni delle stesse persone nella stessa stagione, per
+    // calcolare la quota attesa (combinazioni, integrazioni) — 12/10/2026
+    const perPersona = {}
+    try {
+      const cfs = [...new Set(lista.map(r => r.socio_cf).filter(Boolean))]
+      const stagioni = [...new Set(lista.map(r => r.stagione_id).filter(Boolean))]
+      for (let k = 0; k < cfs.length; k += 80) {
+        const { data: altre } = await supabase
+          .from('iscrizioni')
+          .select(SELECT_ISCRIZIONE)
+          .in('socio_cf', cfs.slice(k, k + 80))
+          .in('stagione_id', stagioni)
+          .neq('stato_pagamento', 'annullata')
+        ;(altre || []).forEach(i => { (perPersona[`${i.socio_cf}|${i.stagione_id}`] ||= []).push(i) })
+      }
+    } catch (e) { console.error('Quota attesa non calcolabile:', e) }
+    setRighe(lista.map(r => ({ ...r, _quota: r.ricevuta_url ? calcolaQuotaAttesa(r, perPersona[`${r.socio_cf}|${r.stagione_id}`] || []) : undefined })))
   }
 
   useEffect(() => { if (vista !== 'scadenze' && vista !== 'rata2') carica() }, [vista])

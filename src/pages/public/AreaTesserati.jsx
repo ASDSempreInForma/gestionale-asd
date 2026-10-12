@@ -5,7 +5,7 @@ import ChatWidget from "../../ChatWidget.jsx";
 import CampoDocumento from "../../CampoDocumento.jsx";
 import { campiUpload, tipoDaBytes } from "../../scansioneDocumento.js";
 import TesseraAssociativa from "../../TesseraAssociativa.jsx";
-import { statoTessera, scaricaTesseraPdf } from "../../tesseraAssociativa.js";
+import { statoTessera, preparaTesseraPdf, preparaTesseraImmagine, salvaFile } from "../../tesseraAssociativa.js";
 import { componiCodice, importoSecondaRata, calcolaPrezzoTotale } from "../../motorePrezzi.js";
 
 // ─── Giorno/orario effettivo mostrato all'utente ────────────────────────────
@@ -548,8 +548,9 @@ function ModaleSecondaFrequenza({ iscrizione, importo, causale, onClose, onDone,
             <b style={{ fontSize: 17, color: "#C24709" }}>{importo !== null ? `${importo}€` : "da calcolare in segreteria"}</b>
           </div>
           <div style={{ color: "#64748b", fontSize: 12.5, marginTop: 6 }}>
-            Paghi solo la differenza rispetto a quanto hai già versato. Dopo la conferma il posto nel secondo giorno è tuo:
-            ricevi un'email con le coordinate e carichi qui la ricevuta.
+            Paghi solo la differenza rispetto a quanto hai già versato. Ricevi un'email con le coordinate e carichi qui la ricevuta:
+            il secondo giorno si aggiunge alla tua frequenza quando la segreteria conferma il pagamento.
+            Se hai cambiato idea prima di pagare, puoi annullare la richiesta.
           </div>
           {causale && (
             <>
@@ -561,15 +562,20 @@ function ModaleSecondaFrequenza({ iscrizione, importo, causale, onClose, onDone,
         {errore && <p style={styles.errore}>{errore}</p>}
         <div style={styles.modalActions}>
           <button onClick={onClose} style={styles.btnSecondary}>Annulla</button>
-          <button onClick={conferma} disabled={loading} style={styles.btnPrimary}>{loading ? "Invio..." : "Conferma, frequento 2 volte"}</button>
+          <button onClick={conferma} disabled={loading} style={styles.btnPrimary}>{loading ? "Invio..." : "Sì, voglio frequentare 2 volte"}</button>
         </div>
       </div>
     </div>
   );
 }
 
-function BoxIntegrazione({ iscrizione, causale, onCarica, onVediDocumento }) {
+function BoxIntegrazione({ iscrizione, causale, onCarica, onVediDocumento, onAnnulla }) {
   const stato = iscrizione.integrazione_stato;
+  // 12/10/2026: richiesta della 2ª lezione non ancora attiva (frequenza ancora 1 volta)
+  const inAttesaSeconda = iscrizione.frequenza === "1x" && !!iscrizione.integrazione_giorno_precedente;
+  const altroGiorno = inAttesaSeconda
+    ? (estraiGiorniSingoli(iscrizione.corsi?.giorni_orari).find((g) => g.giorno !== iscrizione.giorno_scelto)?.giorno || "secondo giorno")
+    : null;
   const etichette = {
     in_attesa: { t: "🔴 Integrazione da pagare", c: "#991B1B" },
     dichiarato: { t: "⏳ Ricevuta integrazione in verifica", c: "#92400E" },
@@ -583,7 +589,11 @@ function BoxIntegrazione({ iscrizione, causale, onCarica, onVediDocumento }) {
       <div style={{ fontWeight: 600, color: e.c }}>
         {e.t}{iscrizione.integrazione_importo != null ? ` · ${iscrizione.integrazione_importo}€` : ""}
       </div>
-      <div style={{ color: "#64748b" }}>2ª lezione aggiunta{iscrizione.integrazione_giorno_precedente ? ` (prima frequentavi solo il ${iscrizione.integrazione_giorno_precedente})` : ""}.</div>
+      <div style={{ color: "#64748b" }}>
+        {inAttesaSeconda
+          ? <>Richiesta 2ª lezione: il <b>{altroGiorno}</b> si aggiunge appena la segreteria conferma il pagamento. Per ora frequenti solo il {iscrizione.giorno_scelto}.</>
+          : <>2ª lezione aggiunta{iscrizione.integrazione_giorno_precedente ? ` (prima frequentavi solo il ${iscrizione.integrazione_giorno_precedente})` : ""}.</>}
+      </div>
       {stato === "rifiutato" && iscrizione.integrazione_nota && <div style={{ color: "#991B1B" }}><b>Motivo:</b> {iscrizione.integrazione_nota}</div>}
       {["in_attesa", "rifiutato"].includes(stato) && (
         <>
@@ -592,6 +602,11 @@ function BoxIntegrazione({ iscrizione, causale, onCarica, onVediDocumento }) {
             Causale: <span style={{ fontFamily: "monospace" }}>{causale}</span>
           </div>
           <button style={{ ...styles.btnSmall, marginTop: 8 }} onClick={onCarica}>📄 Carica ricevuta integrazione</button>
+          {inAttesaSeconda && onAnnulla && (
+            <button style={{ ...styles.btnSmall, marginTop: 8, marginLeft: 6, background: "#F1F5F9", color: "#475569", border: "1px solid #CBD5E1" }} onClick={onAnnulla}>
+              ↩ Annulla richiesta
+            </button>
+          )}
         </>
       )}
       {iscrizione.integrazione_ricevuta_url && (
@@ -723,7 +738,7 @@ function ModaleRinnovo({ iscrizione, stagioneAttivaNome, onClose, onDone, callFn
 }
 
 // ─── Card di una singola iscrizione ─────────────────────────────────────────
-function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato, onVediDocumento, puoAggiungereSeconda, onAggiungiSeconda, causaleIntegrazione, onCaricaIntegrazione }) {
+function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato, onVediDocumento, puoAggiungereSeconda, onAggiungiSeconda, causaleIntegrazione, onCaricaIntegrazione, onAnnullaSeconda }) {
   const corso = iscrizione.corsi;
   return (
     <div style={styles.card}>
@@ -757,7 +772,7 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato, onVediD
           );
         })()}
       </div>
-      <BoxIntegrazione iscrizione={iscrizione} causale={causaleIntegrazione} onCarica={onCaricaIntegrazione} onVediDocumento={onVediDocumento} />
+      <BoxIntegrazione iscrizione={iscrizione} causale={causaleIntegrazione} onCarica={onCaricaIntegrazione} onVediDocumento={onVediDocumento} onAnnulla={onAnnullaSeconda} />
       {(iscrizione.stato_pagamento === "rifiutato" || iscrizione.stato_certificato === "rifiutato") && iscrizione.note && (
         <div style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "8px 10px", fontSize: 12.5, color: "#991B1B", marginBottom: 10 }}>
           <b>Motivo del rifiuto:</b> {iscrizione.note}
@@ -922,13 +937,44 @@ export default function AreaTesserati() {
 
   const callFnWithAuth = (payload) => callFn({ ...payload, cf: sessione.cf, email: sessione.email });
 
+  // 12/10/2026: la pagina si apre SUBITO al tocco e solo dopo riceve il
+  // link (come per ricevute e certificati): dal telefono una finestra aperta
+  // dopo l'attesa del server veniva bloccata e "non scaricava niente".
   const scaricaTesseraUfficiale = async () => {
+    const finestra = window.open("", "_blank");
     setScaricandoTessera(true);
     const r = await callFnWithAuth({ action: "url_tessera_ufficiale" });
     setScaricandoTessera(false);
-    if (r.ok) window.open(r.url, "_blank");
-    else alert(r.error || "Impossibile scaricare la tessera in questo momento.");
+    if (r.ok) {
+      if (finestra) finestra.location.href = r.url;
+      else window.location.href = r.url;
+    } else {
+      if (finestra) finestra.close();
+      alert(r.error || "Impossibile scaricare la tessera in questo momento.");
+    }
   };
+
+  // Tessera associativa: PDF e immagine preparati in anticipo, così al tocco
+  // il telefono apre subito la finestra per salvarla (12/10/2026).
+  const [fileTessera, setFileTessera] = useState({ pdf: null, png: null, errore: null });
+  const socioTessera = dati?.socio || null;
+  const tesseraValida = !!socioTessera && statoTessera(socioTessera) === "valida";
+  useEffect(() => {
+    if (!tesseraValida) return;
+    let attivo = true;
+    setFileTessera({ pdf: null, png: null, errore: null });
+    (async () => {
+      try {
+        const pdf = await preparaTesseraPdf(socioTessera);
+        if (attivo) setFileTessera((f) => ({ ...f, pdf }));
+        const png = await preparaTesseraImmagine(socioTessera, pdf);
+        if (attivo) setFileTessera((f) => ({ ...f, png }));
+      } catch (e) {
+        if (attivo) setFileTessera((f) => ({ ...f, errore: e.message }));
+      }
+    })();
+    return () => { attivo = false; };
+  }, [tesseraValida, socioTessera?.cf, socioTessera?.numero_tessera, socioTessera?.scadenza_tessera]);
 
   // Apre la ricevuta o il certificato caricati (07/10/2026). La scheda si apre
   // subito al clic, altrimenti il browser la blocca come popup. I vecchi file
@@ -1125,7 +1171,8 @@ export default function AreaTesserati() {
   const puoAggiungereSeconda = (i) =>
     i.frequenza === "1x" && !!i.corsi?.ha_variante_frequenza && !!i.giorno_scelto &&
     ["confermato", "dichiarato"].includes(i.stato_pagamento) &&
-    !["in_attesa", "dichiarato"].includes(i.integrazione_stato);
+    !["in_attesa", "dichiarato"].includes(i.integrazione_stato) &&
+    !(i.integrazione_giorno_precedente && i.integrazione_stato === "rifiutato");
   const causaleIntegrazione = (i) =>
     `${(socio.nome || "").trim().toUpperCase()} ${(socio.cognome || "").trim().toUpperCase()} ${componiCodice(corsoPerMotore(i), "2x", pagamentoMotore(i.tipo_pagamento))} INTEGRAZIONE`;
 
@@ -1179,17 +1226,26 @@ export default function AreaTesserati() {
             </div>
             <TesseraAssociativa socio={socio} />
             <button
-              onClick={async () => {
-                setScaricandoTesseraAssoc(true);
-                try { await scaricaTesseraPdf(socio); }
-                catch (e) { alert("Non è stato possibile preparare il PDF: " + e.message); }
-                finally { setScaricandoTesseraAssoc(false); }
-              }}
-              disabled={scaricandoTesseraAssoc}
-              style={{ ...styles.btnPrimary, marginTop: 16, width: "100%", maxWidth: 380, display: "block", marginLeft: "auto", marginRight: "auto" }}
+              onClick={() => fileTessera.png && salvaFile(fileTessera.png)}
+              disabled={!fileTessera.png}
+              style={{ ...styles.btnPrimary, marginTop: 16, width: "100%", maxWidth: 380, display: "block", marginLeft: "auto", marginRight: "auto", opacity: fileTessera.png ? 1 : 0.6 }}
             >
-              {scaricandoTesseraAssoc ? "Preparo il file..." : "🖨️ Scarica la versione da stampare (PDF)"}
+              {fileTessera.png ? "📲 Salva la tessera sul telefono (immagine)" : "Preparo la tessera..."}
             </button>
+            <button
+              onClick={() => fileTessera.pdf && salvaFile(fileTessera.pdf)}
+              disabled={!fileTessera.pdf}
+              style={{ ...styles.btnSecondary, marginTop: 8, width: "100%", maxWidth: 380, display: "block", marginLeft: "auto", marginRight: "auto", opacity: fileTessera.pdf ? 1 : 0.6 }}
+            >
+              🖨️ Scarica la versione da stampare (PDF)
+            </button>
+            <div style={{ fontSize: 12, color: "#64748b", maxWidth: 380, margin: "8px auto 0", textAlign: "center" }}>
+              Dal telefono si apre la finestra "Condividi": scegli <b>Salva immagine</b> (o <b>Salva su File</b>) per tenerla nel telefono.
+              Se hai aperto questa pagina da WhatsApp, Instagram o Facebook e non funziona, aprila con Safari o Chrome.
+            </div>
+            {fileTessera.errore && (
+              <div style={{ fontSize: 12, color: "#991B1B", textAlign: "center", marginTop: 6 }}>Non è stato possibile preparare il file: {fileTessera.errore}</div>
+            )}
           </div>
         )}
 
@@ -1266,6 +1322,12 @@ export default function AreaTesserati() {
               onAggiungiSeconda={() => setModaleSeconda({ iscrizione: i, importo: calcolaIntegrazioneSeconda(i, iscrizioniAttive), causale: causaleIntegrazione(i) })}
               causaleIntegrazione={causaleIntegrazione(i)}
               onCaricaIntegrazione={() => setModaleIntegrazione({ iscrizioni: [i], importo: i.integrazione_importo })}
+              onAnnullaSeconda={async () => {
+                if (!window.confirm("Vuoi annullare la richiesta della seconda lezione? Continuerai a frequentare una volta a settimana.")) return;
+                const r = await callFnWithAuth({ action: "annulla_seconda_frequenza", iscrizione_id: i.id });
+                if (r.ok) { setMessaggio(r.message); caricaDati(); }
+                else alert(r.error || "Non è stato possibile annullare la richiesta.");
+              }}
             />
           ))}
         </div>

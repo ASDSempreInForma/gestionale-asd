@@ -282,3 +282,96 @@ export async function scaricaTesseraPdf(socio) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
+
+// ─────────────────────────────────────────────────────────────────
+// SALVATAGGIO DAL TELEFONO (12/10/2026)
+// Dal telefono il vecchio download (link con attributo "download") spesso non
+// funziona: Safari/iPhone, l'app aggiunta alla schermata Home e i browser
+// interni di WhatsApp/Instagram/Facebook lo ignorano. Per questo:
+// - i file vengono preparati PRIMA del tocco (prepara...), così al tocco il
+//   telefono riceve subito il file (altrimenti blocca la finestra "Condividi");
+// - sul telefono si usa la finestra "Condividi" del sistema (Salva immagine,
+//   Salva su File, WhatsApp...), sul computer il download normale;
+// - se nessuna delle due funziona, si apre il file in una nuova pagina, da cui
+//   si può salvare con il tasto Condividi del browser.
+// ─────────────────────────────────────────────────────────────────
+
+export function nomeFileTessera(socio, estensione) {
+  return `Tessera_${(socio.cognome || "").trim()}_${(socio.nome || "").trim()}.${estensione}`.replace(/\s+/g, "_");
+}
+
+export async function preparaTesseraPdf(socio) {
+  const bytes = await generaTesseraPdf(socio);
+  return new File([bytes], nomeFileTessera(socio, "pdf"), { type: "application/pdf" });
+}
+
+// Immagine della tessera (fronte sopra, retro sotto) ricavata dal PDF, da
+// salvare nella galleria del telefono.
+export async function preparaTesseraImmagine(socio, pdfFile) {
+  const pdfjsLib = await import("pdfjs-dist");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+  const dati = new Uint8Array(await (pdfFile || (await preparaTesseraPdf(socio))).arrayBuffer());
+  const pdf = await pdfjsLib.getDocument({ data: dati }).promise;
+  const pagina = await pdf.getPage(1);
+  const scala = 4;
+  const viewport = pagina.getViewport({ scale: scala });
+  const tela = document.createElement("canvas");
+  tela.width = viewport.width;
+  tela.height = viewport.height;
+  await pagina.render({ canvasContext: tela.getContext("2d"), viewport }).promise;
+
+  // Stessa geometria di generaTesseraPdf: fronte e retro affiancati in alto.
+  const x0 = (595.28 - CARD_W * 2) / 2;
+  const top = 841.89 - 150;
+  const sx = Math.round(x0 * scala);
+  const sy = Math.round((841.89 - top) * scala);
+  const w = Math.round(CARD_W * scala);
+  const h = Math.round(CARD_H * scala);
+  const margine = Math.round(10 * scala);
+
+  const out = document.createElement("canvas");
+  out.width = w + margine * 2;
+  out.height = h * 2 + margine * 3;
+  const ctx = out.getContext("2d");
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillRect(0, 0, out.width, out.height);
+  // la linea tratteggiata di piega sta sul bordo comune: la si lascia fuori
+  const piega = Math.round(1.5 * scala);
+  ctx.drawImage(tela, sx, sy, w - piega, h, margine, margine, w - piega, h); // fronte
+  ctx.drawImage(tela, sx + w + piega, sy, w - piega, h, margine + piega, margine * 2 + h, w - piega, h); // retro
+  const blob = await new Promise((ok) => out.toBlob(ok, "image/png"));
+  return new File([blob], nomeFileTessera(socio, "png"), { type: "image/png" });
+}
+
+function eTelefono() {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+}
+
+// Da chiamare DIRETTAMENTE nel tocco del pulsante, con il file già pronto.
+// Restituisce "condiviso", "scaricato", "aperto" oppure "annullato".
+export async function salvaFile(file) {
+  if (eTelefono() && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: file.name });
+      return "condiviso";
+    } catch (e) {
+      if (e && e.name === "AbortError") return "annullato"; // la persona ha chiuso la finestra
+      // altrimenti si prova con il metodo successivo
+    }
+  }
+  const url = URL.createObjectURL(file);
+  setTimeout(() => URL.revokeObjectURL(url), 120000);
+  if (!eTelefono()) {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return "scaricato";
+  }
+  // Telefono senza "Condividi" con file: si apre il file, da lì si salva.
+  const finestra = window.open(url, "_blank");
+  if (!finestra) window.location.href = url;
+  return "aperto";
+}
