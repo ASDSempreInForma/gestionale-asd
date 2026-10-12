@@ -61,7 +61,7 @@ export async function generaFoglioPresenzeSede(turno, iscritti, dataInizioISO, e
   const nero = rgb(0.1, 0.1, 0.1);
 
   const persone = iscritti || [];
-  const nomeCol = (p) => `${p.cognome || ""} ${p.nome || ""}`.trim();
+  const nomeCol = (p) => `${p.cognome || ""} ${p.nome || ""}${p.soprannome ? ` (${p.soprannome})` : ""}`.trim();
 
   const colNumero = 40, colData = 130, colNote = 130, colFirma = 100;
   const larghezzaPersone = W - 2 * MARGINE - colNumero - colData - colNote - colFirma;

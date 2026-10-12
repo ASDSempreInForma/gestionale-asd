@@ -510,7 +510,7 @@ export default function App() {
         .from("iscrizioni")
         .select(`
           id, stato_pagamento, tipo_pagamento, stato_certificato, data_scadenza_certificato, corso_id, frequenza, giorno_scelto, inizio_personalizzato, data_iscrizione,
-          soci ( cf, nome, cognome, note, email )
+          soci ( cf, nome, cognome, soprannome, note, email )
         `)
         .eq("stagione_id", stag.id)
         .not("stato_pagamento", "eq", "annullata");
@@ -1057,7 +1057,7 @@ export default function App() {
                   {initials(i.soci?.nome, i.soci?.cognome)}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: TX }}>{i.soci?.cognome} {i.soci?.nome}</div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: TX }}>{i.soci?.cognome} {i.soci?.nome}{i.soci?.soprannome && <span style={{ fontWeight: 400, color: GR }}> ({i.soci.soprannome})</span>}</div>
                   <div style={{ display: "flex", gap: 5, marginTop: 4, flexWrap: "wrap" }}>
                     {ps === "ok" ? (
                       <button onClick={() => { if (window.confirm(`Togliere la conferma di pagamento di ${i.soci?.nome} ${i.soci?.cognome}?`)) revert(i.id, corso.id, "pag"); }} disabled={saving[pagKey]}

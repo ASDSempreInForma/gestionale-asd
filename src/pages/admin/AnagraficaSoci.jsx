@@ -1542,6 +1542,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
     comune_residenza: socio.comune_residenza || '',
     provincia_residenza: socio.provincia_residenza || '',
     cap: socio.cap || '',
+    soprannome: socio.soprannome || '',
   })
   const [salvandoAnagrafica, setSalvandoAnagrafica] = useState(false)
   const [modaleNuovaIscrizione, setModaleNuovaIscrizione] = useState(false)
@@ -1746,6 +1747,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
       comune_residenza: anagrafica.comune_residenza.trim() || null,
       provincia_residenza: anagrafica.provincia_residenza.trim() || null,
       cap: anagrafica.cap.trim() || null,
+      soprannome: (anagrafica.soprannome || '').trim() || null,
     }).eq('cf', nuovoCf)
     setSalvandoAnagrafica(false)
     if (error) { alert('Errore: ' + error.message); return }
@@ -1862,7 +1864,7 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
       <div style={{ background: 'white', borderRadius: 14, padding: 24, width: '100%', maxWidth: 640 }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
           <div>
-            <h2 style={{ margin: 0 }}>{socio.cognome} {socio.nome}</h2>
+            <h2 style={{ margin: 0 }}>{socio.cognome} {socio.nome}{socio.soprannome && <span style={{ fontWeight: 400, color: SUB, fontSize: '0.8em' }}> ({socio.soprannome})</span>}</h2>
             <div style={{ fontSize: 12.5, color: SUB, fontFamily: 'monospace' }}>{socio.cf}</div>
           </div>
           <button onClick={onChiudi} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: SUB }}>✕</button>
@@ -1893,6 +1895,13 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
                   style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
                 <input placeholder="Cognome" value={anagrafica.cognome} onChange={e => setAnagrafica(a => ({ ...a, cognome: e.target.value }))}
                   style={{ padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
+              </div>
+              {/* Soprannome (12/10/2026): nome con cui la persona si fa chiamare.
+                  Compare tra parentesi nelle liste e nel saluto delle email;
+                  tessere, registri Libertas/ASI e documenti usano sempre il nome vero. */}
+              <div style={{ marginBottom: 8 }}>
+                <input placeholder="Soprannome (come si fa chiamare, es. Alba) — facoltativo" value={anagrafica.soprannome} onChange={e => setAnagrafica(a => ({ ...a, soprannome: e.target.value }))}
+                  style={{ width: '100%', padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box' }} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, marginBottom: 4 }}>
                 <input placeholder="Codice Fiscale" value={anagrafica.cf} maxLength={16}
@@ -1942,7 +1951,7 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => {
                   setModificaAnagrafica(false)
-                  setAnagrafica({ nome: socio.nome || '', cognome: socio.cognome || '', cf: socio.cf || '', data_nascita: socio.data_nascita || '', comune_nascita: socio.comune_nascita || '', provincia_nascita: socio.provincia_nascita || '', telefono: socio.telefono || '', email: socio.email || '', indirizzo: socio.indirizzo || '', comune_residenza: socio.comune_residenza || '', provincia_residenza: socio.provincia_residenza || '', cap: socio.cap || '' })
+                  setAnagrafica({ nome: socio.nome || '', cognome: socio.cognome || '', cf: socio.cf || '', data_nascita: socio.data_nascita || '', comune_nascita: socio.comune_nascita || '', provincia_nascita: socio.provincia_nascita || '', telefono: socio.telefono || '', email: socio.email || '', indirizzo: socio.indirizzo || '', comune_residenza: socio.comune_residenza || '', provincia_residenza: socio.provincia_residenza || '', cap: socio.cap || '', soprannome: socio.soprannome || '' })
                 }}
                   style={{ background: 'white', border: `1px solid ${BD}`, borderRadius: 7, padding: '7px 12px', fontSize: 12.5, cursor: 'pointer', color: SUB }}>
                   Annulla
@@ -2388,9 +2397,9 @@ export default function AnagraficaSoci() {
     const parole = termineSenzaSpaziMultipli(q).split(' ').filter(Boolean)
     let query = supabase
       .from('soci')
-      .select('cf, nome, cognome, email, telefono, numero_tessera, ente_tessera, scadenza_tessera, is_admin_blocked, blocco_motivo, data_nascita, comune_nascita, provincia_nascita, indirizzo, comune_residenza, provincia_residenza, cap, note')
+      .select('cf, nome, cognome, soprannome, email, telefono, numero_tessera, ente_tessera, scadenza_tessera, is_admin_blocked, blocco_motivo, data_nascita, comune_nascita, provincia_nascita, indirizzo, comune_residenza, provincia_residenza, cap, note')
     parole.forEach(parola => {
-      query = query.or(`nome.ilike.%${parola}%,cognome.ilike.%${parola}%,cf.ilike.%${parola}%,telefono.ilike.%${parola}%`)
+      query = query.or(`nome.ilike.%${parola}%,cognome.ilike.%${parola}%,soprannome.ilike.%${parola}%,cf.ilike.%${parola}%,telefono.ilike.%${parola}%`)
     })
     const { data, error } = await query.order('cognome').limit(30)
     setCercando(false)
@@ -2433,7 +2442,7 @@ export default function AnagraficaSoci() {
           style={{ background: 'white', border: `1px solid ${BD}`, borderRadius: 10, padding: '10px 14px', marginBottom: 8, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
         >
           <div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{s.cognome} {s.nome}</div>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>{s.cognome} {s.nome}{s.soprannome && <span style={{ fontWeight: 400, color: SUB }}> ({s.soprannome})</span>}</div>
             <div style={{ fontSize: 12, color: SUB, fontFamily: 'monospace' }}>{s.cf}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

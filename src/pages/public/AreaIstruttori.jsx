@@ -528,7 +528,7 @@ function CardCorso({ corso, istruttore, callFnWithAuth, onAggiornato }) {
           {iscrittiGiornoSelezionato.map((i) => {
             const contenuto = (
               <span style={{ flex: 1 }}>
-                <div>{capitalizza(i.cognome)} {capitalizza(i.nome)}</div>
+                <div>{capitalizza(i.cognome)} {capitalizza(i.nome)}{i.soprannome && <span style={{ color: "#64748b", fontWeight: 400 }}> ({capitalizza(i.soprannome)})</span>}</div>
                 <div style={{ fontSize: 11.5, color: "#94a3b8" }}>
                   {i.data_nascita && `nato/a il ${fmtData(i.data_nascita)}`}
                   {i.data_nascita && i.telefono && " · "}

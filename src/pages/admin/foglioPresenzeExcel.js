@@ -46,7 +46,7 @@ export function generaFoglioPresenzeExcelSede(turno, iscritti, dataInizioISO, es
   const nLezioni = matchLezioni ? Number(matchLezioni[1]) : 8;
   const dateLezioni = calcolaDateLezioni(dataInizioISO, turno.giorno_settimana, nLezioni, esclusioni);
   const persone = iscritti || [];
-  const nomeCol = (p) => `${p.cognome || ""} ${p.nome || ""}`.trim().toUpperCase();
+  const nomeCol = (p) => `${p.cognome || ""} ${p.nome || ""}${p.soprannome ? ` (${p.soprannome})` : ""}`.trim().toUpperCase();
 
   // Colonne: A = N°, B = Data lezione, C..(C+n-1) = una per iscritto,
   // penultima = Note Generali, ultima = Firma.

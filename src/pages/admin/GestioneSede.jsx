@@ -188,6 +188,7 @@ export default function GestioneSede() {
 const CAMPI_ANAGRAFICA_VUOTI = {
   nome: "", cognome: "", cf: "", data_nascita: "", comune_nascita: "", provincia_nascita: "",
   comune_residenza: "", provincia_residenza: "", cap: "", indirizzo: "", sesso: "", telefono: "", email: "", numero_tessera: "",
+  soprannome: "",
 };
 
 // ─── Caricamento certificato da parte della segreteria (29/09/2026) ─────────
@@ -525,7 +526,7 @@ function TurniEGruppi() {
                           {t.iscritti.map((i) => (
                             <div key={i.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: "1px solid #f7f7f7", fontSize: 13 }}>
                               <div style={{ flex: 1 }}>
-                                {i.cognome} {i.nome}
+                                {i.cognome} {i.nome}{i.soprannome && <span style={{ color: "#888" }}> ({i.soprannome})</span>}
                                 {!i.cf && <span style={{ color: "#c0392b", fontSize: 11 }}> (dati anagrafici incompleti)</span>}
                                 <BadgeCertificatoSede persona={i} />
                                 {!i.email && <span style={{ fontSize: 11, color: "#b7791f", marginLeft: 6 }}>✉️ senza email</span>}
@@ -775,6 +776,7 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
     comune_residenza: persona.comune_residenza || "", provincia_residenza: persona.provincia_residenza || "",
     cap: persona.cap || "", indirizzo: persona.indirizzo || "", sesso: persona.sesso || "",
     telefono: persona.telefono || "", email: persona.email || "", numero_tessera: persona.numero_tessera || "",
+    soprannome: persona.soprannome || "",
   } : CAMPI_ANAGRAFICA_VUOTI);
   const [errore, setErrore] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -818,7 +820,7 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
     let annullato = false;
     const t = setTimeout(async () => {
       const { data } = await supabase.from("soci")
-        .select("cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email")
+        .select("cf, nome, cognome, soprannome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email")
         .or(`cognome.ilike.%${parole[0]}%,nome.ilike.%${parole[0]}%`)
         .limit(40);
       if (annullato) return;
@@ -865,6 +867,7 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
       comune_residenza: p.comune_residenza || "", provincia_residenza: p.provincia_residenza || "",
       cap: p.cap || "", indirizzo: p.indirizzo || "", sesso: p.sesso || "",
       telefono: p.telefono || "", email: p.email || "", numero_tessera: "", // il numero tessera resta legato alla stagione/turno, non lo riportiamo automaticamente
+      soprannome: p.soprannome || "",
     });
     setRicercaEsistente("");
     setConfermaComunque(false);
@@ -883,12 +886,19 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
       // aggiorna automaticamente ovunque quella persona sia iscritta,
       // senza bisogno di conferme (archivio persone unico, come soci/
       // iscrizioni nel resto del gestionale — 18/09/2026).
-      await chiamaAreaSede("salva_iscritto_turno", {
-        id: persona?.id, turno_id: turnoId, ...form,
+      const { soprannome, ...datiForm } = form;
+      const esito = await chiamaAreaSede("salva_iscritto_turno", {
+        id: persona?.id, turno_id: turnoId, ...datiForm,
         cf: pulisciCF(form.cf),
         provincia_nascita: (form.provincia_nascita || "").trim().toUpperCase(),
         provincia_residenza: (form.provincia_residenza || "").trim().toUpperCase(),
       });
+      // Soprannome (12/10/2026): salvato direttamente sulla scheda della persona
+      const personaId = esito?.persona_id || persona?.persona_id;
+      if (personaId) {
+        const { error: errSop } = await supabase.from("sede_persone").update({ soprannome: (soprannome || "").trim() || null }).eq("id", personaId);
+        if (errSop) console.error("Soprannome non salvato:", errSop.message);
+      }
       onSalvato();
     } catch (err) { setErrore(err.message); }
     finally { setSalvando(false); }
@@ -900,6 +910,7 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
     ["comune_residenza", "Comune di residenza"], ["provincia_residenza", "Provincia residenza (sigla)"],
     ["cap", "CAP"], ["indirizzo", "Indirizzo residenza"],
     ["telefono", "Telefono"], ["email", "Email"], ["numero_tessera", "Numero tessera (se già assegnato)"],
+    ["soprannome", "Soprannome (come si fa chiamare, facoltativo)"],
   ];
 
   return (
