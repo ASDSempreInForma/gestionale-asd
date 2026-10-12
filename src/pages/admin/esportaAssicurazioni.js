@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import { cfBenFormato, problemiCF } from "../../codiceFiscale.js";
 
 /* =====================================================================
    ESPORTA ASSICURAZIONI — A.S.D. Sempre In Forma
@@ -35,7 +36,34 @@ function scaricaCSV(ws, nomeFile) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+// Controllo prima dello scarico (12/10/2026): elenca chi ha dati che il portale
+// rifiuterebbe ("Dati anagrafici non corretti"), così si correggono prima.
+export function problemiAnagrafici(iscritti) {
+  const elenco = [];
+  for (const i of iscritti || []) {
+    const s = i.soci || {};
+    const p = [];
+    if (!s.cf || !cfBenFormato(s.cf)) p.push("codice fiscale non valido");
+    else {
+      const diff = problemiCF({ cf: s.cf, cognome: s.cognome, nome: s.nome });
+      if (diff.length) p.push("codice fiscale " + diff.join(", "));
+    }
+    if (!s.comune_residenza) p.push("manca il comune di residenza");
+    if (!s.indirizzo) p.push("manca l'indirizzo");
+    if (!/^\d{5}$/.test(String(s.cap || "").trim())) p.push("CAP mancante o sbagliato");
+    if (p.length) elenco.push(`• ${s.cognome || ""} ${s.nome || ""}: ${p.join("; ")}`);
+  }
+  return elenco;
+}
+
+function confermaSeProblemi(iscritti, ente) {
+  const problemi = problemiAnagrafici(iscritti);
+  if (problemi.length === 0) return true;
+  return window.confirm(`Attenzione: il portale ${ente} potrebbe rifiutare queste persone per dati anagrafici incompleti o sbagliati:\n\n${problemi.slice(0, 25).join("\n")}${problemi.length > 25 ? `\n… e altre ${problemi.length - 25}` : ""}\n\nConviene correggerle prima in Anagrafica soci. Vuoi scaricare comunque il file?`);
+}
+
 export function generaFileASI(corso, iscritti, stagione) {
+  if (!confermaSeProblemi(iscritti, "ASI")) return;
   const anno = new Date().getFullYear();
 
   // Foglio 1 — elenco dati per il portale ASI
@@ -44,13 +72,18 @@ export function generaFileASI(corso, iscritti, stagione) {
   const righeASI = iscritti.map((i) => {
     const s = i.soci || {};
     return [anno, "Ginnastica", "A", "A", s.nome, s.cognome, s.cf, s.comune_residenza, s.indirizzo, s.cap,
-      "asdsempreinforma@gmail.com", s.numero_tessera || "", fmtData(i.data_scadenza_certificato), "LOM-BS0905"];
+      // CODICE TESSERA sempre vuoto (12/10/2026): il numero lo assegna il portale
+      // ASI. Prima ci finiva il numero di tessera salvato (spesso quello Libertas
+      // della stagione scorsa) e il portale rifiutava le righe con "Codice
+      // tessera non corretto" o "già presente una tessera in corso di validità".
+      "asdsempreinforma@gmail.com", "", fmtData(i.data_scadenza_certificato), "LOM-BS0905"];
   });
   const wsElenco = XLSX.utils.aoa_to_sheet([intestazioneASI, ...righeASI]);
   scaricaCSV(wsElenco, `ASI_${corso?.codice_corso || "Misto"}.csv`);
 }
 
 export function generaFileLibertas(corso, iscritti, stagione) {
+  if (!confermaSeProblemi(iscritti, "Libertas")) return;
   const anno = new Date().getFullYear();
 
   // Foglio 1 — elenco dati per il portale Libertas
