@@ -288,7 +288,7 @@ export default function ElencoPersonalizzato() {
 
       const { data: iscDB, error: errI } = await supabase
         .from("iscrizioni")
-        .select("id, corso_id, frequenza, giorno_scelto, tipo_pagamento, stato_pagamento, stato_certificato, data_scadenza_certificato, data_iscrizione, inizio_personalizzato, note, soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera, ente_tessera, scadenza_tessera, note, registro_libertas_stagione_id, registro_asi_stagione_id )")
+        .select("id, corso_id, frequenza, giorno_scelto, tipo_pagamento, stato_pagamento, stato_certificato, data_scadenza_certificato, data_iscrizione, inizio_personalizzato, note, registro_libertas_stampato_il, registro_asi_stampato_il, soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera, ente_tessera, scadenza_tessera, note, registro_libertas_stagione_id, registro_asi_stagione_id )")
         .eq("stagione_id", stag.id)
         .neq("stato_pagamento", "annullata")
         .order("id");
@@ -532,16 +532,20 @@ export default function ElencoPersonalizzato() {
   // dalla selezione tutte le persone il cui pagamento non risulta confermato
   // — utile quando si vuole stampare/esportare solo chi ha già pagato, senza
   // doverle deselezionare una per una a mano.
-  // ── Registro firme "una volta sola" (09/10/2026, richiesto da Solomon) ──
-  // Il registro firme Libertas/ASI si firma UNA volta per stagione: chi è già
-  // stato stampato quest'anno viene escluso (se la casella è attiva) e dopo la
-  // stampa le persone vengono segnate in anagrafica (soci.registro_<ente>_stagione_id).
-  // Anche chi è in più corsi compare una volta sola (si tiene la prima riga per CF).
+  // ── Registro firme PER CORSO (13/10/2026, regola di Solomon) ──
+  // Il registro firme Libertas/ASI si firma in OGNI corso: dal foglio di un corso
+  // si escludono solo le persone che hanno già firmato QUEL corso
+  // (iscrizioni.registro_<ente>_stampato_il). Chi è in due corsi selezionati
+  // compare una volta per ciascun corso. (Prima, dal 09/10, il segno era sulla
+  // persona per tutta la stagione: soci.registro_<ente>_stagione_id, non più usato qui.)
   const [escludiRegistroStampato, setEscludiRegistroStampato] = useState(true);
   const [msgRegistro, setMsgRegistro] = useState("");
 
+  // Riga "segnabile": una vera iscrizione (non prova, non riga extra settembre)
+  const rigaRegistro = (r) => r && !r._isProva && !r._isExtraSettembre && r.soci && r.soci.cf;
+
   function registroGiaStampato(r, ente) {
-    return !!(stagione && r.soci && r.soci[`registro_${ente}_stagione_id`] === stagione.id);
+    return !!(r && r[`registro_${ente}_stampato_il`]);
   }
 
   function personePerRegistro(ente) {
@@ -549,28 +553,27 @@ export default function ElencoPersonalizzato() {
     return iscrizioniSelezionate.filter((r) => {
       const cf = r.soci && r.soci.cf;
       if (!cf || r._isProva) return false;
-      if (visti.has(cf)) return false;
-      visti.add(cf);
+      const chiave = `${cf}|${r.corso_id}`;
+      if (visti.has(chiave)) return false;
+      visti.add(chiave);
       return !(escludiRegistroStampato && registroGiaStampato(r, ente));
     });
   }
 
-  async function segnaRegistro(ente, cfs, stampato) {
-    if (!stagione || cfs.length === 0) return true;
-    const campi = stampato
-      ? { [`registro_${ente}_stagione_id`]: stagione.id, [`registro_${ente}_stampato_il`]: new Date().toISOString() }
-      : { [`registro_${ente}_stagione_id`]: null, [`registro_${ente}_stampato_il`]: null };
-    const { error } = await supabase.from("soci").update(campi).in("cf", cfs);
-    if (error) {
-      setMsgRegistro("⚠️ Non sono riuscito a salvare il segno di stampa: " + error.message);
-      return false;
+  async function segnaRegistro(ente, righe, stampato) {
+    const ids = [...new Set(righe.filter(rigaRegistro).map((r) => r.id))];
+    if (ids.length === 0) return true;
+    const campo = `registro_${ente}_stampato_il`;
+    const valore = stampato ? new Date().toISOString() : null;
+    for (let k = 0; k < ids.length; k += 100) {
+      const { error } = await supabase.from("iscrizioni").update({ [campo]: valore }).in("id", ids.slice(k, k + 100));
+      if (error) {
+        setMsgRegistro("⚠️ Non sono riuscito a salvare il segno di stampa: " + error.message);
+        return false;
+      }
     }
-    const insieme = new Set(cfs);
-    setIscrizioni((prev) => prev.map((r) =>
-      r.soci && insieme.has(r.soci.cf)
-        ? { ...r, soci: { ...r.soci, [`registro_${ente}_stagione_id`]: stampato ? stagione.id : null } }
-        : r
-    ));
+    const insieme = new Set(ids);
+    setIscrizioni((prev) => prev.map((r) => (insieme.has(r.id) ? { ...r, [campo]: valore } : r)));
     return true;
   }
 
@@ -579,23 +582,23 @@ export default function ElencoPersonalizzato() {
     const lista = personePerRegistro(ente);
     const nomeEnte = ente === "libertas" ? "Libertas" : "ASI";
     if (lista.length === 0) {
-      setMsgRegistro(`Tutte le persone selezionate hanno già il registro firme ${nomeEnte} stampato quest'anno: non c'è niente da stampare.`);
+      setMsgRegistro(`Tutte le persone selezionate hanno già firmato il registro ${nomeEnte} in questo corso: non c'è niente da stampare.`);
       return;
     }
     if (ente === "libertas") await generaRegistroFirmeLibertas({ codice_corso: "Selezione" }, lista, stagione);
     else await generaRegistroFirmeASI({ codice_corso: "Selezione" }, lista, stagione);
-    const ok = await segnaRegistro(ente, lista.map((r) => r.soci.cf), true);
-    if (ok) setMsgRegistro(`✅ Registro ${nomeEnte}: ${lista.length} persone stampate e segnate come "già stampate" per questa stagione.`);
+    const ok = await segnaRegistro(ente, lista, true);
+    if (ok) setMsgRegistro(`✅ Registro ${nomeEnte}: ${lista.length} righe stampate e segnate come "già firmato" nel loro corso.`);
   }
 
   async function segnaSelezionati(ente, stampato) {
     setMsgRegistro("");
-    const cfs = [...new Set(iscrizioniSelezionate.filter((r) => !r._isProva && r.soci && r.soci.cf).map((r) => r.soci.cf))];
+    const righe = iscrizioniSelezionate.filter(rigaRegistro);
     const nomeEnte = ente === "libertas" ? "Libertas" : "ASI";
-    const ok = await segnaRegistro(ente, cfs, stampato);
+    const ok = await segnaRegistro(ente, righe, stampato);
     if (ok) setMsgRegistro(stampato
-      ? `✅ ${cfs.length} persone segnate come "registro ${nomeEnte} già firmato" (non verranno più stampate quest'anno).`
-      : `↩️ Tolto il segno "registro ${nomeEnte} già stampato" a ${cfs.length} persone: verranno di nuovo incluse nella stampa.`);
+      ? `✅ ${righe.length} iscrizioni segnate come "registro ${nomeEnte} già firmato" in quel corso.`
+      : `↩️ Tolto il segno "registro ${nomeEnte}" a ${righe.length} iscrizioni: verranno di nuovo incluse nella stampa di quel corso.`);
   }
 
   // 12/10/2026: chi ha già una tessera valida (Libertas o ASI, oppure fatta in
@@ -809,12 +812,12 @@ export default function ElencoPersonalizzato() {
                         </span>
                       )}
                       {registroGiaStampato(r, "libertas") && (
-                        <span title="Registro firme Libertas già stampato quest'anno" style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#065F46", background: "#D1FAE5", padding: "1px 6px", borderRadius: 5 }}>
+                        <span title="Registro firme Libertas già firmato in questo corso" style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#065F46", background: "#D1FAE5", padding: "1px 6px", borderRadius: 5 }}>
                           ✍ LIB
                         </span>
                       )}
                       {registroGiaStampato(r, "asi") && (
-                        <span title="Registro firme ASI già stampato quest'anno" style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#065F46", background: "#D1FAE5", padding: "1px 6px", borderRadius: 5 }}>
+                        <span title="Registro firme ASI già firmato in questo corso" style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#065F46", background: "#D1FAE5", padding: "1px 6px", borderRadius: 5 }}>
                           ✍ ASI
                         </span>
                       )}
@@ -971,7 +974,7 @@ export default function ElencoPersonalizzato() {
               <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: TX, cursor: "pointer" }}>
                 <input type="checkbox" checked={escludiRegistroStampato} onChange={(e) => setEscludiRegistroStampato(e.target.checked)} style={{ marginTop: 2 }} />
                 <span>
-                  <b>Registri firme: escludi chi l'ha già stampato quest'anno</b> (la firma serve una volta sola).
+                  <b>Registri firme: escludi chi ha già firmato in questo corso</b> (in un altro corso dovrà firmare di nuovo).
                   {selezionati.size > 0 && (
                     <span style={{ color: GR }}>
                       {" "}Tra i selezionati verranno stampati: Libertas <b>{personePerRegistro("libertas").length}</b> · ASI <b>{personePerRegistro("asi").length}</b>.
@@ -979,7 +982,7 @@ export default function ElencoPersonalizzato() {
                   )}
                   <br />
                   <span style={{ fontSize: 11.5, color: GR }}>
-                    Dopo la stampa le persone vengono segnate in automatico (etichetta verde ✍ LIB / ✍ ASI nell'elenco). Chi è in più corsi compare una volta sola.
+                    Dopo la stampa le persone vengono segnate in automatico in quel corso (etichetta verde ✍ LIB / ✍ ASI nell'elenco). Chi è in più corsi selezionati compare una volta per ciascun corso.
                   </span>
                 </span>
               </label>
