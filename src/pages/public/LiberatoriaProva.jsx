@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import ComboComune from "../../ComboComune.jsx";
+import CampoDataNascita from "../../CampoDataNascita.jsx";
 import SiteHeader from "../../SiteHeader.jsx";
 import SiteFooter from "../../SiteFooter.jsx";
 import ChatWidget from "../../ChatWidget.jsx";
@@ -613,7 +614,13 @@ export default function LiberatoriaProva() {
                 ))}
               </div>
               {errs.genere && <p style={{ fontSize: 11, color: R, marginTop: -8, marginBottom: 8 }}>{errs.genere}</p>}
-              {lbl("Data di nascita", true)}{inp("dataNascita", "", "date")}
+              {lbl("Data di nascita", true)}
+              {/* 13/10/2026: tre menu Giorno/Mese/Anno al posto del calendario */}
+              <div style={{ marginBottom: 11 }}>
+                <CampoDataNascita value={d.dataNascita} onChange={(v) => set("dataNascita", v)} errore={!!errs.dataNascita}
+                  stileSelect={{ borderRadius: 9, border: `1px solid ${errs.dataNascita ? R : BD}` }} />
+                {errs.dataNascita && <p style={{ fontSize: 11, color: R, marginTop: 2 }}>{errs.dataNascita}</p>}
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
                 <div>{lbl("Comune di nascita", true)}
                   <ComboComune

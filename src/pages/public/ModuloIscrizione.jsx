@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import ComboComune from "../../ComboComune.jsx";
+import CampoDataNascita from "../../CampoDataNascita.jsx";
 import { caricaComuni, comuneDaCodiceFiscale, capUnicoDelComune } from "../../comuniItaliani.js";
 import SiteHeader from "../../SiteHeader.jsx";
 import SiteFooter from "../../SiteFooter.jsx";
@@ -1228,7 +1229,13 @@ export default function ModuloIscrizione() {
             <div className="grid grid-cols-2 gap-3">
               <Campo label="Nome *" value={anagrafica.nome} onChange={(v) => setAnagrafica({ ...anagrafica, nome: v })} />
               <Campo label="Cognome *" value={anagrafica.cognome} onChange={(v) => setAnagrafica({ ...anagrafica, cognome: v })} />
-              <Campo type="date" label="Data di nascita *" className="min-w-0" value={anagrafica.dataNascita} onChange={(v) => setAnagrafica({ ...anagrafica, dataNascita: v })} />
+              {/* 13/10/2026: tre menu Giorno/Mese/Anno al posto del calendario (molti scorrevano mese per mese) */}
+              <div className="col-span-2" style={{ minWidth: 0 }}>
+                <label className="text-xs font-medium text-slate-600">Data di nascita *</label>
+                <div className="mt-1">
+                  <CampoDataNascita value={anagrafica.dataNascita} onChange={(v) => setAnagrafica((a) => ({ ...a, dataNascita: v }))} />
+                </div>
+              </div>
               <div>
                 <label className="text-xs font-medium text-slate-600">Luogo di nascita *</label>
                 <div className="mt-1">
