@@ -1719,6 +1719,29 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
     onAggiornato()
   }
 
+  // Toglie una ricevuta caricata per sbaglio (13/10/2026, caso Squassina). Se il
+  // pagamento era solo "in verifica" torna "in attesa"; se era già confermato
+  // (es. pagato in contanti) resta confermato. Il file si cancella solo se
+  // nessun'altra iscrizione lo usa ancora. Traccia nelle note interne.
+  const rimuoviRicevuta = async (i) => {
+    if (!window.confirm(`Togliere la ricevuta da "${i.corsi?.disciplina || 'questa iscrizione'}"?\n\n${i.stato_pagamento === 'dichiarato' ? 'Il pagamento tornerà "in attesa" e il socio potrà caricare la ricevuta giusta dalla sua area.' : 'Lo stato del pagamento non cambia.'}\n\nIl file della ricevuta viene cancellato.`)) return
+    const path = i.ricevuta_url
+    const { data: altre } = await supabase.from('iscrizioni').select('id').eq('ricevuta_url', path).neq('id', i.id)
+    const campi = { ricevuta_url: null }
+    if (i.stato_pagamento === 'dichiarato') campi.stato_pagamento = 'in_attesa'
+    const { error } = await supabase.from('iscrizioni').update(campi).eq('id', i.id)
+    if (error) { alert('Errore: ' + error.message); return }
+    if (!altre || altre.length === 0) {
+      await supabase.storage.from(BUCKET).remove([path, percorsoOriginale(path)]) // se un file non c'è, pazienza
+    }
+    const traccia = `[${new Date().toLocaleDateString('it-IT')}] Ricevuta rimossa dalla segreteria (${i.corsi?.disciplina || 'iscrizione'}).`
+    const notaAggiornata = socio.note ? `${socio.note} | ${traccia}` : traccia
+    await supabase.from('soci').update({ note: notaAggiornata }).eq('cf', socio.cf)
+    setNota(notaAggiornata)
+    caricaIscrizioni()
+    onAggiornato()
+  }
+
   const salvaAnagrafica = async () => {
     const nuovoCf = anagrafica.cf.trim().toUpperCase()
     if (nuovoCf.length !== 16) { alert('Il codice fiscale deve avere 16 caratteri.'); return }
@@ -2093,6 +2116,8 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
           {notaSalvata && <span style={{ marginLeft: 8, fontSize: 12, color: G }}>✓ Salvata</span>}
         </div>
 
+        <DocumentiInterni socio={socio} />
+
         <SezioneEmail socio={socio} />
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -2162,6 +2187,7 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
             <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
               {i.ricevuta_url && <button onClick={() => apriDocumento(i.ricevuta_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Ricevuta</button>}
               {i.ricevuta_url && <button onClick={() => apriOriginale(i.ricevuta_url)} title="Foto originale, prima del ritaglio" style={{ fontSize: 11.5, background: 'none', color: SUB, border: 'none', padding: '5px 2px', cursor: 'pointer', textDecoration: 'underline' }}>originale</button>}
+              {i.ricevuta_url && <button onClick={() => rimuoviRicevuta(i)} title="Togli la ricevuta (caricata per sbaglio)" style={{ fontSize: 12, background: '#FEF2F2', color: '#B91C1C', border: 'none', borderRadius: 6, padding: '5px 9px', cursor: 'pointer' }}>🗑️ Togli ricevuta</button>}
               {i.stato_pagamento !== 'confermato' && (
                 <CaricaDocumentoManuale iscrizione={i} socio={socio} tipo="ricevuta" onAggiornato={caricaIscrizioni}
                   altre={(iscrizioni || []).filter(x => x.id !== i.id && x.stagione_id === i.stagione_id
@@ -2245,6 +2271,89 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
           onClose={() => setModaleNuovaIscrizione(false)}
           onSalvato={() => { setModaleNuovaIscrizione(false); onAggiornato() }}
         />
+      )}
+    </div>
+  )
+}
+
+// ─── Documenti interni (13/10/2026) ─────────────────────────────────────────
+// Foto o PDF caricati dalla segreteria su un socio (annotazioni su un foglio,
+// accordi, documenti vari) visibili SOLO qui: tabella soci_documenti_interni
+// (RLS solo admin), file in documenti-soci/CF/interni/. L'Area Tesserati non
+// li legge mai.
+function DocumentiInterni({ socio }) {
+  const [docs, setDocs] = useState(null)
+  const [aperto, setAperto] = useState(false)
+  const [documento, setDocumento] = useState(null)
+  const [descrizione, setDescrizione] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [chiaveCampo, setChiaveCampo] = useState(0)
+
+  const carica = async () => {
+    const { data, error } = await supabase.from('soci_documenti_interni').select('*').eq('socio_cf', socio.cf).order('created_at', { ascending: false })
+    if (error) { console.error(error.message); setDocs([]); return }
+    setDocs(data || [])
+  }
+  useEffect(() => { carica() }, [socio.cf])
+
+  const salva = async () => {
+    if (!documento) { alert('Scegli prima una foto o un PDF.'); return }
+    setSalvando(true)
+    const up = await caricaSuStorage(supabase, `${socio.cf}/interni/documento_${Date.now()}`, documento)
+    if (up.errore) { setSalvando(false); alert('Errore caricamento: ' + up.errore); return }
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.from('soci_documenti_interni').insert({
+      socio_cf: socio.cf, percorso: up.percorso, descrizione: descrizione.trim() || null, caricato_da: user?.email || null,
+    })
+    setSalvando(false)
+    if (error) { alert('Errore: ' + error.message); return }
+    setDocumento(null); setDescrizione(''); setChiaveCampo(k => k + 1); setAperto(false)
+    carica()
+  }
+
+  const elimina = async (d) => {
+    if (!window.confirm(`Eliminare questo documento interno${d.descrizione ? ` ("${d.descrizione}")` : ''}?`)) return
+    const { error } = await supabase.from('soci_documenti_interni').delete().eq('id', d.id)
+    if (error) { alert('Errore: ' + error.message); return }
+    await supabase.storage.from(BUCKET).remove([d.percorso, percorsoOriginale(d.percorso)])
+    carica()
+  }
+
+  return (
+    <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>📎 Documenti interni {docs && docs.length > 0 && <span style={{ color: SUB, fontWeight: 400 }}>({docs.length})</span>}</div>
+        {!aperto && <button onClick={() => setAperto(true)} style={{ background: 'white', color: G, border: `1px solid ${G}`, borderRadius: 7, padding: '5px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>+ Aggiungi documento</button>}
+      </div>
+      <div style={{ fontSize: 11.5, color: SUB, margin: '4px 0 8px' }}>Foto o PDF visibili solo in segreteria (es. un'annotazione su un foglio): il socio non li vede.</div>
+
+      {aperto && (
+        <div style={{ background: 'white', border: `1px solid ${BD}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
+          <CampoDocumento key={chiaveCampo} onChange={setDocumento} colore={G} />
+          <input value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder="Descrizione (es. accordo pagamento scritto a mano)"
+            style={{ width: '100%', marginTop: 8, padding: '7px 9px', borderRadius: 7, border: `1px solid ${BD}`, fontSize: 13, boxSizing: 'border-box', fontFamily: 'inherit' }} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button onClick={salva} disabled={salvando || !documento} style={{ background: G, color: 'white', border: 'none', borderRadius: 7, padding: '6px 12px', fontSize: 12.5, cursor: documento ? 'pointer' : 'not-allowed', fontWeight: 600, opacity: documento ? 1 : 0.5 }}>
+              {salvando ? 'Carico…' : 'Salva documento'}
+            </button>
+            <button onClick={() => { setAperto(false); setDocumento(null); setDescrizione(''); setChiaveCampo(k => k + 1) }} style={{ background: 'white', color: SUB, border: `1px solid ${BD}`, borderRadius: 7, padding: '6px 12px', fontSize: 12.5, cursor: 'pointer' }}>Annulla</button>
+          </div>
+        </div>
+      )}
+
+      {docs && docs.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          {docs.map(d => (
+            <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'white', border: `1px solid ${BD}`, borderRadius: 7, padding: '6px 9px', fontSize: 12.5 }}>
+              <button onClick={() => apriDocumento(d.percorso)} style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '4px 9px', cursor: 'pointer', fontSize: 12 }}>👁️ Apri</button>
+              <div style={{ flex: 1 }}>
+                {d.descrizione || <span style={{ color: SUB }}>Senza descrizione</span>}
+                <div style={{ fontSize: 11, color: SUB }}>{new Date(d.created_at).toLocaleDateString('it-IT')}{d.caricato_da ? ` · ${d.caricato_da}` : ''}</div>
+              </div>
+              <button onClick={() => elimina(d)} title="Elimina" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14 }}>🗑️</button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )
