@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../supabase.js';
+import AreaSedePalestre from './AreaSedePalestre.jsx';
 
 // Area SEDE — accesso separato (email+telefono) per chi gestisce i compensi
 // istruttori della sede Via del Brolo. NON sostituisce il sistema esistente di
@@ -64,6 +65,8 @@ function useIsAmpio() {
 export default function AreaSede() {
   const [sessione, setSessione] = useState(null);
   const [caricamentoIniziale, setCaricamentoIniziale] = useState(true);
+  const [scheda, setScheda] = useState(() => { try { return localStorage.getItem('sede_scheda') || 'sede'; } catch (_) { return 'sede'; } });
+  function cambiaScheda(k) { setScheda(k); try { localStorage.setItem('sede_scheda', k); } catch (_) { /* ignora */ } }
 
   useEffect(() => {
     const salvata = localStorage.getItem('sede_sessione');
@@ -105,7 +108,20 @@ export default function AreaSede() {
       </div>
 
       <div style={{ maxWidth: 900, margin: '0 auto', padding: '24px 20px 60px' }}>
-        {!sessione ? <Login onLogin={handleLogin} /> : <Dashboard sessione={sessione} />}
+        {!sessione ? <Login onLogin={handleLogin} /> : (
+          <>
+            {/* 13/10/2026: stessa area anche per assenze/sostituzioni dei corsi nelle palestre */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 18, background: '#e9ecee', padding: 4, borderRadius: 10 }}>
+              {[['sede', '🏢 SEDE'], ['palestre', '🏋️ Palestre']].map(([k, label]) => (
+                <button key={k} onClick={() => cambiaScheda(k)}
+                  style={{ flex: 1, background: scheda === k ? '#fff' : 'transparent', color: scheda === k ? C : '#666', border: 'none', borderRadius: 8, padding: '9px 10px', fontSize: 14, fontWeight: 700, cursor: 'pointer', boxShadow: scheda === k ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {scheda === 'palestre' ? <AreaSedePalestre sessione={sessione} /> : <Dashboard sessione={sessione} />}
+          </>
+        )}
       </div>
     </div>
   );

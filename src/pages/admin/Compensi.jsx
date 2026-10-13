@@ -318,7 +318,10 @@ export default function Compensi({ istruttoreIniziale } = {}) {
 
       const contaPerMese = new Map(); // "AAAA-MM" -> ore (1 lezione = 1 ora)
       for (const l of lezPalestra || []) {
-        const conta = (l.stato === "fatta" || l.stato === "recupero") && !isDataSospesa(l.data, festivitaPalestra);
+        // Lezione sostituita: la paga il sostituto (non il titolare); con sostituto esterno, pagato
+        // in contanti, non la paga nessuno qui. Prima il sostituto non veniva contato (13/10/2026).
+        const conta = ((l.stato === "fatta" || l.stato === "recupero") || (l.stato === "sostituto" && l.istruttore_sostituto_id === istruttoreId))
+          && !isDataSospesa(l.data, festivitaPalestra);
         if (!conta) continue;
         const chiaveMese = l.data.slice(0, 7);
         contaPerMese.set(chiaveMese, (contaPerMese.get(chiaveMese) || 0) + 1);

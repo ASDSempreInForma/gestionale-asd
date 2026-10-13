@@ -1,0 +1,331 @@
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { supabase } from '../../supabase.js';
+import { dateAttese, slotSettimanali, dataInizioCorso, isoLocale } from '../admin/lezioniPreviste.js';
+
+// Area SEDE → scheda "Palestre" (13/10/2026, richiesta di Solomon).
+// Dallo stesso sistema con cui Sabina segnala assenze e sostituzioni della SEDE,
+// ora può farlo anche per i corsi nelle palestre. Per ogni lezione della
+// settimana sceglie cosa è successo:
+//   • regolare (nessuna riga: conta come svolta dal titolare)
+//   • sostituita da un nostro insegnante → viene pagato il sostituto
+//   • sostituita da un insegnante ESTERNO → nome, telefono e importo pagato in
+//     contanti; resta solo come nota sulla lezione (nessun riepilogo, scelta di Solomon)
+//   • annullata → nessuno viene pagato; si può avvisare via email gli iscritti
+// I dati vanno nella stessa tabella `lezioni` usata dal calendario di Gestione
+// Istruttori e da Compensi, tramite l'edge function `area-sede-palestre`.
+
+const C = '#4A5560';
+const GIORNI = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'];
+
+async function chiama(action, payload) {
+  const { data, error } = await supabase.functions.invoke('area-sede-palestre', { body: { action, payload } });
+  if (error) {
+    let msg = error.message || 'Errore di comunicazione con il server';
+    try { const parsed = await error.context?.json?.(); if (parsed?.error) msg = parsed.error; } catch (_) { /* ignora */ }
+    throw new Error(msg);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+function lunediDi(d) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diff = (x.getDay() + 6) % 7;
+  x.setDate(x.getDate() - diff);
+  return x;
+}
+function piuGiorni(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function ddmm(iso) { const [, m, g] = iso.split('-'); return `${g}/${m}`; }
+function euro(n) { return Number(n || 0).toLocaleString('it-IT', { style: 'currency', currency: 'EUR' }); }
+function nomeIstr(i) { return i ? `${i.nome} ${i.cognome}` : '—'; }
+
+// Esito della lezione in base alla riga di `lezioni` (o all'assenza di righe)
+function esitoDi(riga) {
+  if (!riga || riga.stato === 'fatta') return 'regolare';
+  if (riga.stato === 'sostituto') return riga.istruttore_sostituto_id ? 'interno' : 'esterno';
+  if (riga.stato === 'assente') return 'annullata';
+  return riga.stato; // sospesa, recupero
+}
+
+export default function AreaSedePalestre({ sessione }) {
+  const [lunedi, setLunedi] = useState(() => lunediDi(new Date()));
+  const [dati, setDati] = useState(null);
+  const [caricando, setCaricando] = useState(true);
+  const [errore, setErrore] = useState('');
+  const [palestra, setPalestra] = useState(() => { try { return localStorage.getItem('sede_palestre_filtro') || ''; } catch (_) { return ''; } });
+  const [soloModifiche, setSoloModifiche] = useState(false);
+  const [aperta, setAperta] = useState(null);
+
+  const dal = isoLocale(lunedi);
+  const al = isoLocale(piuGiorni(lunedi, 6));
+
+  const carica = useCallback(async () => {
+    setCaricando(true); setErrore('');
+    try { setDati(await chiama('settimana', { utente_id: sessione.istruttore_id, dal, al })); }
+    catch (err) { setErrore(err.message); }
+    finally { setCaricando(false); }
+  }, [sessione.istruttore_id, dal, al]);
+  useEffect(() => { carica(); }, [carica]);
+
+  useEffect(() => { try { localStorage.setItem('sede_palestre_filtro', palestra); } catch (_) { /* ignora */ } }, [palestra]);
+
+  const istrById = useMemo(() => Object.fromEntries((dati?.istruttori || []).map((i) => [i.id, i])), [dati]);
+
+  // Tutte le lezioni della settimana: quelle previste dal calendario dei corsi
+  // + eventuali righe reali che non corrispondono a una data prevista.
+  const lezioni = useMemo(() => {
+    if (!dati) return [];
+    const corsiById = Object.fromEntries((dati.corsi || []).map((c) => [c.id, c]));
+    const corsiInfo = {};
+    for (const c of dati.corsi || []) {
+      corsiInfo[c.id] = {
+        giorniOrari: c.giorni_orari,
+        inizio: dataInizioCorso(c, dati.stagione?.data_inizio),
+        istruttori: (c.istruttori_corsi || []).map((a) => ({ istruttoreId: a.istruttore_id, giornoSettimana: a.giorno_settimana })),
+      };
+    }
+    const sosp = (dati.festivita || []).map((f) => ({ dal: f.dal, al: f.al, desc: f.descrizione }));
+    const righe = new Map((dati.lezioni || []).map((l) => [`${l.corso_id}|${l.data}|${l.istruttore_id}`, l]));
+    const out = [];
+    const usate = new Set();
+    for (const d of dateAttese({ corsiInfo, dal, al, sospensioni: sosp })) {
+      const chiave = `${d.corsoId}|${d.data}|${d.istruttoreId}`;
+      usate.add(chiave);
+      out.push({ chiave, corso: corsiById[d.corsoId], data: d.data, istruttoreId: d.istruttoreId, festivita: d.sospesaDesc, riga: righe.get(chiave) || null });
+    }
+    for (const [chiave, r] of righe) {
+      if (usate.has(chiave) || !corsiById[r.corso_id]) continue;
+      out.push({ chiave, corso: corsiById[r.corso_id], data: r.data, istruttoreId: r.istruttore_id, festivita: null, riga: r });
+    }
+    for (const l of out) {
+      const dow = new Date(l.data + 'T12:00:00').getDay();
+      const slot = slotSettimanali(l.corso?.giorni_orari).find((s) => s.giorno === dow);
+      l.orario = slot ? `${slot.inizio}-${slot.fine}` : '';
+      l.palestra = l.corso?.sedi?.nome || '';
+      l.esito = esitoDi(l.riga);
+    }
+    return out.sort((a, b) => (a.data + a.orario + a.palestra).localeCompare(b.data + b.orario + b.palestra));
+  }, [dati, dal, al]);
+
+  const palestre = useMemo(() => [...new Set((dati?.corsi || []).map((c) => c.sedi?.nome).filter(Boolean))].sort(), [dati]);
+  const corsiSenzaInsegnante = (dati?.corsi || []).filter((c) => !(c.istruttori_corsi || []).length).length;
+
+  const visibili = lezioni.filter((l) => (!palestra || l.palestra === palestra) && (!soloModifiche || l.esito !== 'regolare'));
+  const perGiorno = {};
+  for (const l of visibili) (perGiorno[l.data] ||= []).push(l);
+  const modifiche = lezioni.filter((l) => !['regolare'].includes(l.esito) && !l.festivita).length;
+
+  return (
+    <div>
+      <div style={{ background: '#fff', borderRadius: 12, padding: 14, marginBottom: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button onClick={() => setLunedi((d) => piuGiorni(d, -7))} style={btnSec}>← Sett. prec.</button>
+          <button onClick={() => setLunedi(lunediDi(new Date()))} style={btnSec}>Oggi</button>
+          <button onClick={() => setLunedi((d) => piuGiorni(d, 7))} style={btnSec}>Sett. succ. →</button>
+          <div style={{ fontWeight: 700, color: '#333', marginLeft: 4 }}>{ddmm(dal)} – {ddmm(al)}</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
+          <select value={palestra} onChange={(e) => setPalestra(e.target.value)} style={{ ...campo, width: 'auto', minWidth: 200 }}>
+            <option value="">Tutte le palestre</option>
+            {palestre.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <label style={{ fontSize: 13, display: 'flex', gap: 6, alignItems: 'center', color: '#444' }}>
+            <input type="checkbox" checked={soloModifiche} onChange={(e) => setSoloModifiche(e.target.checked)} />
+            Solo lezioni con modifiche ({modifiche})
+          </label>
+        </div>
+        <p style={{ fontSize: 12.5, color: '#666', margin: '10px 0 0' }}>
+          Ogni lezione è considerata svolta dall'insegnante titolare. Tocca una lezione solo per segnalare che è stata sostituita (da un nostro insegnante o da uno esterno pagato in contanti) oppure annullata.
+        </p>
+      </div>
+
+      {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '10px 14px', borderRadius: 8, marginBottom: 14 }}>{errore}</div>}
+      {caricando && !dati && <div style={{ color: '#777' }}>Caricamento…</div>}
+
+      {dati && Object.keys(perGiorno).length === 0 && !caricando && (
+        <div style={{ background: '#fff', borderRadius: 12, padding: 18, color: '#777' }}>Nessuna lezione {soloModifiche ? 'con modifiche ' : ''}in questa settimana.</div>
+      )}
+
+      {Object.entries(perGiorno).map(([data, lista]) => (
+        <div key={data} style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, color: C, fontSize: 14, margin: '0 0 6px 2px' }}>
+            {GIORNI[new Date(data + 'T12:00:00').getDay()]} {ddmm(data)}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {lista.map((l) => <CardLezione key={l.chiave} l={l} istrById={istrById} onApri={() => setAperta(l)} />)}
+          </div>
+        </div>
+      ))}
+
+      {dati && corsiSenzaInsegnante > 0 && (
+        <p style={{ fontSize: 12, color: '#999' }}>{corsiSenzaInsegnante} {corsiSenzaInsegnante === 1 ? 'corso non ha' : 'corsi non hanno'} un insegnante assegnato e non compaiono qui (si assegna da Gestione Istruttori).</p>
+      )}
+
+      {aperta && (
+        <ModaleEccezione
+          l={aperta} sessione={sessione} istruttori={dati?.istruttori || []} istrById={istrById}
+          conteggio={dati?.conteggi?.[aperta.corso.id]}
+          onChiudi={() => setAperta(null)}
+          onSalvata={(msg) => { setAperta(null); carica(); if (msg) alert(msg); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CardLezione({ l, istrById, onApri }) {
+  const titolare = istrById[l.istruttoreId];
+  const nomeCorso = l.corso?.nome_visualizzato || l.corso?.disciplina;
+  let badge = null;
+  if (l.festivita) badge = { testo: `Sospesa — ${l.festivita}`, bg: '#eee', col: '#777' };
+  else if (l.esito === 'interno') badge = { testo: `↔ Sostituita da ${nomeIstr(istrById[l.riga.istruttore_sostituto_id])}`, bg: '#e8f0fb', col: '#1E3A5F' };
+  else if (l.esito === 'esterno') badge = { testo: `↔ Esterno: ${l.riga.sostituto_esterno_nome} — ${euro(l.riga.sostituto_esterno_importo)} in contanti`, bg: '#fff4e0', col: '#8a5a00' };
+  else if (l.esito === 'annullata') badge = { testo: `✕ Annullata${l.riga.avviso_inviato_il ? ` · 📧 avvisati ${l.riga.avviso_destinatari}` : ''}`, bg: '#fdecea', col: '#c0392b' };
+  else if (l.esito === 'sospesa') badge = { testo: 'Sospesa', bg: '#eee', col: '#777' };
+  else if (l.esito === 'recupero') badge = { testo: '↩ Recupero', bg: '#f1e8fb', col: '#6b3fa0' };
+  else if (l.riga?.stato === 'fatta') badge = { testo: '✓ Check-in fatto', bg: '#e6f4ec', col: '#1f8a52' };
+  const cliccabile = !l.festivita && !['sospesa', 'recupero'].includes(l.esito);
+  return (
+    <button onClick={cliccabile ? onApri : undefined} disabled={!cliccabile}
+      style={{ textAlign: 'left', background: '#fff', border: '1px solid #e3e3e3', borderLeft: `4px solid ${badge && l.esito !== 'regolare' ? badge.col : '#1f8a52'}`, borderRadius: 10, padding: '10px 12px', cursor: cliccabile ? 'pointer' : 'default', font: 'inherit', width: '100%' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <div>
+          <span style={{ fontWeight: 700 }}>{l.orario || '—'}</span> · <span style={{ fontWeight: 600 }}>{nomeCorso}</span>
+          <div style={{ fontSize: 12.5, color: '#666', marginTop: 2 }}>{l.palestra} · {nomeIstr(titolare)}</div>
+        </div>
+        {badge && <span style={{ alignSelf: 'center', background: badge.bg, color: badge.col, borderRadius: 999, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>{badge.testo}</span>}
+      </div>
+      {l.riga?.nota && <div style={{ fontSize: 12, color: '#777', marginTop: 4 }}>📝 {l.riga.nota}</div>}
+    </button>
+  );
+}
+
+function ModaleEccezione({ l, sessione, istruttori, istrById, conteggio, onChiudi, onSalvata }) {
+  const r = l.riga;
+  const [esito, setEsito] = useState(l.esito === 'regolare' ? 'interno' : l.esito);
+  const [sostitutoId, setSostitutoId] = useState(r?.istruttore_sostituto_id || '');
+  const [estNome, setEstNome] = useState(r?.sostituto_esterno_nome || '');
+  const [estTel, setEstTel] = useState(r?.sostituto_esterno_telefono || '');
+  const [estImporto, setEstImporto] = useState(r?.sostituto_esterno_importo ?? '');
+  const [nota, setNota] = useState(r?.nota || '');
+  const [avvisa, setAvvisa] = useState(true);
+  const [salvando, setSalvando] = useState(false);
+  const [errore, setErrore] = useState('');
+
+  const giornoNome = GIORNI[new Date(l.data + 'T12:00:00').getDay()];
+  const nDestinatari = conteggio ? (conteggio.tutti || 0) + (conteggio.perGiorno?.[giornoNome] || 0) : 0;
+  const giaAvvisati = !!r?.avviso_inviato_il;
+  const nomeCorso = l.corso?.nome_visualizzato || l.corso?.disciplina;
+  const altri = istruttori.filter((i) => i.id !== l.istruttoreId);
+
+  async function salva(esitoScelto) {
+    setErrore('');
+    const e = esitoScelto || esito;
+    const mandaEmail = e === 'annullata' && avvisa && !giaAvvisati && nDestinatari > 0;
+    if (mandaEmail && !window.confirm(`Confermi? Verrà inviata un'email a ${nDestinatari} iscritti per avvisarli che la lezione è annullata.`)) return;
+    setSalvando(true);
+    try {
+      const res = await chiama('salva', {
+        utente_id: sessione.istruttore_id, corso_id: l.corso.id, istruttore_id: l.istruttoreId, data: l.data,
+        esito: e, sostituto_id: sostitutoId || null,
+        esterno: { nome: estNome, telefono: estTel, importo: estImporto },
+        nota, avvisa: mandaEmail,
+      });
+      let msg = '';
+      if (res.avviso) {
+        msg = `Email inviate: ${res.avviso.inviate}.`;
+        if (res.avviso.errori) msg += ` Non riuscite: ${res.avviso.errori}.`;
+        if (res.avviso.senza_email) msg += ` ${res.avviso.senza_email} iscritti non hanno l'email: vanno avvisati a voce o su WhatsApp.`;
+      }
+      onSalvata(msg);
+    } catch (err) { setErrore(err.message); setSalvando(false); }
+  }
+
+  const opzione = (val, titolo, sotto) => (
+    <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', border: `1px solid ${esito === val ? C : '#ddd'}`, background: esito === val ? '#f3f5f6' : '#fff', borderRadius: 8, padding: '9px 10px', cursor: 'pointer' }}>
+      <input type="radio" name="esito" checked={esito === val} onChange={() => setEsito(val)} style={{ marginTop: 3 }} />
+      <span><span style={{ fontWeight: 600 }}>{titolo}</span>{sotto && <span style={{ display: 'block', fontSize: 12, color: '#777' }}>{sotto}</span>}</span>
+    </label>
+  );
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 16, zIndex: 50, overflowY: 'auto' }} onClick={onChiudi}>
+      <div style={{ background: '#fff', borderRadius: 12, padding: 18, width: '100%', maxWidth: 480, marginTop: 30 }} onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ margin: '0 0 2px', fontSize: 17 }}>{nomeCorso} · {giornoNome} {ddmm(l.data)}</h3>
+        <div style={{ fontSize: 13, color: '#666', marginBottom: 14 }}>{l.orario} · {l.palestra} · titolare {nomeIstr(istrById[l.istruttoreId])}</div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+          {opzione('interno', 'Sostituita da un nostro insegnante', 'Viene pagato il sostituto, non il titolare')}
+          {opzione('esterno', 'Sostituita da un insegnante esterno', 'Pagato in contanti solo per questa lezione')}
+          {opzione('annullata', 'Annullata, nessun sostituto', 'Nessuno viene pagato per questa lezione')}
+        </div>
+
+        {esito === 'interno' && (
+          <Campo label="Chi sostituisce">
+            <select value={sostitutoId} onChange={(e) => setSostitutoId(e.target.value)} style={campo}>
+              <option value="">— scegli —</option>
+              {altri.map((i) => <option key={i.id} value={i.id}>{i.cognome} {i.nome}</option>)}
+            </select>
+          </Campo>
+        )}
+
+        {esito === 'esterno' && (
+          <>
+            <Campo label="Nome e cognome dell'insegnante esterno"><input value={estNome} onChange={(e) => setEstNome(e.target.value)} style={campo} /></Campo>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ flex: 1 }}><Campo label="Telefono"><input value={estTel} onChange={(e) => setEstTel(e.target.value)} inputMode="tel" style={campo} /></Campo></div>
+              <div style={{ width: 130 }}><Campo label="Pagato in contanti (€)"><input value={estImporto} onChange={(e) => setEstImporto(e.target.value)} inputMode="decimal" style={campo} /></Campo></div>
+            </div>
+          </>
+        )}
+
+        {esito === 'annullata' && (
+          <div style={{ background: '#fafafa', border: '1px solid #eee', borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 13 }}>
+            {giaAvvisati ? (
+              <span>📧 Gli iscritti sono già stati avvisati via email ({r.avviso_destinatari}).</span>
+            ) : nDestinatari > 0 ? (
+              <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
+                <input type="checkbox" checked={avvisa} onChange={(e) => setAvvisa(e.target.checked)} style={{ marginTop: 2 }} />
+                <span>Avvisa via email gli iscritti che frequentano il {giornoNome.toLowerCase()} ({nDestinatari})
+                  {conteggio?.senzaEmail > 0 && <span style={{ display: 'block', color: '#8a5a00', fontSize: 12 }}>Alcuni iscritti al corso non hanno l'email: vanno avvisati a voce o su WhatsApp.</span>}
+                </span>
+              </label>
+            ) : (
+              <span>Nessun iscritto con email da avvisare.</span>
+            )}
+          </div>
+        )}
+
+        <Campo label={esito === 'annullata' ? 'Nota (compare anche nell\'email, es. "verrà recuperata a giugno")' : 'Nota (facoltativa)'}>
+          <textarea value={nota} onChange={(e) => setNota(e.target.value)} rows={2} style={{ ...campo, resize: 'vertical' }} />
+        </Campo>
+
+        {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 12px', borderRadius: 8, marginBottom: 10, fontSize: 13 }}>{errore}</div>}
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', flexWrap: 'wrap', marginTop: 6 }}>
+          {l.esito !== 'regolare' ? (
+            <button disabled={salvando} onClick={() => salva('regolare')} style={btnSec}>↺ Lezione regolare</button>
+          ) : <span />}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={onChiudi} style={btnSec}>Annulla</button>
+            <button disabled={salvando} onClick={() => salva()} style={{ background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontWeight: 600, cursor: 'pointer' }}>
+              {salvando ? 'Salvataggio…' : 'Salva'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Campo({ label, children }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 12.5, color: '#555', marginBottom: 4 }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
+const campo = { width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, fontFamily: 'inherit' };
+const btnSec = { background: '#fff', color: C, border: `1px solid ${C}`, borderRadius: 8, padding: '7px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer' };

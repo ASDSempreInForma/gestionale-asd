@@ -354,6 +354,11 @@ export default function GestioneIstruttori({ onVaiAContratto }){
       stato:l.stato,
       isRecupero:l.stato==="recupero",
       motivoSospensione:l.motivo_sospensione,
+      esternoNome:l.sostituto_esterno_nome||null,
+      esternoTelefono:l.sostituto_esterno_telefono||null,
+      esternoImporto:l.sostituto_esterno_importo,
+      nota:l.nota||null,
+      inseritoDa:l.inserito_da||null,
     }));
 
     // Lezioni PREVISTE (oggi e date future senza riga): si mostrano subito, così i compensi
@@ -607,9 +612,10 @@ export default function GestioneIstruttori({ onVaiAContratto }){
       setLezioni(prev=>prev.map(l=>l.id===id?{...l,id:riga.id,stato,sostitutoId,isRecupero:stato==="recupero",prevista:false}:l));
       return;
     }
-    setLezioni(prev=>prev.map(l=>l.id===id?{...l,stato,sostitutoId,isRecupero:stato==="recupero"}:l));
+    setLezioni(prev=>prev.map(l=>l.id===id?{...l,stato,sostitutoId,isRecupero:stato==="recupero",esternoNome:null,esternoTelefono:null,esternoImporto:null}:l));
+    // Cambiando stato da qui si tolgono anche gli eventuali dati dell'insegnante esterno (Area SEDE → Palestre)
     const {error}=await supabase.from("lezioni")
-      .update({stato, istruttore_sostituto_id:sostitutoId}).eq("id",id);
+      .update({stato, istruttore_sostituto_id:sostitutoId, sostituto_esterno_nome:null, sostituto_esterno_telefono:null, sostituto_esterno_importo:null}).eq("id",id);
     if(error) alert("Errore nel salvataggio: "+error.message);
   }
 
@@ -632,7 +638,9 @@ export default function GestioneIstruttori({ onVaiAContratto }){
 
   function reportInstr(istrId){
     const lz=lezMese.filter(l=>l.istruttoreId===istrId||l.sostitutoId===istrId);
-    const fatte=lz.filter(l=>(l.istruttoreId===istrId||l.sostitutoId===istrId)&&(l.stato==="fatta"||l.isRecupero)&&!isDateSospesa(l.data,sospensioni)).length;
+    // Lezione sostituita (stato "sostituto"): la paga il sostituto, non il titolare. Se il sostituto
+    // è esterno (sostitutoId vuoto) non la paga nessuno qui: è stato pagato in contanti. 13/10/2026.
+    const fatte=lz.filter(l=>((l.istruttoreId===istrId||l.sostitutoId===istrId)&&(l.stato==="fatta"||l.isRecupero)||(l.stato==="sostituto"&&l.sostitutoId===istrId))&&!isDateSospesa(l.data,sospensioni)).length;
     const sospese=lz.filter(l=>l.stato==="sospesa"||isDateSospesa(l.data,sospensioni)).length;
     const assenti=lz.filter(l=>l.istruttoreId===istrId&&l.stato==="assente").length;
     const recuperi=lz.filter(l=>l.istruttoreId===istrId&&l.isRecupero).length;
@@ -1133,6 +1141,16 @@ export default function GestioneIstruttori({ onVaiAContratto }){
                     {l.sostitutoId&&(
                       <div style={{fontSize:11,color:C.blue,marginTop:4}}>
                         ↔ Sostituto: {istruttori.find(x=>x.id===l.sostitutoId)?.cognome||"—"} {istruttori.find(x=>x.id===l.sostitutoId)?.nome||""}
+                      </div>
+                    )}
+                    {l.stato==="sostituto"&&!l.sostitutoId&&l.esternoNome&&(
+                      <div style={{fontSize:11,color:"#8a5a00",marginTop:4}}>
+                        ↔ Sostituto esterno: {l.esternoNome}{l.esternoTelefono?` (${l.esternoTelefono})`:""} — {Number(l.esternoImporto||0).toLocaleString("it-IT",{style:"currency",currency:"EUR"})} in contanti
+                      </div>
+                    )}
+                    {(l.nota||l.inseritoDa)&&(
+                      <div style={{fontSize:10.5,color:C.gray,marginTop:3}}>
+                        {l.nota&&<>📝 {l.nota}</>}{l.nota&&l.inseritoDa&&" · "}{l.inseritoDa&&<>segnato da {l.inseritoDa}</>}
                       </div>
                     )}
                   </div>
