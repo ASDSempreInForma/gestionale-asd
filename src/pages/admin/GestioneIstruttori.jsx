@@ -78,6 +78,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
   const [mesiGenerati,setMesiGenerati]=useState(new Set());
   const [mesiAttivi,setMesiAttivi]=useState({"2026-9":false,"2027-6":false});
   const [filterInstr,setFilterInstr]=useState("tutti");
+  const [soloEccezioni,setSoloEccezioni]=useState(false); // Calendario: solo sostituzioni/annullamenti (13/10/2026)
   const [newPeriodo,setNewPeriodo]=useState({dal:"",al:"",desc:""});
   const [focusedInstr,setFocusedInstr]=useState(null);
   const [showAddInstr,setShowAddInstr]=useState(false);
@@ -600,6 +601,13 @@ export default function GestioneIstruttori({ onVaiAContratto }){
   const meseSel=MESI_STAGIONE[meseSelIdx];
   const mesePfx=`${meseSel.anno}-${String(meseSel.mese).padStart(2,'0')}`;
 
+  // Lezione "eccezione" per il filtro Solo sostituzioni e annullamenti
+  function eEccezione(l){
+    if(l.prevista) return false;
+    if(l.stato==="sostituto"||l.stato==="assente") return true;
+    return l.stato==="sospesa"&&!isDateSospesa(l.data,sospensioni); // le festività no
+  }
+
   async function setStatoLezione(id, stato, sostitutoId=null){
     // Lezione prevista (non ancora nel database): "fatta" è già il suo stato; ogni altra scelta
     // (assente, sospesa, sostituto) crea la riga vera.
@@ -1092,11 +1100,67 @@ export default function GestioneIstruttori({ onVaiAContratto }){
           </div>
         </div>
 
+        {/* Solo sostituzioni e annullamenti (13/10/2026): come "solo modifiche" della SEDE.
+            Eccezione = sostituita (interno o esterno), annullata, o sospesa a mano (non per festività). */}
+        {(()=>{
+          const nEcc=lezMese.filter(l=>eEccezione(l)&&(filterInstr==="tutti"||l.istruttoreId===filterInstr||l.sostitutoId===filterInstr)).length;
+          return(
+            <label style={{display:"flex",alignItems:"center",gap:8,background:"white",border:`1px solid ${soloEccezioni?C.blue:C.border}`,borderRadius:10,
+              padding:"9px 13px",marginBottom:10,fontSize:12,fontWeight:600,color:soloEccezioni?C.blue:C.text,cursor:"pointer"}}>
+              <input type="checkbox" checked={soloEccezioni} onChange={e=>setSoloEccezioni(e.target.checked)}/>
+              ↔ Solo sostituzioni e annullamenti{filterInstr==="tutti"?" (tutti gli istruttori)":""} — {nEcc} nel mese
+            </label>
+          );
+        })()}
+
+        {filterInstr==="tutti"&&soloEccezioni&&(()=>{
+          const ecc=lezMese.filter(eEccezione).sort((a,b)=>a.data.localeCompare(b.data)||a.corso.localeCompare(b.corso));
+          const nomeI=id=>{const x=istruttori.find(i=>i.id===id);return x?`${x.cognome} ${x.nome}`:"—";};
+          const contanti=ecc.filter(l=>l.stato==="sostituto"&&!l.sostitutoId).reduce((t,l)=>t+Number(l.esternoImporto||0),0);
+          if(ecc.length===0) return(
+            <div style={{background:"white",border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",fontSize:12,color:C.textSub}}>Nessuna sostituzione o annullamento in questo mese.</div>
+          );
+          return(
+            <div>
+              {contanti>0&&(
+                <div style={{fontSize:11,color:"#8a5a00",background:"#fff4e0",border:"1px solid #f0d9a8",borderRadius:8,padding:"7px 11px",marginBottom:8}}>
+                  💵 Pagati in contanti a insegnanti esterni nel mese: <b>{contanti.toLocaleString("it-IT",{style:"currency",currency:"EUR"})}</b>
+                </div>
+              )}
+              {ecc.map(l=>{
+                let esito,col;
+                if(l.stato==="sostituto"&&l.sostitutoId){esito=`↔ Sostituito da ${nomeI(l.sostitutoId)}`;col=C.blue;}
+                else if(l.stato==="sostituto"){esito=`↔ Esterno: ${l.esternoNome||"—"}${l.esternoTelefono?` (${l.esternoTelefono})`:""} — ${Number(l.esternoImporto||0).toLocaleString("it-IT",{style:"currency",currency:"EUR"})} in contanti`;col="#8a5a00";}
+                else if(l.stato==="assente"){esito="✕ Annullata (nessun sostituto)";col=C.red;}
+                else {esito="— Sospesa";col="#3730A3";}
+                return(
+                  <div key={l.id} style={{background:"white",border:`1px solid ${C.border}`,borderLeft:`4px solid ${col}`,borderRadius:10,padding:"9px 13px",marginBottom:6}}>
+                    <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                      <div style={{fontSize:12,fontWeight:500,color:C.text}}>{fmtData(l.data)} — {l.corso}</div>
+                      <button onClick={()=>{setFilterInstr(l.istruttoreId);}} title="Apri il calendario del titolare"
+                        style={{background:"none",border:"none",color:C.textSub,fontSize:11,cursor:"pointer",textDecoration:"underline"}}>titolare: {nomeI(l.istruttoreId)}</button>
+                    </div>
+                    <div style={{fontSize:11,color:col,marginTop:3,fontWeight:600}}>{esito}</div>
+                    {(l.nota||l.inseritoDa)&&(
+                      <div style={{fontSize:10.5,color:C.gray,marginTop:3}}>
+                        {l.nota&&<>📝 {l.nota}</>}{l.nota&&l.inseritoDa&&" · "}{l.inseritoDa&&<>segnato da {l.inseritoDa}</>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+
         {/* Lezioni del mese */}
         {filterInstr!=="tutti"&&(()=>{
           const t=istruttori.find(x=>x.id===filterInstr);
           if(!t) return null;
-          const lz=lezMese.filter(l=>l.istruttoreId===t.id||l.sostitutoId===t.id);
+          const lz=lezMese.filter(l=>(l.istruttoreId===t.id||l.sostitutoId===t.id)&&(!soloEccezioni||eEccezione(l)));
+          if(soloEccezioni&&lz.length===0) return(
+            <div style={{background:"white",border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",fontSize:12,color:C.textSub}}>Nessuna sostituzione o annullamento per questo istruttore nel mese.</div>
+          );
           return(
             <div>
               {lz.some(l=>l.prevista)&&(
@@ -1159,10 +1223,10 @@ export default function GestioneIstruttori({ onVaiAContratto }){
             </div>
           );
         })()}
-        {filterInstr==="tutti"&&(
+        {filterInstr==="tutti"&&!soloEccezioni&&(
           <div style={{background:C.blueL,border:`1px solid ${C.blue}33`,borderRadius:10,
             padding:"12px 14px",fontSize:12,color:C.blue}}>
-            ℹ Seleziona un istruttore dal filtro in alto per visualizzare e modificare le sue lezioni.
+            ℹ Seleziona un istruttore dal filtro in alto per visualizzare e modificare le sue lezioni, oppure spunta "Solo sostituzioni e annullamenti" per vederle tutte insieme.
           </div>
         )}
       </div>
