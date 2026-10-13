@@ -11,6 +11,7 @@ import { caricaSuStorage } from "../../scansioneDocumento.js";
 import ComboComune from "../../ComboComune.jsx";
 import { caricaComuni, capUnicoDelComune } from "../../comuniItaliani.js";
 import { pulisciCF, datiDaCF, problemiCF } from "../../codiceFiscale.js";
+import { scaricaTesseraPdf, ENTI_TESSERA } from "../../tesseraAssociativa.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -185,10 +186,29 @@ export default function GestioneSede() {
 // gestione persone (aggiungi/modifica/rimuovi/sposta), stampa registro
 // firme Libertas/ASI per singolo turno.
 // ─────────────────────────────────────────────────────────────────
+// Tessera SEDE (13/10/2026): numero_tessera + tessera_stagione ("2026/2027") + ente_tessera.
+// Vale fino al 31/08 di fine stagione; è "di questa stagione" se la stagione non è finita.
+function scadenzaTesseraSede(p) {
+  const m = String(p?.tessera_stagione || "").match(/^(\d{4})\s*\/\s*(\d{4})$/);
+  return m ? `${m[2]}-08-31` : null;
+}
+function tesseraSedeValida(p) {
+  const sc = scadenzaTesseraSede(p);
+  if (!p?.numero_tessera || !sc) return false;
+  const d = new Date();
+  const oggi = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return sc >= oggi;
+}
+async function stampaTesseraSede(p) {
+  try {
+    await scaricaTesseraPdf({ ...p, scadenza_tessera: scadenzaTesseraSede(p), ente_tessera: p.ente_tessera || null });
+  } catch (err) { alert("Non è stato possibile creare la tessera: " + err.message); }
+}
+
 const CAMPI_ANAGRAFICA_VUOTI = {
   nome: "", cognome: "", cf: "", data_nascita: "", comune_nascita: "", provincia_nascita: "",
   comune_residenza: "", provincia_residenza: "", cap: "", indirizzo: "", sesso: "", telefono: "", email: "", numero_tessera: "",
-  soprannome: "",
+  soprannome: "", ente_tessera: "",
 };
 
 // ─── Caricamento certificato da parte della segreteria (29/09/2026) ─────────
@@ -530,7 +550,11 @@ function TurniEGruppi() {
                                 {!i.cf && <span style={{ color: "#c0392b", fontSize: 11 }}> (dati anagrafici incompleti)</span>}
                                 <BadgeCertificatoSede persona={i} />
                                 {!i.email && <span style={{ fontSize: 11, color: "#b7791f", marginLeft: 6 }}>✉️ senza email</span>}
+                                {tesseraSedeValida(i) && <span style={{ fontSize: 11, color: "#1E3A5F", marginLeft: 6 }}>🪪 {i.ente_tessera ? `${i.ente_tessera} ` : ""}{i.numero_tessera}</span>}
                               </div>
+                              {tesseraSedeValida(i) && (
+                                <button onClick={() => stampaTesseraSede(i)} title="Stampa tessera associativa (PDF)" style={{ background: "none", border: "none", cursor: "pointer" }}>🪪</button>
+                              )}
                               {i.certificato_url && (
                                 <button onClick={() => apriCertificatoSede(i.certificato_url)} title="Apri certificato" style={{ background: "none", border: "none", cursor: "pointer" }}>📄</button>
                               )}
@@ -776,7 +800,7 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
     comune_residenza: persona.comune_residenza || "", provincia_residenza: persona.provincia_residenza || "",
     cap: persona.cap || "", indirizzo: persona.indirizzo || "", sesso: persona.sesso || "",
     telefono: persona.telefono || "", email: persona.email || "", numero_tessera: persona.numero_tessera || "",
-    soprannome: persona.soprannome || "",
+    soprannome: persona.soprannome || "", ente_tessera: persona.ente_tessera || "",
   } : CAMPI_ANAGRAFICA_VUOTI);
   const [errore, setErrore] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -886,7 +910,7 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
       // aggiorna automaticamente ovunque quella persona sia iscritta,
       // senza bisogno di conferme (archivio persone unico, come soci/
       // iscrizioni nel resto del gestionale — 18/09/2026).
-      const { soprannome, ...datiForm } = form;
+      const { soprannome, ente_tessera, ...datiForm } = form;
       const esito = await chiamaAreaSede("salva_iscritto_turno", {
         id: persona?.id, turno_id: turnoId, ...datiForm,
         cf: pulisciCF(form.cf),
@@ -896,7 +920,11 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
       // Soprannome (12/10/2026): salvato direttamente sulla scheda della persona
       const personaId = esito?.persona_id || persona?.persona_id;
       if (personaId) {
-        const { error: errSop } = await supabase.from("sede_persone").update({ soprannome: (soprannome || "").trim() || null }).eq("id", personaId);
+        // Ente della tessera (13/10/2026): salvato insieme al soprannome; senza numero non ha senso
+        const { error: errSop } = await supabase.from("sede_persone").update({
+          soprannome: (soprannome || "").trim() || null,
+          ente_tessera: (form.numero_tessera || "").trim() ? (ente_tessera || null) : null,
+        }).eq("id", personaId);
         if (errSop) console.error("Soprannome non salvato:", errSop.message);
       }
       onSalvato();
@@ -959,6 +987,13 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
                   maxLength={k === "cf" ? 16 : k.startsWith("provincia") ? 2 : undefined}
                   style={{ width: "100%", padding: 7, borderRadius: 8, fontSize: 13,
                     border: k === "cf" && form.cf && problemiCodice.length > 0 ? "1.5px solid #e67e22" : "1px solid #ddd" }} />
+              )}
+              {k === "numero_tessera" && form.numero_tessera && (
+                <select value={form.ente_tessera || ""} onChange={(e) => campo("ente_tessera", e.target.value)}
+                  style={{ width: "100%", padding: 6, borderRadius: 8, fontSize: 12, marginTop: 4, border: form.ente_tessera ? "1px solid #ddd" : "1.5px solid #e67e22" }}>
+                  <option value="">Ente della tessera…</option>
+                  {ENTI_TESSERA.map((e) => <option key={e} value={e}>{e}</option>)}
+                </select>
               )}
               {k === "cf" && form.cf && (
                 problemiCodice.length > 0
@@ -1232,6 +1267,16 @@ function ImportaTessereSede() {
     try {
       const righe = Object.values(datiPerBlocco).flat();
       const dati = await chiamaAreaSede("importa_tessere_sede", { righe });
+      // Ente della tessera (13/10/2026): dal blocco in cui è stato caricato il file
+      for (const [etichetta, arr] of Object.entries(datiPerBlocco)) {
+        const ente = /asi/i.test(etichetta) ? "ASI" : /libertas/i.test(etichetta) ? "Libertas" : null;
+        const cfs = [...new Set(arr.map((r) => r.cf))];
+        if (!ente || cfs.length === 0) continue;
+        for (let k = 0; k < cfs.length; k += 100) {
+          const { error } = await supabase.from("sede_persone").update({ ente_tessera: ente }).in("cf", cfs.slice(k, k + 100));
+          if (error) console.error("Ente tessera non salvato:", error.message);
+        }
+      }
       setEsito(dati);
     } catch (err) { setErrore(err.message); }
     finally { setAggiornando(false); }

@@ -1218,11 +1218,14 @@ export default function AreaTesserati() {
           </a>
         </div>
 
-        {!soloSede && statoTessera(socio) === "valida" && (
+        {/* 13/10/2026: la tessera la vede anche chi frequenta la SEDE (serve per la visita medica convenzionata) */}
+        {statoTessera(socio) === "valida" && (
           <div style={{ ...styles.card, marginBottom: 12 }}>
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>La tua tessera associativa</div>
             <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>
-              È la tua tessera virtuale: mostrala dal telefono ai centri medici convenzionati e all'ingresso in palestra (il QR serve per il check-in). Se preferisci averla su carta, scarica la versione da stampare.
+              {soloSede
+                ? "È la tua tessera virtuale: mostrala dal telefono ai centri medici convenzionati per la visita. Se preferisci averla su carta, scarica la versione da stampare."
+                : "È la tua tessera virtuale: mostrala dal telefono ai centri medici convenzionati e all'ingresso in palestra (il QR serve per il check-in). Se preferisci averla su carta, scarica la versione da stampare."}
             </div>
             <TesseraAssociativa socio={socio} />
             <button
@@ -1246,6 +1249,12 @@ export default function AreaTesserati() {
             {fileTessera.errore && (
               <div style={{ fontSize: 12, color: "#991B1B", textAlign: "center", marginTop: 6 }}>Non è stato possibile preparare il file: {fileTessera.errore}</div>
             )}
+          </div>
+        )}
+
+        {soloSede && statoTessera(socio) !== "valida" && (
+          <div style={{ ...styles.card, marginBottom: 12, fontSize: 13, color: "#64748b" }}>
+            🪪 La tua tessera associativa comparirà qui appena la segreteria avrà registrato il tesseramento per la stagione in corso.
           </div>
         )}
 
