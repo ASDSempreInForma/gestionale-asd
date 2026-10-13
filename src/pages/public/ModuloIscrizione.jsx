@@ -699,6 +699,10 @@ export default function ModuloIscrizione() {
   }, [step, stagione, anagrafica.cf, residenza.email, residenza.telefono]);
 
   const corsoGiaAttivo = (corsoId) => iscrizioniAttiveSocio.some((i) => i.corso_id === corsoId);
+  // Lo stesso corso scelto due volte nel modulo (13/10/2026, caso Mirabile: causale
+  // "URM01-1 + URM01-1" e quota 180€ invece di 160€). Per frequentare due giorni
+  // dello stesso corso si sceglie "2 volte a settimana", non lo si aggiunge due volte.
+  const corsoDoppio = (idx, corsoId) => !!corsoId && corsiScelti.some((c, i) => i !== idx && c.corsoId === corsoId);
 
   const corsiConCodice = useMemo(
     () =>
@@ -832,7 +836,7 @@ export default function ModuloIscrizione() {
     // l'assicurazione Libertas/ASI; caso Stanzani Marzia arrivata senza)
     if (step === 1) return anagrafica.nome && anagrafica.cognome && anagrafica.dataNascita && anagrafica.luogoNascita.trim() && anagrafica.cf && validaCodiceFiscale(anagrafica.cf);
     if (step === 2) return residenza.indirizzo && residenza.comune && /^\d{5}$/.test(String(residenza.cap || "").trim()) && String(residenza.telefono || "").replace(/\D/g, "").length >= 6 && residenza.email;
-    if (step === 3) return corsiConCodice.length > 0 && corsiConCodice.every((c) => c.corso?.mese_inizio !== "settembre" || c.inizioPersonalizzato) && corsiConCodice.every(sceltaValidaPerPosti) && !corsiConCodice.some((c) => corsoGiaAttivo(c.corso.id)) && (!vuoleExtraSettembre || corsoExtraSettembreId);
+    if (step === 3) return corsiConCodice.length > 0 && corsiConCodice.every((c) => c.corso?.mese_inizio !== "settembre" || c.inizioPersonalizzato) && corsiConCodice.every(sceltaValidaPerPosti) && !corsiConCodice.some((c) => corsoGiaAttivo(c.corso.id)) && new Set(corsiConCodice.map((c) => c.corsoId)).size === corsiConCodice.length && (!vuoleExtraSettembre || corsoExtraSettembreId);
     if (step === 4) return regolamenti.statuto && regolamenti.privacy;
     if (step === 5) return firmaSocio && (!isMinorenne || firmaGenitore) && luogoFirma && dichiarazioneFirma;
     return true;
@@ -1366,9 +1370,10 @@ export default function ModuloIscrizione() {
                             <option value="">Seleziona…</option>
                             {corsiSede.map((c) => {
                               const pieno = corsoNonDisponibile(c);
+                              const giaScelto = corsoDoppio(idx, c.id);
                               return (
-                                <option key={c.id} value={c.id} disabled={pieno}>
-                                  {c.nomeVisualizzato || c.corso} — {c.orario}{pieno ? " — AL COMPLETO" : ""}
+                                <option key={c.id} value={c.id} disabled={pieno || giaScelto}>
+                                  {c.nomeVisualizzato || c.corso} — {c.orario}{pieno ? " — AL COMPLETO" : giaScelto ? " — GIÀ SCELTO" : ""}
                                 </option>
                               );
                             })}
@@ -1388,6 +1393,12 @@ export default function ModuloIscrizione() {
                               </div>
                             );
                           })}
+                        </div>
+                      )}
+                      {corso && corsoDoppio(idx, corso.id) && (
+                        <div className="mt-2 text-sm px-3 py-2 rounded-lg border bg-red-50 border-red-200 text-red-700">
+                          Hai già scelto questo corso qui sopra: toglilo da una delle due righe.
+                          {corso.ha_variante_frequenza ? " Per venire due giorni a settimana scegli \"2 volte a settimana\" nella prima riga." : ""}
                         </div>
                       )}
                       {corso && corsoGiaAttivo(corso.id) && (
