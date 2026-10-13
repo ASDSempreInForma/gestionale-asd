@@ -55,6 +55,7 @@ export default function AreaSedePalestre({ sessione }) {
   const [palestra, setPalestra] = useState(() => { try { return localStorage.getItem('sede_palestre_filtro') || ''; } catch (_) { return ''; } });
   const [soloModifiche, setSoloModifiche] = useState(false);
   const [aperta, setAperta] = useState(null);
+  const [testoAperto, setTestoAperto] = useState(false);
 
   const dal = isoLocale(lunedi);
   const al = isoLocale(piuGiorni(lunedi, 6));
@@ -117,6 +118,11 @@ export default function AreaSedePalestre({ sessione }) {
 
   return (
     <div>
+      <button onClick={() => setTestoAperto(true)}
+        style={{ width: '100%', background: C, color: '#fff', border: 'none', borderRadius: 10, padding: '14px 16px', fontSize: 15, fontWeight: 700, cursor: 'pointer', marginBottom: 12 }}>
+        ✍️ Segnala sostituzioni / annullamenti da testo
+      </button>
+
       <div style={{ background: '#fff', borderRadius: 12, padding: 14, marginBottom: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button onClick={() => setLunedi((d) => piuGiorni(d, -7))} style={btnSec}>← Sett. prec.</button>
@@ -159,6 +165,14 @@ export default function AreaSedePalestre({ sessione }) {
 
       {dati && corsiSenzaInsegnante > 0 && (
         <p style={{ fontSize: 12, color: '#999' }}>{corsiSenzaInsegnante} {corsiSenzaInsegnante === 1 ? 'corso non ha' : 'corsi non hanno'} un insegnante assegnato e non compaiono qui (si assegna da Gestione Istruttori).</p>
+      )}
+
+      {testoAperto && (
+        <ModaleTestoPalestre
+          sessione={sessione} istruttori={dati?.istruttori || []} conteggi={dati?.conteggi || {}}
+          onChiudi={() => setTestoAperto(false)}
+          onApplicate={(msg) => { setTestoAperto(false); carica(); if (msg) alert(msg); }}
+        />
       )}
 
       {aperta && (
@@ -312,6 +326,159 @@ function ModaleEccezione({ l, sessione, istruttori, istrById, conteggio, onChiud
               {salvando ? 'Salvataggio…' : 'Salva'}
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Testo libero: come in SEDE, Sabina scrive la situazione a parole; l'AI propone le
+// lezioni coinvolte, lei controlla/corregge e conferma. Nulla viene scritto prima.
+function ModaleTestoPalestre({ sessione, istruttori, conteggi, onChiudi, onApplicate }) {
+  const [testo, setTesto] = useState('');
+  const [proposte, setProposte] = useState(null);
+  const [scartate, setScartate] = useState(0);
+  const [lavoro, setLavoro] = useState('');
+  const [errore, setErrore] = useState('');
+
+  async function interpreta() {
+    setErrore(''); setLavoro('Sto leggendo il testo…');
+    try {
+      const res = await chiama('interpreta_testo', { utente_id: sessione.istruttore_id, testo });
+      const valide = (res.proposte || []).filter((p) => !p.errore).map((p) => ({ ...p, avvisa: true }));
+      setScartate((res.proposte || []).length - valide.length);
+      setProposte(valide);
+    } catch (err) { setErrore(err.message); }
+    finally { setLavoro(''); }
+  }
+
+  const agg = (i, campo, val) => setProposte((prev) => prev.map((p, k) => (k === i ? { ...p, [campo]: val } : p)));
+  const aggEst = (i, campo, val) => setProposte((prev) => prev.map((p, k) => (k === i ? { ...p, esterno: { ...p.esterno, [campo]: val } } : p)));
+  const nDest = (p) => {
+    if (!p.data) return 0;
+    const c = conteggi[p.corso_id]; if (!c) return 0;
+    return (c.tutti || 0) + (c.perGiorno?.[GIORNI[new Date(p.data + 'T12:00:00').getDay()]] || 0);
+  };
+  const problema = (p) => {
+    if (!p.data) return 'Manca la data';
+    if (!p.istruttore_id) return 'Scegli il titolare';
+    if (p.esito === 'interno' && !p.sostituto_id) return 'Scegli chi sostituisce';
+    if (p.esito === 'esterno' && (!String(p.esterno?.nome || '').trim() || p.esterno?.importo === '' || p.esterno?.importo == null)) return 'Nome e importo dell\'esterno';
+    return '';
+  };
+  const pronte = proposte && proposte.length > 0 && proposte.every((p) => !problema(p));
+
+  async function applica() {
+    const email = proposte.filter((p) => p.esito === 'annullata' && p.avvisa).reduce((t, p) => t + nDest(p), 0);
+    if (email > 0 && !window.confirm(`Confermi? Verranno inviate ${email} email agli iscritti delle lezioni annullate.`)) return;
+    setErrore('');
+    let ok = 0, inviate = 0, senzaEmail = 0; const falliti = [];
+    for (let i = 0; i < proposte.length; i++) {
+      const p = proposte[i];
+      setLavoro(`Salvataggio ${i + 1} di ${proposte.length}…`);
+      try {
+        const res = await chiama('salva', {
+          utente_id: sessione.istruttore_id, corso_id: p.corso_id, istruttore_id: p.istruttore_id, data: p.data,
+          esito: p.esito, sostituto_id: p.sostituto_id || null, esterno: p.esterno, nota: p.nota,
+          avvisa: p.esito === 'annullata' && p.avvisa && nDest(p) > 0,
+        });
+        ok++;
+        if (res.avviso) { inviate += res.avviso.inviate || 0; senzaEmail += res.avviso.senza_email || 0; }
+      } catch (err) { falliti.push(`${p.corso_nome} ${p.data}: ${err.message}`); }
+    }
+    setLavoro('');
+    let msg = `Registrate ${ok} lezioni su ${proposte.length}.`;
+    if (inviate) msg += ` Email inviate agli iscritti: ${inviate}.`;
+    if (senzaEmail) msg += ` ${senzaEmail} iscritti senza email vanno avvisati a voce o su WhatsApp.`;
+    if (falliti.length) msg += `\n\nNon salvate:\n${falliti.join('\n')}`;
+    onApplicate(msg);
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 12, zIndex: 50, overflowY: 'auto' }} onClick={lavoro ? undefined : onChiudi}>
+      <div style={{ background: '#fff', borderRadius: 12, padding: 18, width: '100%', maxWidth: 620, marginTop: 20 }} onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ margin: '0 0 4px', fontSize: 17 }}>Sostituzioni e annullamenti da testo — Palestre</h3>
+        <p style={{ fontSize: 12.5, color: '#666', margin: '0 0 10px' }}>
+          Scrivi come lo racconteresti a voce, ad es. "Giovedì le lezioni di Michela a Urago le fa Giorgia", "Venerdì la Zumba di Bovezzo è annullata, verrà recuperata a giugno", "Mercoledì il Pilates di Eletta lo fa Laura Bianchi, esterna, 25 euro, tel 333…". Ti mostro le lezioni una per una: non viene salvato nulla finché non premi "Conferma e applica".
+        </p>
+        <textarea value={testo} onChange={(e) => setTesto(e.target.value)} rows={4} placeholder="Cosa è successo?" style={{ ...campo, resize: 'vertical' }} />
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+          <button disabled={!testo.trim() || !!lavoro} onClick={interpreta} style={{ background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontWeight: 600, cursor: 'pointer', opacity: !testo.trim() ? 0.5 : 1 }}>
+            {proposte ? 'Rileggi il testo' : 'Interpreta'}
+          </button>
+        </div>
+
+        {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 12px', borderRadius: 8, margin: '10px 0', fontSize: 13 }}>{errore}</div>}
+        {lavoro && <div style={{ color: '#666', fontSize: 13, margin: '10px 0' }}>{lavoro}</div>}
+
+        {proposte && (
+          <div style={{ marginTop: 14 }}>
+            {proposte.length === 0 && <div style={{ color: '#777', fontSize: 13 }}>Non ho trovato lezioni da modificare: prova a indicare corso, palestra e giorno.</div>}
+            {scartate > 0 && <div style={{ color: '#8a5a00', fontSize: 12.5, marginBottom: 8 }}>⚠️ {scartate} {scartate === 1 ? 'parte del testo non corrisponde' : 'parti del testo non corrispondono'} a nessun corso con insegnante assegnato: segnala a mano dalla lezione.</div>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {proposte.map((p, i) => {
+                const prob = problema(p);
+                return (
+                  <div key={i} style={{ border: `1px solid ${prob ? '#e0b4b4' : '#ddd'}`, borderRadius: 10, padding: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{p.corso_nome}{p.orario && <span style={{ fontWeight: 400, color: '#666' }}> · {p.orario}</span>}</div>
+                      <button onClick={() => setProposte((prev) => prev.filter((_, k) => k !== i))} title="Togli" style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: 16 }}>✕</button>
+                    </div>
+                    {(p.avvisi || []).map((a, k) => <div key={k} style={{ fontSize: 12, color: '#8a5a00', marginTop: 3 }}>⚠️ {a}</div>)}
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                      <div style={{ width: 150 }}><Campo label="Data"><input type="date" value={p.data || ''} onChange={(e) => agg(i, 'data', e.target.value)} style={campo} /></Campo></div>
+                      <div style={{ flex: 1, minWidth: 160 }}><Campo label="Titolare">
+                        <select value={p.istruttore_id || ''} onChange={(e) => agg(i, 'istruttore_id', e.target.value || null)} style={campo}>
+                          <option value="">— scegli —</option>
+                          {(p.titolari_possibili || []).map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}
+                        </select>
+                      </Campo></div>
+                      <div style={{ flex: 1, minWidth: 170 }}><Campo label="Cosa succede">
+                        <select value={p.esito} onChange={(e) => agg(i, 'esito', e.target.value)} style={campo}>
+                          <option value="interno">Sostituita da un nostro insegnante</option>
+                          <option value="esterno">Sostituita da un esterno</option>
+                          <option value="annullata">Annullata</option>
+                          <option value="regolare">Torna regolare</option>
+                        </select>
+                      </Campo></div>
+                    </div>
+                    {p.esito === 'interno' && (
+                      <Campo label="Chi sostituisce">
+                        <select value={p.sostituto_id || ''} onChange={(e) => agg(i, 'sostituto_id', e.target.value || null)} style={campo}>
+                          <option value="">— scegli —</option>
+                          {istruttori.filter((x) => x.id !== p.istruttore_id).map((x) => <option key={x.id} value={x.id}>{x.cognome} {x.nome}</option>)}
+                        </select>
+                      </Campo>
+                    )}
+                    {p.esito === 'esterno' && (
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <div style={{ flex: 2, minWidth: 160 }}><Campo label="Nome esterno"><input value={p.esterno?.nome || ''} onChange={(e) => aggEst(i, 'nome', e.target.value)} style={campo} /></Campo></div>
+                        <div style={{ flex: 1, minWidth: 120 }}><Campo label="Telefono"><input value={p.esterno?.telefono || ''} onChange={(e) => aggEst(i, 'telefono', e.target.value)} inputMode="tel" style={campo} /></Campo></div>
+                        <div style={{ width: 110 }}><Campo label="Contanti (€)"><input value={p.esterno?.importo ?? ''} onChange={(e) => aggEst(i, 'importo', e.target.value)} inputMode="decimal" style={campo} /></Campo></div>
+                      </div>
+                    )}
+                    {p.esito === 'annullata' && nDest(p) > 0 && (
+                      <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, marginBottom: 8, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={!!p.avvisa} onChange={(e) => agg(i, 'avvisa', e.target.checked)} />
+                        Avvisa via email gli iscritti ({nDest(p)})
+                      </label>
+                    )}
+                    <Campo label="Nota"><input value={p.nota || ''} onChange={(e) => agg(i, 'nota', e.target.value)} style={campo} /></Campo>
+                    {prob && <div style={{ fontSize: 12, color: '#c0392b' }}>⚠️ {prob}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+          <button disabled={!!lavoro} onClick={onChiudi} style={btnSec}>Chiudi</button>
+          {proposte && proposte.length > 0 && (
+            <button disabled={!pronte || !!lavoro} onClick={applica} style={{ background: '#1f8a52', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontWeight: 600, cursor: pronte ? 'pointer' : 'not-allowed', opacity: pronte ? 1 : 0.5 }}>
+              Conferma e applica ({proposte.length})
+            </button>
+          )}
         </div>
       </div>
     </div>
