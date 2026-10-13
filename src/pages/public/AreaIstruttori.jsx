@@ -669,6 +669,11 @@ export default function AreaIstruttori() {
 
   const [sessione, setSessione] = useState(null);
   const [dati, setDati] = useState(null);
+  // Filtri della lista corsi, ricordati sul telefono (13/10/2026)
+  const [filtroSede, setFiltroSede] = useState(() => { try { return localStorage.getItem("istr_filtro_sede") || ""; } catch (_) { return ""; } });
+  const [soloOggi, setSoloOggi] = useState(() => { try { return localStorage.getItem("istr_solo_oggi") === "1"; } catch (_) { return false; } });
+  const cambiaSede = (v) => { setFiltroSede(v); try { localStorage.setItem("istr_filtro_sede", v); } catch (_) { /* ignora */ } };
+  const cambiaSoloOggi = (v) => { setSoloOggi(v); try { localStorage.setItem("istr_solo_oggi", v ? "1" : "0"); } catch (_) { /* ignora */ } };
   const [loadingDati, setLoadingDati] = useState(false);
   const [erroreDati, setErroreDati] = useState("");
 
@@ -782,6 +787,13 @@ export default function AreaIstruttori() {
   }
 
   const { istruttore, stagione, corsi } = dati;
+  // Filtro palestra / solo oggi (13/10/2026): chi ha molti corsi (es. 12) li trovava tutti in fila
+  const palestre = [...new Set(corsi.map((c) => c.sede).filter(Boolean))].sort((a, b) => a.localeCompare(b, "it"));
+  const nomeOggi = GIORNI_IT[new Date().getDay()];
+  const senzaAccenti = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const siTieneOggi = (c) => senzaAccenti(c.giorni_orari).includes(senzaAccenti(nomeOggi));
+  const sedeValida = filtroSede && palestre.includes(filtroSede) ? filtroSede : "";
+  const corsiVisibili = corsi.filter((c) => (!sedeValida || c.sede === sedeValida) && (!soloOggi || siTieneOggi(c)));
 
   return (
     <>
@@ -809,7 +821,39 @@ export default function AreaIstruttori() {
           </p>
         )}
 
-        {corsi.map((c) => (
+        {corsi.length > 2 && (
+          <div style={{ ...styles.card, padding: 12 }}>
+            {palestre.length > 1 && (
+              <>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 8 }}>Palestra</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+                  {["", ...palestre].map((p) => {
+                    const attivo = sedeValida === p;
+                    const n = p ? corsi.filter((c) => c.sede === p).length : corsi.length;
+                    return (
+                      <button key={p || "tutte"} onClick={() => cambiaSede(p)}
+                        style={{ padding: "9px 12px", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer",
+                          border: `1px solid ${attivo ? "#2A6F86" : "#cbd5e1"}`, background: attivo ? "#2A6F86" : "#fff", color: attivo ? "#fff" : "#334155" }}>
+                        {p || "Tutte"} <span style={{ opacity: 0.75, fontWeight: 400 }}>({n})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+            <button onClick={() => cambiaSoloOggi(!soloOggi)}
+              style={{ padding: "9px 12px", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer",
+                border: `1px solid ${soloOggi ? "#166534" : "#cbd5e1"}`, background: soloOggi ? "#DCFCE7" : "#fff", color: soloOggi ? "#166534" : "#334155" }}>
+              📅 Solo i corsi di oggi ({nomeOggi.toLowerCase()})
+            </button>
+          </div>
+        )}
+
+        {corsi.length > 0 && corsiVisibili.length === 0 && (
+          <p style={{ color: "#64748b", fontSize: 14 }}>Nessun corso {soloOggi ? "oggi " : ""}{sedeValida ? `a ${sedeValida}` : ""}.</p>
+        )}
+
+        {corsiVisibili.map((c) => (
           <CardCorso key={c.id} corso={c} istruttore={istruttore} callFnWithAuth={callFnWithAuth} onAggiornato={caricaDati} />
         ))}
       </div>
