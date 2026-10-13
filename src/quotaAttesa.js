@@ -17,6 +17,26 @@
 
 import { calcolaPrezzoTotale, componiCodice, ISCRIZIONE_STANDARD } from "./motorePrezzi.js";
 
+// Due iscrizioni pagate con lo stesso versamento (13/10/2026, caso Chura): stesso
+// file, oppure la stessa ricevuta caricata due volte su corsi diversi (stesso nome
+// del file originale), oppure stesso importo e stessa data di pagamento (il socio
+// dichiara il totale del versamento su ogni corso).
+function nomeOriginale(url) {
+  const nome = String(url || "").split("/").pop() || "";
+  return nome.replace(/^[a-z_0-9]*?_\d{10,}_/i, "");
+}
+function stessoPagamento(a, b) {
+  if (a.ricevuta_url && b.ricevuta_url) {
+    if (a.ricevuta_url === b.ricevuta_url) return true;
+    const na = nomeOriginale(a.ricevuta_url);
+    if (na && na === nomeOriginale(b.ricevuta_url)) return true;
+  }
+  return a.importo_dichiarato != null && a.data_pagamento
+    && Number(a.importo_dichiarato) === Number(b.importo_dichiarato)
+    && a.data_pagamento === b.data_pagamento
+    && a.tipo_pagamento === b.tipo_pagamento;
+}
+
 export const CAMPI_CORSO_MOTORE =
   "codice_corso, disciplina, nome_visualizzato, giorni_orari, ha_variante_frequenza, mese_inizio, quota_annuale, quota_quad1, quota_annuale_1x, quota_quad1_1x, quota_annuale_badia, quota_quad1_badia, quota_annuale_under65, quota_adesione";
 
@@ -106,7 +126,7 @@ export function calcolaQuotaAttesa(row, tutte) {
     }
 
     // 2) Corsi pagati con la stessa ricevuta, calcolati insieme
-    const gruppo = [row, ...(row.ricevuta_url ? stessaPersona.filter((i) => i.ricevuta_url === row.ricevuta_url) : [])];
+    const gruppo = [row, ...stessaPersona.filter((i) => stessoPagamento(row, i))];
     const sel = gruppo.map((i) => perMotore(i, socio, annoStagione, alla));
     if (sel.some((s) => !s.pagamento)) return null;
     const r = calcolaPrezzoTotale(sel, { alla });
