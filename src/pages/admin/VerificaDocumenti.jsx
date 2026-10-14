@@ -809,6 +809,102 @@ function PannelloRinnoviRata2() {
   )
 }
 
+// ── Ricevute POS da abbinare (14/10/2026) ─────────────────────────────────
+// I pagamenti con carta (POS SumUp) arrivano a ricevute@asdsempreinforma.it: ogni
+// 30 minuti il sistema legge la ricevuta e, se trova la persona dal nome scritto
+// nella descrizione, la allega alle sue iscrizioni (che compaiono qui sotto come
+// ogni ricevuta da verificare). Quando non ci riesce (nome mancante, sconosciuto,
+// omonimi, nessuna iscrizione da pagare) la ricevuta finisce in questo riquadro.
+function PannelloRicevutePos() {
+  const [righe, setRighe] = useState([])
+  const [scelta, setScelta] = useState({}) // id ricevuta → { testo, risultati, cf }
+  const [occupato, setOccupato] = useState('')
+
+  const carica = async () => {
+    const { data } = await supabase.from('ricevute_pos').select('*').eq('stato', 'da_abbinare').order('data_pagamento', { ascending: false })
+    setRighe(data || [])
+  }
+  useEffect(() => { carica() }, [])
+
+  async function cerca(id, testo) {
+    setScelta(s => ({ ...s, [id]: { ...(s[id] || {}), testo } }))
+    const parole = testo.trim().split(/\s+/).filter(p => p.length >= 2)
+    if (parole.length === 0) { setScelta(s => ({ ...s, [id]: { ...s[id], risultati: [] } })); return }
+    const { data } = await supabase.from('soci').select('cf, nome, cognome').ilike('cognome', `%${parole[0]}%`).limit(40)
+    const altre = parole.slice(1).map(p => p.toLowerCase())
+    const ris = (data || []).filter(s => altre.every(p => `${s.nome} ${s.cognome}`.toLowerCase().includes(p))).slice(0, 10)
+    setScelta(s => ({ ...s, [id]: { ...s[id], risultati: ris } }))
+  }
+
+  async function apriPdf(r) {
+    if (!r.pdf_path) { window.open(r.ricevuta_url_sumup, '_blank'); return }
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(r.pdf_path, 120)
+    if (error) window.open(r.ricevuta_url_sumup, '_blank')
+    else window.open(data.signedUrl, '_blank')
+  }
+
+  async function azione(r, body) {
+    setOccupato(r.id)
+    const { data, error } = await supabase.functions.invoke('ricevute-pos', { body: { ...body, id: r.id } })
+    setOccupato('')
+    if (error || !data?.ok) { alert(data?.error || error?.message || 'Operazione non riuscita'); carica(); return }
+    if (body.action === 'abbina') alert('Ricevuta allegata: la trovi qui sotto tra le ricevute da verificare (aggiorna la pagina).')
+    carica()
+  }
+
+  if (righe.length === 0) return null
+  return (
+    <div style={{ background: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: 12, padding: 14, marginBottom: 18 }}>
+      <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 4 }}>💳 Ricevute POS da abbinare ({righe.length})</div>
+      <div style={{ fontSize: 12.5, color: SUB, marginBottom: 10 }}>
+        Pagamenti con carta che il sistema non è riuscito ad assegnare da solo. Cerca la persona e premi "Allega".
+      </div>
+      {righe.map(r => {
+        const sc = scelta[r.id] || {}
+        return (
+          <div key={r.id} style={{ background: 'white', border: `1px solid ${BD}`, borderRadius: 10, padding: '10px 12px', marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>
+                  {r.importo != null ? `€ ${Number(r.importo).toFixed(2).replace('.', ',')}` : 'Importo ?'} · {r.data_pagamento ? new Date(r.data_pagamento).toLocaleString('it-IT', { timeZone: 'Europe/Rome', dateStyle: 'short', timeStyle: 'short' }) : ''}
+                </div>
+                <div style={{ fontSize: 12.5, color: SUB }}>Nome scritto sul POS: <b>{r.nome_letto || '—'}</b> · ID {r.transazione_id}</div>
+                {r.motivo && <div style={{ fontSize: 12.5, color: '#B45309', marginTop: 2 }}>⚠️ {r.motivo}</div>}
+              </div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                <button onClick={() => apriPdf(r)} style={{ background: 'white', border: `1px solid ${BD}`, borderRadius: 8, padding: '6px 10px', fontSize: 12.5, cursor: 'pointer' }}>📄 Apri ricevuta</button>
+                <button disabled={occupato === r.id} onClick={() => { if (confirm('Ignorare questa ricevuta? Non verrà allegata a nessuno.')) azione(r, { action: 'ignora' }) }}
+                  style={{ background: 'white', border: `1px solid ${BD}`, borderRadius: 8, padding: '6px 10px', fontSize: 12.5, cursor: 'pointer', color: SUB }}>Ignora</button>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input value={sc.testo ?? ''} onChange={e => cerca(r.id, e.target.value)} placeholder={`Cerca la persona (es. ${r.nome_letto || 'Rossi Maria'})`}
+                style={{ flex: '1 1 220px', padding: '7px 10px', borderRadius: 8, border: `1px solid ${BD}`, fontSize: 13 }} />
+              {sc.cf && (
+                <button disabled={occupato === r.id} onClick={() => azione(r, { action: 'abbina', socio_cf: sc.cf })}
+                  style={{ background: G, color: 'white', border: 'none', borderRadius: 8, padding: '7px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                  {occupato === r.id ? '...' : '📎 Allega'}
+                </button>
+              )}
+            </div>
+            {(sc.risultati || []).length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                {sc.risultati.map(s => (
+                  <button key={s.cf} onClick={() => setScelta(x => ({ ...x, [r.id]: { ...x[r.id], cf: s.cf } }))}
+                    style={{ background: sc.cf === s.cf ? GL : 'white', border: `1px solid ${sc.cf === s.cf ? G : BD}`, borderRadius: 16, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>
+                    {s.cognome} {s.nome} <span style={{ color: SUB }}>· {s.cf}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {sc.testo && (sc.risultati || []).length === 0 && <div style={{ fontSize: 12, color: SUB, marginTop: 4 }}>Nessuna persona trovata.</div>}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function VerificaDocumenti() {
   const [righe, setRighe] = useState(null)
   const [errore, setErrore] = useState('')
@@ -912,6 +1008,7 @@ export default function VerificaDocumenti() {
         </button>
       </div>
 
+      {vista === 'in_attesa' && <PannelloRicevutePos />}
       {vista === 'scadenze' && <PannelloScadenzeCertificati />}
       {vista === 'rata2' && <PannelloRinnoviRata2 />}
 
