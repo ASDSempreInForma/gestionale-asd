@@ -121,9 +121,8 @@ CERTIFICATO MEDICO
   • Medical Sport – Via Bazoli 6, Brescia (Centro Sportivo S. Filippo) – 30€ –
     prenotazione con un WhatsApp allo 030-2411109
   • DuccoMed – Poliambulatorio medico specialistico – Via Marcantonio Ducco 33,
-    Brescia (circa 100 m dall'Ospedale Civile, autobus 10 e 16 davanti alla
-    struttura) – visita con ECG a 30€ invece di 35€ (Dott.ssa Elisa Inselvini,
-    medico dello sport) – appuntamento telefonando allo 030 5788643 o scrivendo a
+    Brescia (circa 100 m dall'Ospedale Civile) – visita con ECG a 30€ invece di
+    35€ (Dott.ssa Elisa Inselvini, medico dello sport) – appuntamento telefonando allo 030 5788643 o scrivendo a
     prenotazioni@duccomed.it; al momento della prenotazione dire alla reception di
     essere tesserati con l'A.S.D. Sempre In Forma e alla visita mostrare la
     TESSERA VIRTUALE dal telefono (convenzione dal 14/10/2026)
