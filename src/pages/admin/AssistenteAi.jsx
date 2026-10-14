@@ -104,7 +104,7 @@ COME CI SI ISCRIVE
 CERTIFICATO MEDICO
 - È obbligatorio un certificato di idoneità allo sport non agonistico, da consegnare
   entro 1 mese dall'iscrizione (DM 28/2/1983).
-- Siamo convenzionati con TRE centri medici (testi allineati al volantino
+- Siamo convenzionati con QUATTRO centri medici (testi allineati al volantino
   "Certificati medici" della segreteria, aggiornato 07/10/2026). In tutti i casi
   il socio prenota DA SOLO dicendo che è dell'A.S.D. Sempre In Forma:
   • Poliambulatorio delle Piscine TIBIDABO – Via Aldo Moro 18, Concesio – visita con
@@ -114,6 +114,12 @@ CERTIFICATO MEDICO
     appuntamento telefonando allo 030 4193773
   • Medical Sport – Via Bazoli 6, Brescia (Centro Sportivo S. Filippo) – 30€ –
     prenotazione con un WhatsApp allo 030-2411109
+  • DuccoMed – Poliambulatorio medico specialistico – Via Marcantonio Ducco 33,
+    Brescia (circa 100 m dall'Ospedale Civile) – visita con ECG a 30€ invece di
+    35€ (Dott.ssa Elisa Inselvini, medico dello sport) – appuntamento telefonando allo 030 5788643 o scrivendo a
+    prenotazioni@duccomed.it; al momento della prenotazione dire alla reception di
+    essere tesserati con l'A.S.D. Sempre In Forma e alla visita mostrare la
+    TESSERA VIRTUALE dal telefono (convenzione dal 14/10/2026)
 - Per usufruire della convenzione serve la TESSERA dell'associazione:
   - chi ha già il numero di tessera della stagione la trova nella propria Area
     Tesserati (tessera virtuale da mostrare dal telefono, oppure versione da
