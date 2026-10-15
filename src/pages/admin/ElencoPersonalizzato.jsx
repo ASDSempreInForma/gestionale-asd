@@ -288,7 +288,7 @@ export default function ElencoPersonalizzato() {
 
       const { data: iscDB, error: errI } = await supabase
         .from("iscrizioni")
-        .select("id, corso_id, frequenza, giorno_scelto, tipo_pagamento, stato_pagamento, stato_certificato, data_scadenza_certificato, data_iscrizione, inizio_personalizzato, note, registro_libertas_stampato_il, registro_asi_stampato_il, soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera, ente_tessera, scadenza_tessera, note, registro_libertas_stagione_id, registro_asi_stagione_id )")
+        .select("id, corso_id, frequenza, giorno_scelto, tipo_pagamento, stato_pagamento, incasso_verificato_il, incasso_metodo, stato_certificato, data_scadenza_certificato, data_iscrizione, inizio_personalizzato, note, registro_libertas_stampato_il, registro_asi_stampato_il, soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera, ente_tessera, scadenza_tessera, note, registro_libertas_stagione_id, registro_asi_stagione_id )")
         .eq("stagione_id", stag.id)
         .neq("stato_pagamento", "annullata")
         .order("id");
@@ -617,6 +617,21 @@ export default function ElencoPersonalizzato() {
     });
   }
 
+  // 15/10/2026 (Solomon): rimette nella selezione chi non ha il pagamento
+  // confermato ma di cui abbiamo la prova dell'incasso (bonifico in Controllo
+  // pagamenti, bollettino, carta SumUp, contanti segnati a mano).
+  const incassatiNonConfermati = useMemo(
+    () => risultatiFiltrati.filter((r) => r.stato_pagamento !== "confermato" && r.incasso_verificato_il),
+    [risultatiFiltrati]
+  );
+  function aggiungiIncassati() {
+    setSelezionati((prev) => {
+      const next = new Set(prev);
+      incassatiNonConfermati.forEach((r) => next.add(r.id));
+      return next;
+    });
+  }
+
   function escludiNonPagati() {
     setSelezionati((prev) => {
       const next = new Set(prev);
@@ -780,6 +795,11 @@ export default function ElencoPersonalizzato() {
                   <button onClick={escludiNonPagati} title="Toglie dalla selezione chi non ha ancora un pagamento confermato"
                     style={{ fontSize: 11.5, background: "#FEF3C7", color: "#92400E", border: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontWeight: 600 }}>
                     Escludi non pagati
+                  </button>
+                  <button onClick={aggiungiIncassati} disabled={!incassatiNonConfermati.length}
+                    title="Aggiunge chi non ha ancora il pagamento confermato ma di cui risulta già l'incasso (bonifico, bollettino, carta o contanti)"
+                    style={{ fontSize: 11.5, background: "#DCFCE7", color: "#166534", border: "none", borderRadius: 6, padding: "5px 10px", cursor: incassatiNonConfermati.length ? "pointer" : "default", fontWeight: 600, opacity: incassatiNonConfermati.length ? 1 : 0.5 }}>
+                    + Incasso arrivato ({incassatiNonConfermati.length})
                   </button>
                   <button onClick={escludiGiaTesserati} title="Toglie dalla selezione chi ha già una tessera valida (Libertas, ASI o fatta in SEDE), per non tesserare due volte la stessa persona"
                     style={{ fontSize: 11.5, background: "#DBEAFE", color: "#1E40AF", border: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontWeight: 600 }}>
