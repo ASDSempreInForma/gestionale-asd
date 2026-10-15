@@ -161,7 +161,7 @@ export default function BollettiniPoste({ soci, setSoci }) {
       importo: b.importo ?? 0,
       tipo: 'bollettino',
     }))
-    return abbina(mov, soci).map((r, i) => ({ ...r, importo: letti[i].importo }))
+    return abbina(mov, soci).map((r, i) => ({ ...r, importo: letti[i].importo, tipo: letti[i].tipo })) // tipo: cartaceo/telematico (abbina usa 'bollettino')
   }, [letti, soci])
 
   const daGestire = risultati.filter(b => !registrati.has(b.chiave))
