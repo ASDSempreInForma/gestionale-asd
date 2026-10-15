@@ -123,8 +123,8 @@ export default function BollettiniPoste({ soci, setSoci }) {
   useEffect(() => { caricaRegistrati() }, [])
 
   async function scegliFile(files) {
+    const lista = [...(files || [])] // copiare PRIMA di svuotare l'input: la FileList si svuota insieme
     if (inputRef.current) inputRef.current.value = ''
-    const lista = [...(files || [])]
     if (!lista.length) return
     setErrore('')
     try {
