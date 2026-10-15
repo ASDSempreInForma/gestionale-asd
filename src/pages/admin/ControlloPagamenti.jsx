@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../../supabase.js'
 import { leggiCsvBancoPosta, abbina, euro, tokenNome, importoCorrisponde } from '../../riconciliazioneBanca.js'
+import BollettiniPoste from './BollettiniPoste.jsx'
 
 /* =====================================================================
    CONTROLLO PAGAMENTI — riconciliazione con l'estratto conto (24/09/2026)
@@ -58,12 +59,12 @@ async function leggiTutto(query) {
   return tutte
 }
 
-function BadgeStato({ stato }) {
+export function BadgeStato({ stato }) {
   const e = ETICHETTE_STATO[stato] || { t: stato, bg: '#F1F5F9', c: SUB }
   return <span style={{ fontSize: 11, background: e.bg, color: e.c, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>{e.t}</span>
 }
 
-function ScegliSoci({ soci, scelti, onChange }) {
+export function ScegliSoci({ soci, scelti, onChange }) {
   const [testo, setTesto] = useState('')
   const risultati = useMemo(() => {
     const t = tokenNome(testo)
@@ -183,6 +184,7 @@ export default function ControlloPagamenti() {
   const [inCorso, setInCorso] = useState(false)
   const [mostraRegistrati, setMostraRegistrati] = useState(false)
   const [selezionati, setSelezionati] = useState(new Set()) // cf selezionati in "Confermati senza incasso"
+  const [vista, setVista] = useState('banca') // 'banca' (estratto conto) | 'bollettini' (Bollettino Report) — 15/10/2026
   const inputRef = useRef(null)
 
   async function caricaDati() {
@@ -362,6 +364,18 @@ export default function ControlloPagamenti() {
 
       {errore && <div style={{ background: ROSSO_L, color: ROSSO, borderRadius: 8, padding: '10px 12px', fontSize: 13, marginBottom: 12 }}>{errore}</div>}
 
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+        {[{ id: 'banca', t: '🏦 Estratto conto (bonifici)' }, { id: 'bollettini', t: '📮 Bollettini (Bollettino Report)' }].map(v => (
+          <button key={v.id} onClick={() => setVista(v.id)}
+            style={{ background: vista === v.id ? G : 'white', color: vista === v.id ? 'white' : TX, border: `1px solid ${vista === v.id ? G : BD}`, borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            {v.t}
+          </button>
+        ))}
+      </div>
+
+      {vista === 'bollettini' && <BollettiniPoste soci={soci} setSoci={setSoci} />}
+
+      {vista === 'banca' && <>
       <input ref={inputRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={e => scegliFile(e.target.files[0])} />
       <button disabled={caricamento} onClick={() => inputRef.current?.click()}
         style={{ width: '100%', padding: 16, borderRadius: 12, border: `2px dashed ${G}`, background: 'white', color: G, fontSize: 14.5, fontWeight: 600, cursor: 'pointer' }}>
@@ -481,6 +495,7 @@ export default function ControlloPagamenti() {
           )}
         </>
       )}
+      </>}
     </div>
   )
 }
