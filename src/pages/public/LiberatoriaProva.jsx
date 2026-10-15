@@ -326,7 +326,12 @@ export default function LiberatoriaProva() {
   }, []);
 
   function getDisp(c) {
-    if (c.capacitaPerGiorno) return Math.min(...c.giorni.map(g => g.liberi));
+    // 15/10/2026: il corso è "Completo" solo se sono pieni ENTRAMBI i giorni.
+    // Prima si guardava il giorno più pieno e, con il martedì al completo,
+    // si bloccava anche il giovedì ancora libero (caso CrossTraining Urago
+    // Mella). Se un solo giorno è pieno, la card resta selezionabile e il
+    // modulo propone in automatico il giorno libero (1 volta a settimana).
+    if (c.capacitaPerGiorno) return Math.max(...c.giorni.map(g => g.liberi));
     return Math.max(0, c.cap - c.iscritti - c.prove);
   }
   function statoDisp(c) {
@@ -734,6 +739,7 @@ export default function LiberatoriaProva() {
                           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                             {stato==="pieno" && <span style={{ background: "#FEE2E2",color:"#991B1B",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700 }}>⛔ Completo</span>}
                             {stato==="prove_bloccate" && <span style={{ background:"#FEE2E2",color:"#991B1B",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:600 }}>🚫 Prove sospese</span>}
+                            {!isBlocked && c.giorni?.some(g => g.liberi <= 0) && <span style={{ background:AL,color:A,padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:600 }}>Solo {c.giorni.find(g => g.liberi > 0)?.giorno}</span>}
                             {stato==="quasi_pieno" && <span style={{ background:AL,color:A,padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:600 }}>⚠️ {disp} post{disp===1?"o":"i"}</span>}
                             {stato==="disponibile" && <span style={{ background:GL,color:GD,padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:600 }}>✓ Disponibile</span>}
                             {!isBlocked && (
