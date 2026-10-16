@@ -1,5 +1,33 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
+// 16/10/2026: testo che deve stare in uno spazio fisso della riga (es. il
+// comune di nascita prima di "Firma"). Si rimpicciolisce fino a 7 pt; se
+// ancora non ci sta va a capo su 2 righe dentro la stessa cella. Prima un
+// nome lungo ("REPUBBLICA DEMOCRATICA DEL CONGO") finiva sopra la firma.
+function testoInSpazio(page, testo, x, y, maxW, font, color, size = 10) {
+  testo = String(testo || "");
+  if (!testo) return;
+  let sz = size;
+  while (sz > 7 && font.widthOfTextAtSize(testo, sz) > maxW) sz -= 0.5;
+  if (font.widthOfTextAtSize(testo, sz) <= maxW) {
+    page.drawText(testo, { x, y, size: sz, font, color });
+    return;
+  }
+  // due righe: spezza sulle parole, riducendo il corpo se serve
+  const parole = testo.split(/\s+/);
+  for (let sz2 = 7.5; sz2 >= 5.5; sz2 -= 0.5) {
+    let r1 = "", i = 0;
+    while (i < parole.length && font.widthOfTextAtSize((r1 ? r1 + " " : "") + parole[i], sz2) <= maxW) { r1 = (r1 ? r1 + " " : "") + parole[i]; i++; }
+    const r2 = parole.slice(i).join(" ");
+    if (r1 && font.widthOfTextAtSize(r2, sz2) <= maxW) {
+      page.drawText(r1, { x, y: y + sz2 * 0.55, size: sz2, font, color });
+      page.drawText(r2, { x, y: y - sz2 * 0.6, size: sz2, font, color });
+      return;
+    }
+  }
+  page.drawText(testo, { x, y, size: 5.5, font, color, maxWidth: maxW });
+}
+
 /* =====================================================================
    REGISTRO FIRME (PDF) — A.S.D. Sempre In Forma
    Genera il registro firme ASI/Libertas da stampare, con logo vero,
@@ -95,16 +123,16 @@ async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile
 
     // Riga 1: Cognome / Nome / Data
     riga("Cognome:", xTot + 8, yBase - 13, false);
-    riga((s.cognome || "").toUpperCase(), xTot + 65, yBase - 13, true);
+    testoInSpazio(page, (s.cognome || "").toUpperCase(), xTot + 65, yBase - 13, 150, fontBold, nero);
     riga("Nome:", xTot + 220, yBase - 13, false);
-    riga((s.nome || "").toUpperCase(), xTot + 260, yBase - 13, true);
+    testoInSpazio(page, (s.nome || "").toUpperCase(), xTot + 260, yBase - 13, 114, fontBold, nero);
     riga("Data _____ / _____ / _____", xTot + 380, yBase - 13, false);
 
     // Riga 2: Data nascita / Comune / Firma
     riga("Data nascita:", xTot + 8, yBase - rigaH - 13, false);
     riga(fmtData(s.data_nascita), xTot + 80, yBase - rigaH - 13, true);
     riga("a:", xTot + 220, yBase - rigaH - 13, false);
-    riga(s.comune_nascita || "", xTot + 235, yBase - rigaH - 13, true);
+    testoInSpazio(page, s.comune_nascita, xTot + 235, yBase - rigaH - 13, 139, fontBold, nero);
     riga("Firma ____________________", xTot + 380, yBase - rigaH - 13, false, 9);
 
     // Riga 3: Tipo tessera / Codice tessera / Data emissione (sempre la data odierna, ossia la data di stampa)
@@ -307,15 +335,15 @@ async function generaPDFMultiSezione({ sezioni, codiceSocieta, stagioneNome, ent
     const riga = (testo, x, y, bold, size = 10) => page.drawText(testo, { x, y, size, font: bold ? fontBold : fontRegular, color: nero });
 
     riga("Cognome:", xTot + 8, yTop - 13, false);
-    riga((s.cognome || "").toUpperCase(), xTot + 65, yTop - 13, true);
+    testoInSpazio(page, (s.cognome || "").toUpperCase(), xTot + 65, yTop - 13, 150, fontBold, nero);
     riga("Nome:", xTot + 220, yTop - 13, false);
-    riga((s.nome || "").toUpperCase(), xTot + 260, yTop - 13, true);
+    testoInSpazio(page, (s.nome || "").toUpperCase(), xTot + 260, yTop - 13, 114, fontBold, nero);
     riga("Data _____ / _____ / _____", xTot + 380, yTop - 13, false);
 
     riga("Data nascita:", xTot + 8, yTop - rigaH - 13, false);
     riga(fmtData(s.data_nascita), xTot + 80, yTop - rigaH - 13, true);
     riga("a:", xTot + 220, yTop - rigaH - 13, false);
-    riga(s.comune_nascita || "", xTot + 235, yTop - rigaH - 13, true);
+    testoInSpazio(page, s.comune_nascita, xTot + 235, yTop - rigaH - 13, 139, fontBold, nero);
     riga("Firma ____________________", xTot + 380, yTop - rigaH - 13, false, 9);
 
     riga("Tipo Tessera:", xTot + 8, yTop - rigaH * 2 - 13, false);
