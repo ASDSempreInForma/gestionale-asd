@@ -4,6 +4,7 @@ import SiteHeader from "../../SiteHeader.jsx";
 import SiteFooter from "../../SiteFooter.jsx";
 import ChatWidget from "../../ChatWidget.jsx";
 import CampoDocumento from "../../CampoDocumento.jsx";
+import CampoDataNascita, { erroreScadenzaCertificato } from "../../CampoDataNascita.jsx";
 import { campiUpload } from "../../scansioneDocumento.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
@@ -139,7 +140,7 @@ function ModaleDocumentoSocio({ iscritto, tipo, corso, callFnWithAuth, onClose, 
   const invia = async () => {
     if (!documento) { setErrore("Allega una foto o un PDF del documento."); return; }
     if (tipo === "ricevuta" && (!importo || !dataPagamento)) { setErrore("Indica importo e data del pagamento."); return; }
-    if (tipo === "certificato" && !scadenza) { setErrore("Indica la data di scadenza del certificato."); return; }
+    if (tipo === "certificato" && erroreScadenzaCertificato(scadenza)) { setErrore(erroreScadenzaCertificato(scadenza)); return; }
 
     setCaricando(true);
     setErrore("");
@@ -192,8 +193,8 @@ function ModaleDocumentoSocio({ iscritto, tipo, corso, callFnWithAuth, onClose, 
         {tipo === "certificato" && (
           <>
             <label style={{ fontSize: 11, color: "#64748b", display: "block", marginBottom: 3 }}>Data di scadenza del certificato</label>
-            <input type="date" value={scadenza} onChange={(e) => setScadenza(e.target.value)}
-              style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #E8E4DC", fontSize: 13, marginBottom: 10, boxSizing: "border-box" }} />
+            <CampoDataNascita value={scadenza} onChange={setScadenza} cosa="di scadenza" annoMin={new Date().getFullYear()} annoMax={new Date().getFullYear() + 3} anniCrescenti />
+            <p style={{ fontSize: 12, color: "#64748b", margin: "4px 0 10px" }}>⚠️ La data di <b>scadenza</b>, non quella della visita o di rilascio.</p>
           </>
         )}
 

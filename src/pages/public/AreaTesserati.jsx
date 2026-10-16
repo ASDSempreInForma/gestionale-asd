@@ -3,6 +3,7 @@ import SiteHeader from "../../SiteHeader.jsx";
 import SiteFooter from "../../SiteFooter.jsx";
 import ChatWidget from "../../ChatWidget.jsx";
 import CampoDocumento from "../../CampoDocumento.jsx";
+import CampoDataNascita, { erroreScadenzaCertificato } from "../../CampoDataNascita.jsx";
 import { campiUpload, tipoDaBytes } from "../../scansioneDocumento.js";
 import TesseraAssociativa from "../../TesseraAssociativa.jsx";
 import { statoTessera, preparaTesseraPdf, preparaTesseraImmagine, salvaFile } from "../../tesseraAssociativa.js";
@@ -628,18 +629,9 @@ function ModaleCertificato({ iscrizioneIds, perSede = false, onClose, onDone, ca
   const [errore, setErrore] = useState("");
 
   const invia = async () => {
-    if (!documento || !scadenza) {
-      setErrore("Indica la data di scadenza e allega il certificato.");
-      return;
-    }
-    if (perSede) {
-      const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
-      const [y, m, d] = scadenza.split("-").map(Number);
-      if (new Date(y, m - 1, d) < oggi) {
-        setErrore("La data di scadenza indicata è già passata: serve un certificato ancora valido.");
-        return;
-      }
-    }
+    const erroreData = erroreScadenzaCertificato(scadenza);
+    if (erroreData) { setErrore(erroreData); return; }
+    if (!documento) { setErrore("Allega la foto o il PDF del certificato."); return; }
     setLoading(true);
     setErrore("");
     const r = await callFnWithAuth(
@@ -667,7 +659,8 @@ function ModaleCertificato({ iscrizioneIds, perSede = false, onClose, onDone, ca
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <h3>Carica certificato medico{perSede ? " — SEDE" : ""}</h3>
         <label style={styles.label}>Data di scadenza indicata sul certificato</label>
-        <input type="date" value={scadenza} onChange={(e) => setScadenza(e.target.value)} style={styles.input} />
+        <CampoDataNascita value={scadenza} onChange={setScadenza} cosa="di scadenza" annoMin={new Date().getFullYear()} annoMax={new Date().getFullYear() + 3} anniCrescenti />
+        <p style={{ fontSize: 12, color: "#64748b", margin: "4px 0 10px" }}>⚠️ La data di <b>scadenza</b>, non quella della visita o di rilascio.</p>
         <label style={styles.label}>Foto o PDF del certificato</label>
         <CampoDocumento onChange={setDocumento} colore={G} etichettaPulsante="📷 Fotografa o scegli il certificato" />
         {errore && <p style={styles.errore}>{errore}</p>}

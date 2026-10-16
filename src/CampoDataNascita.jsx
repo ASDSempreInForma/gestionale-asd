@@ -18,7 +18,9 @@ function scomponi(v) {
 }
 const giorniNelMese = (a, m) => (a && m ? new Date(Number(a), Number(m), 0).getDate() : 31);
 
-export default function CampoDataNascita({ value, onChange, stileSelect = {}, classeSelect = "", errore = false, annoMin = 1920 }) {
+// 16/10/2026: usato anche per la SCADENZA del certificato medico (anni futuri):
+// annoMax e anniCrescenti permettono di mostrare es. 2026, 2027, 2028…
+export default function CampoDataNascita({ value, onChange, stileSelect = {}, classeSelect = "", errore = false, annoMin = 1920, annoMax: annoMaxProp, anniCrescenti = false, cosa = "di nascita" }) {
   const [parti, setParti] = useState(() => scomponi(value));
 
   // Se il valore arriva da fuori (es. dati ritrovati dal codice fiscale) lo mostro
@@ -36,9 +38,10 @@ export default function CampoDataNascita({ value, onChange, stileSelect = {}, cl
     onChange(n.a && n.m && n.g ? `${n.a}-${String(n.m).padStart(2, "0")}-${String(n.g).padStart(2, "0")}` : "");
   }
 
-  const annoMax = new Date().getFullYear();
+  const annoMax = annoMaxProp ?? new Date().getFullYear();
   const anni = [];
   for (let a = annoMax; a >= annoMin; a--) anni.push(a);
+  if (anniCrescenti) anni.reverse();
   const nGiorni = giorniNelMese(parti.a, parti.m);
 
   const base = {
@@ -49,18 +52,29 @@ export default function CampoDataNascita({ value, onChange, stileSelect = {}, cl
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "0.8fr 1.5fr 1fr", gap: 6 }}>
-      <select aria-label="Giorno di nascita" className={classeSelect} style={base} value={parti.g} onChange={(e) => aggiorna("g", e.target.value)}>
+      <select aria-label={`Giorno ${cosa}`} className={classeSelect} style={base} value={parti.g} onChange={(e) => aggiorna("g", e.target.value)}>
         <option value="">Giorno</option>
         {Array.from({ length: nGiorni }, (_, i) => i + 1).map((g) => <option key={g} value={String(g)}>{g}</option>)}
       </select>
-      <select aria-label="Mese di nascita" className={classeSelect} style={base} value={parti.m} onChange={(e) => aggiorna("m", e.target.value)}>
+      <select aria-label={`Mese ${cosa}`} className={classeSelect} style={base} value={parti.m} onChange={(e) => aggiorna("m", e.target.value)}>
         <option value="">Mese</option>
         {MESI.map((nome, i) => <option key={nome} value={String(i + 1)}>{nome}</option>)}
       </select>
-      <select aria-label="Anno di nascita" className={classeSelect} style={base} value={parti.a} onChange={(e) => aggiorna("a", e.target.value)}>
+      <select aria-label={`Anno ${cosa}`} className={classeSelect} style={base} value={parti.a} onChange={(e) => aggiorna("a", e.target.value)}>
         <option value="">Anno</option>
         {anni.map((a) => <option key={a} value={String(a)}>{a}</option>)}
       </select>
     </div>
   );
+}
+
+// 16/10/2026 (richiesta di Solomon): molti scrivevano la data di RILASCIO del
+// certificato invece della SCADENZA. Una data già passata non si accetta.
+export function erroreScadenzaCertificato(scadenza) {
+  if (!scadenza) return "Indica la data di scadenza del certificato.";
+  const [y, m, d] = scadenza.split("-").map(Number);
+  const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+  if (new Date(y, m - 1, d) < oggi)
+    return "Questa data è già passata: probabilmente hai scritto la data di rilascio (o della visita). Indica la data di SCADENZA del certificato — di solito un anno dopo la visita.";
+  return "";
 }
