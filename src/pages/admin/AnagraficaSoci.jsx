@@ -2188,10 +2188,13 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
               {i.ricevuta_url && <button onClick={() => apriDocumento(i.ricevuta_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Ricevuta</button>}
               {i.ricevuta_url && <button onClick={() => apriOriginale(i.ricevuta_url)} title="Foto originale, prima del ritaglio" style={{ fontSize: 11.5, background: 'none', color: SUB, border: 'none', padding: '5px 2px', cursor: 'pointer', textDecoration: 'underline' }}>originale</button>}
               {i.ricevuta_url && <button onClick={() => rimuoviRicevuta(i)} title="Togli la ricevuta (caricata per sbaglio)" style={{ fontSize: 12, background: '#FEF2F2', color: '#B91C1C', border: 'none', borderRadius: 6, padding: '5px 9px', cursor: 'pointer' }}>🗑️ Togli ricevuta</button>}
-              {i.stato_pagamento !== 'confermato' && (
+              {/* 16/10/2026: anche un pagamento già confermato SENZA ricevuta (es. iscrizioni
+                  da modulo cartaceo inserite come "Confermato") può ricevere la ricevuta cartacea
+                  fotografata dopo — prima il pulsante spariva appena l'iscrizione era confermata. */}
+              {(i.stato_pagamento !== 'confermato' || !i.ricevuta_url) && (
                 <CaricaDocumentoManuale iscrizione={i} socio={socio} tipo="ricevuta" onAggiornato={caricaIscrizioni}
                   altre={(iscrizioni || []).filter(x => x.id !== i.id && x.stagione_id === i.stagione_id
-                    && x.stato_pagamento !== 'annullata' && x.stato_pagamento !== 'confermato')} />
+                    && x.stato_pagamento !== 'annullata' && (x.stato_pagamento !== 'confermato' || !x.ricevuta_url))} />
               )}
               {i.certificato_url && <button onClick={() => apriDocumento(i.certificato_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Certificato</button>}
               {i.certificato_url && <button onClick={() => apriOriginale(i.certificato_url)} title="Foto originale, prima del ritaglio" style={{ fontSize: 11.5, background: 'none', color: SUB, border: 'none', padding: '5px 2px', cursor: 'pointer', textDecoration: 'underline' }}>originale</button>}
