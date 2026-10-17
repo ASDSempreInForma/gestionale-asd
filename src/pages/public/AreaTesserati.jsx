@@ -793,18 +793,26 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato, onVediD
         {iscrizione.ricevuta_rata2_url && (
           <button style={styles.btnVedi} onClick={() => onVediDocumento("ricevuta_rata2", iscrizione.id)}>👁 Vedi ricevuta 2ª rata</button>
         )}
-        {iscrizione.whatsapp_link && (
-          <a href={iscrizione.whatsapp_link} target="_blank" rel="noopener noreferrer"
-            style={{ ...styles.btnSmall, background: "#25D366", color: "white", border: "none", textDecoration: "none", display: "inline-block" }}>
-            💬 Entra nel gruppo WhatsApp
-          </a>
-        )}
         {puoAggiungereSeconda && (
           <button style={{ ...styles.btnSmall, background: "#ECFDF5", color: "#065F46", border: "1px solid #A7F3D0" }} onClick={onAggiungiSeconda}>
             ➕ Aggiungi la 2ª lezione
           </button>
         )}
       </div>
+      {/* 17/10/2026: invito al gruppo WhatsApp del corso, grande e in fondo alla scheda */}
+      {iscrizione.whatsapp_link && (
+        <a href={iscrizione.whatsapp_link} target="_blank" rel="noopener noreferrer"
+          style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14, padding: "12px 16px", borderRadius: 12,
+            background: "#25D366", color: "white", textDecoration: "none", boxShadow: "0 2px 6px rgba(37,211,102,0.35)" }}>
+          <svg width="34" height="34" viewBox="0 0 32 32" aria-hidden="true" style={{ flexShrink: 0 }}>
+            <path fill="#fff" d="M16 3C8.8 3 3 8.7 3 15.8c0 2.5.7 4.9 2 7L3 29l6.4-2c2 1.1 4.3 1.7 6.6 1.7 7.2 0 13-5.7 13-12.8S23.2 3 16 3zm0 23.4c-2.1 0-4.1-.6-5.9-1.6l-.4-.3-3.8 1.2 1.2-3.7-.3-.4c-1.2-1.8-1.8-3.8-1.8-5.9C5 9.9 9.9 5.1 16 5.1s11 4.8 11 10.7-4.9 10.6-11 10.6zm6-7.9c-.3-.2-1.9-.9-2.2-1-.3-.1-.5-.2-.7.2-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1-.3-.2-1.4-.5-2.6-1.6-1-.9-1.6-1.9-1.8-2.3-.2-.3 0-.5.1-.7l.5-.6c.2-.2.2-.3.3-.6.1-.2 0-.4 0-.6l-1-2.4c-.3-.6-.5-.5-.7-.5h-.6c-.2 0-.6.1-.9.4-.3.3-1.2 1.1-1.2 2.7s1.2 3.2 1.4 3.4c.2.2 2.4 3.6 5.7 5 .8.3 1.4.5 1.9.7.8.3 1.5.2 2.1.1.6-.1 1.9-.8 2.2-1.5.3-.7.3-1.4.2-1.5-.1-.2-.3-.3-.6-.4z"/>
+          </svg>
+          <span style={{ lineHeight: 1.3 }}>
+            <span style={{ display: "block", fontWeight: 700, fontSize: 15.5 }}>Entra nel gruppo WhatsApp del corso</span>
+            <span style={{ display: "block", fontSize: 12.5, opacity: 0.95 }}>per rimanere sempre aggiornato su lezioni e avvisi</span>
+          </span>
+        </a>
+      )}
     </div>
   );
 }
