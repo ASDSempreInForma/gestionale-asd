@@ -53,6 +53,8 @@ export default function GestioneCorsi() {
   // per avere subito sotto gli occhi i numeri chiave senza dover incrociare
   // Gestione Prove + Verifica Documenti + il conteggio manuale degli iscritti.
   const [riepilogo, setRiepilogo] = useState(null);
+  // 17/10/2026: gruppi WhatsApp — corso_id -> { link, pagati, invitati }
+  const [wa, setWa] = useState({});
 
   useEffect(() => {
     caricaCorsi();
@@ -99,6 +101,7 @@ export default function GestioneCorsi() {
       if (errS) throw errS;
 
       caricaRiepilogo(stagione.id);
+      caricaWhatsapp(stagione.id);
 
       const { data: corsiDB, error: errC } = await supabase
         .from("corsi")
@@ -160,6 +163,58 @@ export default function GestioneCorsi() {
     } finally {
       setCaricando(false);
     }
+  }
+
+  // 17/10/2026 — Gruppi WhatsApp: link d'invito per corso (tabella corsi_whatsapp,
+  // visibile solo alla segreteria) e quanti pagati hanno già ricevuto l'invito.
+  async function caricaWhatsapp(stagioneId) {
+    const [{ data: links }, { data: pagati }] = await Promise.all([
+      supabase.from("corsi_whatsapp").select("corso_id, link"),
+      supabase.from("iscrizioni").select("corso_id, whatsapp_invito_inviato_il").eq("stagione_id", stagioneId).eq("stato_pagamento", "confermato"),
+    ]);
+    const m = {};
+    for (const l of links || []) m[l.corso_id] = { link: l.link, pagati: 0, invitati: 0 };
+    for (const i of pagati || []) {
+      m[i.corso_id] = m[i.corso_id] || { link: "", pagati: 0, invitati: 0 };
+      m[i.corso_id].pagati++;
+      if (i.whatsapp_invito_inviato_il) m[i.corso_id].invitati++;
+    }
+    setWa(m);
+  }
+
+  async function salvaLinkWhatsapp(corsoId, grezzo) {
+    const link = String(grezzo || "").trim();
+    const chiave = `${corsoId}:whatsapp`;
+    if (link === (wa[corsoId]?.link || "")) return;
+    if (link && !/^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+/.test(link)) {
+      setSalvataggio((p) => ({ ...p, [chiave]: "link_errato" }));
+      return;
+    }
+    setSalvataggio((p) => ({ ...p, [chiave]: "salvando" }));
+    const utente = (await supabase.auth.getUser()).data.user?.email || null;
+    const { error } = link
+      ? await supabase.from("corsi_whatsapp").upsert({ corso_id: corsoId, link, aggiornato_il: new Date().toISOString(), aggiornato_da: utente })
+      : await supabase.from("corsi_whatsapp").delete().eq("corso_id", corsoId);
+    if (error) { setSalvataggio((p) => ({ ...p, [chiave]: "errore" })); return; }
+    setWa((m) => ({ ...m, [corsoId]: { pagati: 0, invitati: 0, ...m[corsoId], link } }));
+    setSalvataggio((p) => ({ ...p, [chiave]: "ok" }));
+    setTimeout(() => setSalvataggio((p) => ({ ...p, [chiave]: null })), 1500);
+  }
+
+  async function invitaTuttiWhatsapp(c) {
+    const info = wa[c.id] || {};
+    const daInvitare = (info.pagati || 0) - (info.invitati || 0);
+    if (!window.confirm(`Mandare l'email con il link del gruppo WhatsApp ai ${daInvitare} iscritti con pagamento confermato di ${c.codice} che non l'hanno ancora ricevuta?`)) return;
+    const chiave = `${c.id}:whatsapp`;
+    setSalvataggio((p) => ({ ...p, [chiave]: "invio" }));
+    const { data, error } = await supabase.functions.invoke("invita-gruppo-whatsapp", { body: { action: "corso", corso_id: c.id } });
+    setSalvataggio((p) => ({ ...p, [chiave]: null }));
+    if (error || !data?.ok) { alert("Invio non riuscito: " + (data?.error || error?.message || "errore")); return; }
+    const senza = data.senza_email || [];
+    alert(`Inviti mandati: ${data.inviati}.` + (data.errori ? `\nNon riusciti: ${data.errori}.` : "")
+      + (senza.length ? `\n\nSenza email (da avvisare a mano, es. inoltrando il link su WhatsApp):\n${senza.join("\n")}` : ""));
+    const { data: st } = await supabase.from("stagioni").select("id").eq("attiva", true).single();
+    if (st) caricaWhatsapp(st.id);
   }
 
   // campo: "capienza_max" (corso a giorno singolo) oppure "capienza_giorno1" / "capienza_giorno2"
@@ -268,6 +323,11 @@ export default function GestioneCorsi() {
           Imposta il numero massimo di iscritti per corso — per i corsi bisettimanali il limite si imposta
           separatamente per ciascun giorno (utile es. se il venerdì ha storicamente più assenze). Lascia
           vuoto per nessun limite. Il modulo di iscrizione pubblico si aggiorna automaticamente.
+        </p>
+        <p style={{ fontSize: 13, color: C.textSub, marginTop: -12, marginBottom: 20 }}>
+          💬 <b>Gruppi WhatsApp</b>: incolla il link d'invito del gruppo del corso (WhatsApp → gruppo → "Invita tramite link").
+          Chi ha il pagamento confermato riceve in automatico l'email con il link e lo trova nella sua area privata.
+          Brevo invia al massimo 300 email al giorno: con molti corsi, manda gli inviti a gruppi di pochi corsi per volta.
         </p>
 
         {barraVista}
@@ -432,6 +492,44 @@ export default function GestioneCorsi() {
                     );
                   })}
                 </div>
+
+                {(() => {
+                  const info = wa[c.id] || { link: "", pagati: 0, invitati: 0 };
+                  const chiave = `${c.id}:whatsapp`;
+                  const daInvitare = info.pagati - info.invitati;
+                  const valore = valoriModificati[chiave] !== undefined ? valoriModificati[chiave] : info.link || "";
+                  return (
+                    <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12 }}>
+                      <span style={{ color: C.textSub }}>💬 Gruppo WhatsApp:</span>
+                      <input
+                        type="url"
+                        placeholder="incolla il link d'invito (https://chat.whatsapp.com/…)"
+                        value={valore}
+                        onChange={(e) => setValoriModificati((v) => ({ ...v, [chiave]: e.target.value }))}
+                        onBlur={(e) => salvaLinkWhatsapp(c.id, e.target.value)}
+                        style={{ flex: "1 1 280px", padding: "6px 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12 }}
+                      />
+                      {salvataggio[chiave] === "salvando" && <span style={{ color: C.textSub }}>Salvo…</span>}
+                      {salvataggio[chiave] === "ok" && <span style={{ color: C.green }}>✓ Salvato</span>}
+                      {salvataggio[chiave] === "errore" && <span style={{ color: C.red }}>Errore</span>}
+                      {salvataggio[chiave] === "link_errato" && <span style={{ color: C.red }}>Il link deve iniziare con https://chat.whatsapp.com/</span>}
+                      {salvataggio[chiave] === "invio" && <span style={{ color: C.textSub }}>Invio in corso…</span>}
+                      {info.link && (
+                        <span style={{ color: C.textSub }}>
+                          Invitati {info.invitati}/{info.pagati} pagati
+                        </span>
+                      )}
+                      {info.link && daInvitare > 0 && salvataggio[chiave] !== "invio" && (
+                        <button
+                          onClick={() => invitaTuttiWhatsapp(c)}
+                          style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: "#25D366", color: "white", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                        >
+                          Invia l'invito ai {daInvitare} pagati
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             ))}
           </div>

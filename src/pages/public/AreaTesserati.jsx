@@ -793,6 +793,12 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato, onVediD
         {iscrizione.ricevuta_rata2_url && (
           <button style={styles.btnVedi} onClick={() => onVediDocumento("ricevuta_rata2", iscrizione.id)}>👁 Vedi ricevuta 2ª rata</button>
         )}
+        {iscrizione.whatsapp_link && (
+          <a href={iscrizione.whatsapp_link} target="_blank" rel="noopener noreferrer"
+            style={{ ...styles.btnSmall, background: "#25D366", color: "white", border: "none", textDecoration: "none", display: "inline-block" }}>
+            💬 Entra nel gruppo WhatsApp
+          </a>
+        )}
         {puoAggiungereSeconda && (
           <button style={{ ...styles.btnSmall, background: "#ECFDF5", color: "#065F46", border: "1px solid #A7F3D0" }} onClick={onAggiungiSeconda}>
             ➕ Aggiungi la 2ª lezione
@@ -1015,6 +1021,18 @@ export default function AreaTesserati() {
   const caricaDati = async () => {
     setLoadingDati(true);
     const r = await callFn({ action: "get_dati", cf: sessione.cf, email: sessione.email });
+    // 17/10/2026: link dei gruppi WhatsApp dei corsi già pagati (non blocca mai il caricamento)
+    if (r.ok && (r.iscrizioni || []).some((i) => i.stato_pagamento === "confermato")) {
+      try {
+        const w = await fetch(`${SUPABASE_URL}/functions/v1/invita-gruppo-whatsapp`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
+          body: JSON.stringify({ action: "links_socio", cf: sessione.cf, email: sessione.email }),
+        }).then((x) => x.json());
+        const links = (w && w.links) || {};
+        r.iscrizioni = r.iscrizioni.map((i) => (links[i.id] ? { ...i, whatsapp_link: links[i.id] } : i));
+      } catch { /* senza link il resto dell'area funziona lo stesso */ }
+    }
     setLoadingDati(false);
     if (r.ok) {
       setDati(r);
