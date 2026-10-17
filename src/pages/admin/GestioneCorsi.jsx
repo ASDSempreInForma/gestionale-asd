@@ -183,8 +183,11 @@ export default function GestioneCorsi() {
   }
 
   async function salvaLinkWhatsapp(corsoId, grezzo) {
-    const link = String(grezzo || "").trim();
+    // il link "pulito", senza la coda ?s=cl&p=i… che WhatsApp aggiunge a volte:
+    // così due corsi con lo stesso gruppo hanno esattamente lo stesso link
+    const link = String(grezzo || "").trim().split("?")[0];
     const chiave = `${corsoId}:whatsapp`;
+    setValoriModificati((v) => ({ ...v, [chiave]: link }));
     if (link === (wa[corsoId]?.link || "")) return;
     if (link && !/^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+/.test(link)) {
       setSalvataggio((p) => ({ ...p, [chiave]: "link_errato" }));
