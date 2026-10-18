@@ -124,6 +124,9 @@ export default function GestioneSede() {
   const [tab, setTab] = useState("turni");
   const [conteggio, setConteggio] = useState(null);
   const [caricandoConteggio, setCaricandoConteggio] = useState(true);
+  // 18/10/2026: il riquadro "N persone senza tesseramento" si apre con l'elenco
+  const [mostraSenzaTessera, setMostraSenzaTessera] = useState(false);
+  const [vai, setVai] = useState(null); // { cf, ts } -> apre la persona nel suo turno
 
   const caricaConteggio = useCallback(async () => {
     setCaricandoConteggio(true);
@@ -142,16 +145,27 @@ export default function GestioneSede() {
       </p>
 
       {!caricandoConteggio && conteggio && (
-        <div style={{
+        <div onClick={() => conteggio.non_aggiornati > 0 && setMostraSenzaTessera((v) => !v)}
+          title={conteggio.non_aggiornati > 0 ? "Clicca per vedere chi sono" : ""}
+          style={{
+          cursor: conteggio.non_aggiornati > 0 ? "pointer" : "default",
           display: "inline-flex", alignItems: "center", gap: 10, marginBottom: 16,
           background: conteggio.non_aggiornati > 0 ? "#fdecea" : "#eafaf0",
           color: conteggio.non_aggiornati > 0 ? "#c0392b" : "#1f8a52",
           borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 600,
         }}>
           🎫 {conteggio.non_aggiornati > 0
-            ? `${conteggio.non_aggiornati} persone senza tesseramento ${conteggio.stagione} aggiornato`
+            ? `${conteggio.non_aggiornati} persone senza tesseramento ${conteggio.stagione} aggiornato ${mostraSenzaTessera ? "▲" : "▼ vedi chi sono"}`
             : `Tutte le ${conteggio.totale} persone hanno il tesseramento ${conteggio.stagione} aggiornato`}
         </div>
+      )}
+
+      {mostraSenzaTessera && conteggio && (
+        <ElencoSenzaTessera
+          stagione={conteggio.stagione}
+          onApri={(cf) => { setTab("turni"); setVai({ cf, ts: Date.now() }); }}
+          onChiudi={() => setMostraSenzaTessera(false)}
+        />
       )}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 18, borderBottom: "1px solid #eee" }}>
@@ -172,7 +186,7 @@ export default function GestioneSede() {
         ))}
       </div>
 
-      {tab === "turni" && <TurniEGruppi />}
+      {tab === "turni" && <TurniEGruppi vai={vai} />}
       {tab === "import" && <ImportaIscritti />}
       {tab === "tessere" && <ImportaTessereSede />}
       {tab === "export" && <EsportaAssicurazioniSede />}
@@ -257,7 +271,80 @@ function ModaleCertificatoSede({ persona, onClose, onSalvato }) {
   );
 }
 
-function TurniEGruppi() {
+// 18/10/2026 — Elenco di chi frequenta la SEDE senza tessera della stagione in
+// corso (stessa regola del conteggio: tessera_stagione diversa o numero vuoto).
+// Per ognuno: turni, eventuale tessera/iscrizione in palestra (si tessera UNA
+// volta sola) e il pulsante per aprire la sua scheda nel turno.
+function ElencoSenzaTessera({ stagione, onApri, onChiudi }) {
+  const [righe, setRighe] = useState(null);
+  const [errore, setErrore] = useState("");
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: persone, error } = await supabase.from("sede_persone")
+          .select("id, cf, cognome, nome, soprannome, numero_tessera, tessera_stagione, telefono")
+          .or(`tessera_stagione.is.null,tessera_stagione.neq.${stagione},numero_tessera.is.null`)
+          .order("cognome");
+        if (error) throw error;
+        const ids = (persone || []).map((p) => p.id);
+        const cfs = [...new Set((persone || []).map((p) => (p.cf || "").toUpperCase()).filter(Boolean))];
+        const [{ data: join }, { data: soci }, { data: stag }] = await Promise.all([
+          ids.length ? supabase.from("sede_turno_iscritti").select("persona_id, turno:sede_turni(giorno_settimana, orario, attivo)").in("persona_id", ids) : { data: [] },
+          cfs.length ? supabase.from("soci").select("cf, numero_tessera, scadenza_tessera, ente_tessera").in("cf", cfs) : { data: [] },
+          supabase.from("stagioni").select("id").eq("attiva", true).maybeSingle(),
+        ]);
+        const { data: isc } = cfs.length && stag
+          ? await supabase.from("iscrizioni").select("socio_cf, stato_pagamento, corsi!iscrizioni_corso_id_fkey(codice_corso)").in("socio_cf", cfs).eq("stagione_id", stag.id).neq("stato_pagamento", "annullata")
+          : { data: [] };
+        const oggi = new Date().toISOString().slice(0, 10);
+        setRighe((persone || []).map((p) => {
+          const cf = (p.cf || "").toUpperCase();
+          const turni = (join || []).filter((j) => j.persona_id === p.id && j.turno && j.turno.attivo !== false)
+            .map((j) => `${GIORNI_LABEL[j.turno.giorno_settimana]?.slice(0, 3)} ${String(j.turno.orario || "").slice(0, 5)}`);
+          const socio = (soci || []).find((x) => x.cf === cf);
+          const tesseraPalestra = socio?.numero_tessera && (!socio.scadenza_tessera || String(socio.scadenza_tessera).slice(0, 10) >= oggi)
+            ? `${socio.ente_tessera || ""} ${socio.numero_tessera}`.trim() : null;
+          const corsi = (isc || []).filter((i) => i.socio_cf === cf)
+            .map((i) => `${i.corsi?.codice_corso || "?"}${i.stato_pagamento === "confermato" ? " (pagato)" : i.stato_pagamento === "dichiarato" ? " (ricevuta in verifica)" : " (da pagare)"}`);
+          return { ...p, cf, turni, tesseraPalestra, corsi };
+        }));
+      } catch (e) { setErrore(e.message || String(e)); }
+    })();
+  }, [stagione]);
+
+  return (
+    <div style={{ background: "#fff", border: "1px solid #f5c6cb", borderRadius: 10, padding: "12px 14px", marginBottom: 18 }}>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+        <b style={{ fontSize: 14, color: "#c0392b", flex: 1 }}>🎫 Senza tesseramento {stagione}</b>
+        <button onClick={onChiudi} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16 }}>✕</button>
+      </div>
+      {errore && <div style={{ color: "#c0392b", fontSize: 13 }}>{errore}</div>}
+      {!righe && !errore && <div style={{ color: "#999", fontSize: 13 }}>Caricamento…</div>}
+      {righe && righe.map((r) => (
+        <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderTop: "1px solid #f5f5f5", fontSize: 13, flexWrap: "wrap" }}>
+          <span style={{ fontWeight: 600, minWidth: 190 }}>{r.cognome} {r.nome}{r.soprannome ? ` (${r.soprannome})` : ""}</span>
+          <span style={{ color: r.turni.length ? "#555" : "#c0392b", minWidth: 150 }}>{r.turni.length ? r.turni.join(", ") : "⚠️ in nessun turno"}</span>
+          <span style={{ color: "#777", flex: 1 }}>
+            {r.tesseraPalestra && <>🪪 già tesserato in palestra ({r.tesseraPalestra}) · </>}
+            {r.corsi.length > 0 && <>anche in palestra: {r.corsi.join(", ")}</>}
+          </span>
+          {r.turni.length > 0 && r.cf && (
+            <button onClick={() => onApri(r.cf)} style={{ background: C, color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}>
+              ✏️ Apri scheda
+            </button>
+          )}
+        </div>
+      ))}
+      {righe && (
+        <div style={{ fontSize: 12, color: "#777", marginTop: 8 }}>
+          Chi frequenta anche le palestre si tessera <b>una volta sola</b>. Chi è "in nessun turno" e non frequenta più si può togliere dall'elenco della SEDE.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TurniEGruppi({ vai }) {
   const [turni, setTurni] = useState([]);
   const [istruttori, setIstruttori] = useState([]);
   const [sospensioni, setSospensioni] = useState([]);
@@ -339,6 +426,17 @@ function TurniEGruppi() {
     setEspansi((prev) => new Set(prev).add(p.turno.id));
     setRicercaPersona("");
   }
+
+  // 18/10/2026: dall'elenco "senza tesseramento" — apre il turno e la scheda della persona
+  useEffect(() => {
+    if (!vai?.cf || !turni.length) return;
+    const p = tuttePersone.find((x) => (x.cf || "").toUpperCase() === vai.cf);
+    if (!p) return;
+    vaiAlTurno(p);
+    const { turno, ...persona } = p;
+    setModalePersona({ turnoId: turno.id, persona });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vai, turni]);
 
   // Prima di ogni stampa/export apre il modale di selezione persone, così si
   // può escludere al volo chi non è ancora iscritto davvero o ha dati
