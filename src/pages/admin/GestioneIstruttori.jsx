@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { dataInizioCorso, dateAttese } from "./lezioniPreviste.js";
 import SettimanaIstruttori from "./SettimanaIstruttori.jsx";
+import TesseramentoIstruttori from "./TesseramentoIstruttori.jsx";
 import { calcolaSedePeriodo, testoCalcoloOre } from "./calcoloSede.js";
 
 /* =====================================================================
@@ -71,6 +72,7 @@ function StatoBadge({stato,small}){
 export default function GestioneIstruttori({ onVaiAContratto }){
   const [tab,setTab]=useState("istruttori");
   const [istruttori,setIstruttori]=useState([]);
+  const [mostraTesseramento,setMostraTesseramento]=useState(false);
   const [corsiDisponibili,setCorsiDisponibili]=useState([]);
   const [sospensioni,setSospensioni]=useState([]);
   const [meseSelIdx,setMeseSelIdx]=useState(2);
@@ -687,6 +689,11 @@ export default function GestioneIstruttori({ onVaiAContratto }){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <div style={{fontSize:13,color:C.textSub}}>{istruttori.length} istruttori attivi</div>
           <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>setMostraTesseramento(v=>!v)}
+              style={{padding:"6px 13px",background:"white",border:`1px solid ${C.border}`,borderRadius:9,
+                fontSize:12,fontWeight:600,color:C.textSub,cursor:"pointer"}}>
+              🎫 Registri Libertas/ASI {mostraTesseramento?"▲":"▼"}
+            </button>
             <button onClick={toggleMostraArchiviati}
               style={{padding:"6px 13px",background:"white",border:`1px solid ${C.border}`,borderRadius:9,
                 fontSize:12,fontWeight:600,color:C.textSub,cursor:"pointer"}}>
@@ -699,6 +706,8 @@ export default function GestioneIstruttori({ onVaiAContratto }){
             </button>
           </div>
         </div>
+
+        {mostraTesseramento&&<TesseramentoIstruttori onChiudi={()=>setMostraTesseramento(false)}/>}
 
         {mostraArchiviati&&(
           <div style={{background:"white",border:`1px solid ${C.border}`,borderRadius:13,padding:"15px",marginBottom:14}}>
