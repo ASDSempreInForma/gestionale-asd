@@ -7,7 +7,7 @@ import { generaFileASI, generaFileLibertas } from "./esportaAssicurazioni.js";
 // Valori per i portali (19/10/2026). ASI: dal portale di Solomon, tipo tessera A,
 // qualifica Tecnico, disciplina ginnastica finalizzata alla salute ed al fitness.
 // I codici sono modificabili dal pannello finché non sono confermati dai portali.
-const DEFAULT_QUAL_ASI = "Tecnico";
+const DEFAULT_QUAL_ASI = "T"; // confermato da Solomon 19/10/2026 (tipo tessera resta A)
 const DEFAULT_QUAL_LIB = "TEC";
 const DEFAULT_ASS_LIB = ".A1 (EX BASE 1) ASSOCIATI PRATICANTI";
 
