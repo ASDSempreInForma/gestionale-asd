@@ -62,7 +62,9 @@ function confermaSeProblemi(iscritti, ente) {
   return window.confirm(`Attenzione: il portale ${ente} potrebbe rifiutare queste persone per dati anagrafici incompleti o sbagliati:\n\n${problemi.slice(0, 25).join("\n")}${problemi.length > 25 ? `\n… e altre ${problemi.length - 25}` : ""}\n\nConviene correggerle prima in Anagrafica soci. Vuoi scaricare comunque il file?`);
 }
 
-export function generaFileASI(corso, iscritti, stagione) {
+// opzioni (19/10/2026, tesseramento istruttori): { qualifica, nomeFile }.
+// Senza opzioni restano i valori dei soci praticanti.
+export function generaFileASI(corso, iscritti, stagione, opzioni = {}) {
   if (!confermaSeProblemi(iscritti, "ASI")) return;
   const anno = new Date().getFullYear();
 
@@ -71,7 +73,7 @@ export function generaFileASI(corso, iscritti, stagione) {
     "COMUNE RESIDENZA", "INDIRIZZO RESIDENZA", "CAP", "EMAIL", "CODICE TESSERA", "DATA SCADENZA CERTIFICATO", "CODICE AFFILIAZIONE"];
   const righeASI = iscritti.map((i) => {
     const s = i.soci || {};
-    return [anno, "Ginnastica", "A", "A", s.nome, s.cognome, s.cf, s.comune_residenza, s.indirizzo, s.cap,
+    return [anno, "Ginnastica", opzioni.qualifica || "A", "A", s.nome, s.cognome, s.cf, s.comune_residenza, s.indirizzo, s.cap,
       // CODICE TESSERA sempre vuoto (12/10/2026): il numero lo assegna il portale
       // ASI. Prima ci finiva il numero di tessera salvato (spesso quello Libertas
       // della stagione scorsa) e il portale rifiutava le righe con "Codice
@@ -79,10 +81,11 @@ export function generaFileASI(corso, iscritti, stagione) {
       "asdsempreinforma@gmail.com", "", fmtData(i.data_scadenza_certificato), "LOM-BS0905"];
   });
   const wsElenco = XLSX.utils.aoa_to_sheet([intestazioneASI, ...righeASI]);
-  scaricaCSV(wsElenco, `ASI_${corso?.codice_corso || "Misto"}.csv`);
+  scaricaCSV(wsElenco, opzioni.nomeFile || `ASI_${corso?.codice_corso || "Misto"}.csv`);
 }
 
-export function generaFileLibertas(corso, iscritti, stagione) {
+// opzioni (19/10/2026, tesseramento istruttori): { qualifica, assicurazione, nomeFile }.
+export function generaFileLibertas(corso, iscritti, stagione, opzioni = {}) {
   if (!confermaSeProblemi(iscritti, "Libertas")) return;
   const anno = new Date().getFullYear();
 
@@ -101,10 +104,10 @@ export function generaFileLibertas(corso, iscritti, stagione) {
     const nome = (s.nome || "").toUpperCase();
     const comuneNascita = (s.comune_nascita || "").toUpperCase();
     return ["BS", "481", anno, null, null, cognome, nome, fmtData(s.data_nascita), s.provincia_nascita, comuneNascita,
-      s.sesso, s.provincia_residenza, s.comune_residenza, s.cap, s.indirizzo, "N", "APR", "N", null, null, null, null,
+      s.sesso, s.provincia_residenza, s.comune_residenza, s.cap, s.indirizzo, "N", opzioni.qualifica || "APR", "N", null, null, null, null,
       "asdsempreinforma@gmail.com", null, s.telefono, s.cf,
       "attivita` sportiva ginnastica finalizzata alla salute ed al fitness", null,
-      ".A1 (EX BASE 1) ASSOCIATI PRATICANTI", null, s.email];
+      opzioni.assicurazione || ".A1 (EX BASE 1) ASSOCIATI PRATICANTI", null, s.email];
   });
   const wsElenco = XLSX.utils.aoa_to_sheet([intestazioneLib, ...righeLib]);
 
@@ -112,5 +115,5 @@ export function generaFileLibertas(corso, iscritti, stagione) {
   XLSX.utils.book_append_sheet(wb, wsElenco, "Dati tesserato");
   // Salvato in formato .xls (Excel 97-2003 / BIFF8), non .xlsx — richiesto da
   // Solomon il 09/09/2026 perché è il formato accettato dal portale Libertas.
-  scaricaWorkbook(wb, `Libertas_${corso?.codice_corso || "Misto"}.xls`, { bookType: "biff8" });
+  scaricaWorkbook(wb, opzioni.nomeFile || `Libertas_${corso?.codice_corso || "Misto"}.xls`, { bookType: "biff8" });
 }

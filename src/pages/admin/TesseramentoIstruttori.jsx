@@ -1,6 +1,15 @@
 import { useState, useEffect } from "react";
+import Papa from "papaparse";
 import { supabase } from "../../supabase.js";
 import { generaRegistroFirmeGiornoASI, generaRegistroFirmeGiornoLibertas } from "./registroFirme.js";
+import { generaFileASI, generaFileLibertas } from "./esportaAssicurazioni.js";
+
+// Valori per i portali (19/10/2026). ASI: dal portale di Solomon, tipo tessera A,
+// qualifica Tecnico, disciplina ginnastica finalizzata alla salute ed al fitness.
+// I codici sono modificabili dal pannello finché non sono confermati dai portali.
+const DEFAULT_QUAL_ASI = "Tecnico";
+const DEFAULT_QUAL_LIB = "TEC";
+const DEFAULT_ASS_LIB = ".A1 (EX BASE 1) ASSOCIATI PRATICANTI";
 
 /* =====================================================================
    TESSERAMENTO ISTRUTTORI (18/10/2026, richiesta di Solomon)
@@ -20,12 +29,29 @@ function stagioneCorrente() {
 function comeIscrizione(t) {
   return {
     soci: {
-      cognome: t.cognome, nome: t.nome, cf: t.cf, data_nascita: t.data_nascita,
+      // per i documenti serve il nome vero (es. Mainardi "Mariacristina", non "Cristina")
+      cognome: t.cognome, nome: (t.nome_legale || "").trim() || t.nome, cf: t.cf, data_nascita: t.data_nascita,
       comune_nascita: t.comune_nascita, provincia_nascita: t.provincia_nascita,
       comune_residenza: t.comune_residenza, provincia_residenza: t.provincia_residenza,
       cap: t.cap, indirizzo: t.indirizzo_residenza, sesso: t.sesso, telefono: t.telefono, email: t.email,
     },
   };
+}
+
+// "24/10/1958" -> "1958-10-24"
+function dataItaAIso(d) {
+  const m = String(d || "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  return m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : null;
+}
+const fmtIt = (iso) => (iso ? iso.split("-").reverse().join("/") : "");
+
+// Stessa logica dell'Import tessere dei soci: il CSV del portale contiene il
+// codice affiliazione (0905 = ASI, 481 = Libertas).
+function rilevaEnte(righe) {
+  const testo = JSON.stringify(righe[0] || {});
+  if (testo.includes("0905")) return "ASI";
+  if (testo.includes("481")) return "Libertas";
+  return null;
 }
 
 function datiMancanti(t) {
@@ -41,11 +67,63 @@ export default function TesseramentoIstruttori({ onChiudi }) {
   const [scelti, setScelti] = useState(new Set());
   const [errore, setErrore] = useState("");
   const [stampa, setStampa] = useState("");
+  const [qualAsi, setQualAsi] = useState(DEFAULT_QUAL_ASI);
+  const [qualLib, setQualLib] = useState(DEFAULT_QUAL_LIB);
+  const [assLib, setAssLib] = useState(DEFAULT_ASS_LIB);
+  const [importo, setImporto] = useState(null); // { ente, trovati:[{t, numero, scadenza}], nonTrovati:[...] }
+  const [salvando, setSalvando] = useState(false);
+  const [esitoImport, setEsitoImport] = useState("");
+
+  // Import del CSV rilasciato dal portale dopo il tesseramento (19/10/2026):
+  // abbina il numero tessera a ogni istruttore tramite il codice fiscale.
+  function leggiCsvTessere(file) {
+    if (!file) return;
+    setImporto(null); setEsitoImport("");
+    Papa.parse(file, {
+      header: true, delimiter: ";", skipEmptyLines: true,
+      complete: (res) => {
+        const righe = (res.data || []).filter((r) => r["Codice fiscale"]);
+        const ente = rilevaEnte(righe);
+        if (!ente) { alert("Non riconosco l'ente del file (manca il codice affiliazione ASI 0905 o Libertas 481)."); return; }
+        const perCf = new Map((lista || []).filter((t) => t.cf).map((t) => [t.cf.trim().toUpperCase(), t]));
+        const trovati = [], nonTrovati = [];
+        for (const r of righe) {
+          const cf = String(r["Codice fiscale"] || "").trim().toUpperCase();
+          const numero = String(r["Codice tessera"] || "").trim();
+          const scadenza = dataItaAIso(r["Data scadenza"]);
+          const t = perCf.get(cf);
+          if (t && numero) trovati.push({ t, numero, scadenza });
+          else nonTrovati.push(`${r["Cognome"] || ""} ${r["Nome"] || ""} — ${cf}${t && !numero ? " (senza numero tessera)" : ""}`);
+        }
+        setImporto({ ente, trovati, nonTrovati });
+      },
+      error: (e) => alert("Errore lettura file: " + e.message),
+    });
+  }
+
+  async function confermaImport() {
+    if (!importo?.trovati.length) return;
+    setSalvando(true);
+    const campoN = importo.ente === "ASI" ? "tessera_asi" : "tessera_libertas";
+    const campoS = importo.ente === "ASI" ? "scadenza_asi" : "scadenza_libertas";
+    let ok = 0; const errori = [];
+    for (const { t, numero, scadenza } of importo.trovati) {
+      const { error } = await supabase.from("istruttori").update({ [campoN]: numero, [campoS]: scadenza }).eq("id", t.id);
+      if (error) errori.push(`${t.cognome}: ${error.message}`); else ok++;
+    }
+    setLista((l) => l.map((t) => {
+      const x = importo.trovati.find((r) => r.t.id === t.id);
+      return x ? { ...t, [campoN]: x.numero, [campoS]: x.scadenza } : t;
+    }));
+    setEsitoImport(`✅ ${ok} tessere ${importo.ente} abbinate.` + (errori.length ? ` Errori: ${errori.join("; ")}` : ""));
+    setImporto(null);
+    setSalvando(false);
+  }
 
   useEffect(() => {
     (async () => {
       const { data, error } = await supabase.from("istruttori")
-        .select("id, nome, cognome, tipo, cf, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo_residenza, sesso, telefono, email")
+        .select("id, nome, nome_legale, cognome, tipo, cf, tessera_libertas, scadenza_libertas, tessera_asi, scadenza_asi, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo_residenza, sesso, telefono, email")
         .eq("attivo", true).order("cognome");
       if (error) { setErrore(error.message); return; }
       setLista(data || []);
@@ -68,6 +146,16 @@ export default function TesseramentoIstruttori({ onChiudi }) {
     setStampa("");
   }
 
+  function scaricaFile(ente) {
+    const persone = (lista || []).filter((t) => scelti.has(t.id));
+    if (!persone.length) { alert("Seleziona almeno una persona."); return; }
+    const iscr = persone.map(comeIscrizione);
+    if (ente === "ASI") generaFileASI(null, iscr, null, { qualifica: qualAsi.trim(), nomeFile: "ASI_Istruttori.csv" });
+    else generaFileLibertas(null, iscr, null, { qualifica: qualLib.trim(), assicurazione: assLib.trim(), nomeFile: "Libertas_Istruttori.xls" });
+  }
+
+  const badge = (bg, col) => ({ background: bg, color: col, borderRadius: 6, padding: "1px 6px", fontSize: 11, fontWeight: 600 });
+  const inp = { width: "100%", padding: "5px 7px", border: "1px solid #D1D5DB", borderRadius: 6, fontSize: 12.5, boxSizing: "border-box" };
   const btn = (bg, col) => ({ padding: "7px 14px", background: bg, color: col, border: "none", borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer" });
 
   return (
@@ -96,6 +184,8 @@ export default function TesseramentoIstruttori({ onChiudi }) {
                   <input type="checkbox" checked={scelti.has(t.id)} onChange={() => toggle(t.id)} />
                   <span style={{ fontWeight: 600, minWidth: 180 }}>{t.cognome} {t.nome}</span>
                   <span style={{ color: "#6B7280", fontSize: 11.5, minWidth: 90 }}>{t.tipo === "collaboratore" ? "collaboratore" : "istruttore"}</span>
+                  {t.tessera_libertas && <span title={`Scadenza ${fmtIt(t.scadenza_libertas)}`} style={badge("#D8F3DC", "#2D6A4F")}>🪪 LIB {t.tessera_libertas}</span>}
+                  {t.tessera_asi && <span title={`Scadenza ${fmtIt(t.scadenza_asi)}`} style={badge("#DBEAFE", "#1E3A5F")}>🪪 ASI {t.tessera_asi}</span>}
                   {mancano.length > 0 && <span style={{ color: "#B45309", fontSize: 11.5 }}>⚠️ manca: {mancano.join(", ")}</span>}
                 </label>
               );
@@ -108,6 +198,55 @@ export default function TesseramentoIstruttori({ onChiudi }) {
             <button disabled={!!stampa} onClick={() => stampaRegistro("ASI")} style={btn("#1E3A5F", "white")}>
               {stampa === "ASI" ? "Preparo…" : "🖨️ Registro firme ASI"}
             </button>
+          </div>
+
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #EEE" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 6 }}>📤 File da caricare sui portali</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+              <div style={{ background: "#F8FAFC", borderRadius: 9, padding: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 6 }}>ASI (.csv)</div>
+                <label style={{ fontSize: 11, color: "#6B7280" }}>Qualifica</label>
+                <input value={qualAsi} onChange={(e) => setQualAsi(e.target.value)} style={inp} />
+                <div style={{ fontSize: 11, color: "#6B7280", margin: "4px 0 8px" }}>Tipo tessera A · disciplina Ginnastica (fitness e salute)</div>
+                <button onClick={() => scaricaFile("ASI")} style={btn("#1E3A5F", "white")}>⬇️ Scarica file ASI</button>
+              </div>
+              <div style={{ background: "#F0FDF4", borderRadius: 9, padding: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#2D6A4F", marginBottom: 6 }}>Libertas (.xls)</div>
+                <label style={{ fontSize: 11, color: "#6B7280" }}>Qualifica</label>
+                <input value={qualLib} onChange={(e) => setQualLib(e.target.value)} style={inp} />
+                <label style={{ fontSize: 11, color: "#6B7280" }}>Assicurazione</label>
+                <input value={assLib} onChange={(e) => setAssLib(e.target.value)} style={{ ...inp, marginBottom: 8 }} />
+                <button onClick={() => scaricaFile("Libertas")} style={btn("#2D6A4F", "white")}>⬇️ Scarica file Libertas</button>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #EEE" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 4 }}>🎫 Import tessere istruttori</div>
+            <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 8 }}>
+              Carica il file CSV scaricato dal portale Libertas o ASI dopo il tesseramento: il numero di tessera viene abbinato a ogni istruttore tramite il codice fiscale.
+            </div>
+            <input type="file" accept=".csv" onChange={(e) => { leggiCsvTessere(e.target.files[0]); e.target.value = ""; }} style={{ fontSize: 12.5 }} />
+            {importo && (
+              <div style={{ marginTop: 10, fontSize: 12.5 }}>
+                <div style={{ marginBottom: 6 }}>Ente: <b>{importo.ente}</b> · <span style={{ color: "#2D6A4F", fontWeight: 600 }}>✓ {importo.trovati.length} da abbinare</span>
+                  {importo.nonTrovati.length > 0 && <span style={{ color: "#991B1B", fontWeight: 600 }}> · ⚠️ {importo.nonTrovati.length} non trovati tra gli istruttori</span>}</div>
+                {importo.trovati.map(({ t, numero, scadenza }) => (
+                  <div key={t.id} style={{ padding: "2px 0" }}>{t.cognome} {t.nome} → <b>{numero}</b>{scadenza ? ` (scad. ${fmtIt(scadenza)})` : ""}</div>
+                ))}
+                {importo.nonTrovati.length > 0 && (
+                  <details style={{ marginTop: 6 }}><summary style={{ cursor: "pointer", color: "#6B7280" }}>Vedi chi non è stato trovato</summary>
+                    <ul style={{ margin: "4px 0", color: "#6B7280" }}>{importo.nonTrovati.map((x) => <li key={x}>{x}</li>)}</ul>
+                  </details>
+                )}
+                {importo.trovati.length > 0 && (
+                  <button disabled={salvando} onClick={confermaImport} style={{ ...btn("#2D6A4F", "white"), marginTop: 8 }}>
+                    {salvando ? "Salvo…" : `✓ Conferma ${importo.trovati.length} tessere`}
+                  </button>
+                )}
+              </div>
+            )}
+            {esitoImport && <div style={{ marginTop: 8, fontSize: 12.5, color: "#2D6A4F", fontWeight: 600 }}>{esitoImport}</div>}
           </div>
         </>
       )}
