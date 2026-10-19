@@ -7,7 +7,7 @@ import { generaFileASI, generaFileLibertas } from "./esportaAssicurazioni.js";
 // Valori per i portali (19/10/2026). ASI: dal portale di Solomon, tipo tessera A,
 // qualifica Tecnico, disciplina ginnastica finalizzata alla salute ed al fitness.
 // I codici sono modificabili dal pannello finché non sono confermati dai portali.
-const DEFAULT_QUAL_ASI = "T"; // confermato da Solomon 19/10/2026 (tipo tessera resta A)
+const QUALIFICHE = [["T", "Tecnico"], ["A", "Atleta"], ["S", "Socio"], ["D", "Dirigente"]]; // lettere ASI (Solomon, 19/10/2026)
 const DEFAULT_QUAL_LIB = "TEC";
 const DEFAULT_ASS_LIB = ".A1 (EX BASE 1) ASSOCIATI PRATICANTI";
 
@@ -67,7 +67,6 @@ export default function TesseramentoIstruttori({ onChiudi }) {
   const [scelti, setScelti] = useState(new Set());
   const [errore, setErrore] = useState("");
   const [stampa, setStampa] = useState("");
-  const [qualAsi, setQualAsi] = useState(DEFAULT_QUAL_ASI);
   const [qualLib, setQualLib] = useState(DEFAULT_QUAL_LIB);
   const [assLib, setAssLib] = useState(DEFAULT_ASS_LIB);
   const [importo, setImporto] = useState(null); // { ente, trovati:[{t, numero, scadenza}], nonTrovati:[...] }
@@ -123,13 +122,20 @@ export default function TesseramentoIstruttori({ onChiudi }) {
   useEffect(() => {
     (async () => {
       const { data, error } = await supabase.from("istruttori")
-        .select("id, nome, nome_legale, cognome, tipo, cf, tessera_libertas, scadenza_libertas, tessera_asi, scadenza_asi, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo_residenza, sesso, telefono, email")
+        .select("id, nome, nome_legale, cognome, tipo, cf, tessera_libertas, scadenza_libertas, tessera_asi, scadenza_asi, qualifica_asi, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo_residenza, sesso, telefono, email")
         .eq("attivo", true).order("cognome");
       if (error) { setErrore(error.message); return; }
       setLista(data || []);
       setScelti(new Set((data || []).filter((t) => datiMancanti(t).length === 0).map((t) => t.id)));
     })();
   }, []);
+
+  // Qualifica ASI per persona (T/A/S/D), salvata nella scheda dell'istruttore (19/10/2026)
+  async function salvaQualifica(ids, q) {
+    setLista((l) => l.map((t) => (ids.includes(t.id) ? { ...t, qualifica_asi: q } : t)));
+    const { error } = await supabase.from("istruttori").update({ qualifica_asi: q }).in("id", ids);
+    if (error) alert("Errore nel salvataggio della qualifica: " + error.message);
+  }
 
   const toggle = (id) => setScelti((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
@@ -141,7 +147,7 @@ export default function TesseramentoIstruttori({ onChiudi }) {
       const sezioni = [{ titolo: "Istruttori e collaboratori — A.S.D. Sempre in Forma", iscritti: persone.map((t) => {
         // sul registro: la lettera scelta in "Qualifica" e, se già importato, il numero tessera
         const x = comeIscrizione(t);
-        x.soci.tipo_tessera_registro = ente === "ASI" ? qualAsi : qualLib.trim();
+        x.soci.tipo_tessera_registro = ente === "ASI" ? (t.qualifica_asi || "T") : qualLib.trim();
         x.soci.numero_tessera = ente === "ASI" ? t.tessera_asi : t.tessera_libertas;
         return x;
       }) }];
@@ -155,8 +161,8 @@ export default function TesseramentoIstruttori({ onChiudi }) {
   function scaricaFile(ente) {
     const persone = (lista || []).filter((t) => scelti.has(t.id));
     if (!persone.length) { alert("Seleziona almeno una persona."); return; }
-    const iscr = persone.map(comeIscrizione);
-    if (ente === "ASI") generaFileASI(null, iscr, null, { qualifica: qualAsi.trim(), nomeFile: "ASI_Istruttori.csv" });
+    const iscr = persone.map((t) => { const x = comeIscrizione(t); x.soci.qualifica_asi = t.qualifica_asi || "T"; return x; });
+    if (ente === "ASI") generaFileASI(null, iscr, null, { nomeFile: "ASI_Istruttori.csv" });
     else generaFileLibertas(null, iscr, null, { qualifica: qualLib.trim(), assicurazione: assLib.trim(), nomeFile: "Libertas_Istruttori.xls" });
   }
 
@@ -190,6 +196,10 @@ export default function TesseramentoIstruttori({ onChiudi }) {
                   <input type="checkbox" checked={scelti.has(t.id)} onChange={() => toggle(t.id)} />
                   <span style={{ fontWeight: 600, minWidth: 180 }}>{t.cognome} {t.nome}</span>
                   <span style={{ color: "#6B7280", fontSize: 11.5, minWidth: 90 }}>{t.tipo === "collaboratore" ? "collaboratore" : "istruttore"}</span>
+                  <select title="Qualifica ASI" value={t.qualifica_asi || "T"} onChange={(e) => salvaQualifica([t.id], e.target.value)}
+                    style={{ fontSize: 11.5, padding: "1px 3px", border: "1px solid #D1D5DB", borderRadius: 5 }}>
+                    {QUALIFICHE.map(([v, l]) => <option key={v} value={v}>{v} — {l}</option>)}
+                  </select>
                   {t.tessera_libertas && <span title={`Scadenza ${fmtIt(t.scadenza_libertas)}`} style={badge("#D8F3DC", "#2D6A4F")}>🪪 LIB {t.tessera_libertas}</span>}
                   {t.tessera_asi && <span title={`Scadenza ${fmtIt(t.scadenza_asi)}`} style={badge("#DBEAFE", "#1E3A5F")}>🪪 ASI {t.tessera_asi}</span>}
                   {mancano.length > 0 && <span style={{ color: "#B45309", fontSize: 11.5 }}>⚠️ manca: {mancano.join(", ")}</span>}
@@ -198,7 +208,15 @@ export default function TesseramentoIstruttori({ onChiudi }) {
             })}
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-            <div style={{ width: "100%", fontSize: 11.5, color: "#6B7280" }}>Nel registro, alla voce "Tipo Tessera", viene stampata la qualifica scelta più sotto (ASI: {qualAsi} · Libertas: {qualLib}).</div>
+            <div style={{ width: "100%", fontSize: 11.5, color: "#6B7280", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              Nel registro e nel file ASI, alla voce tipo tessera/qualifica, va la lettera scelta accanto a ogni nome (Libertas: {qualLib}).
+              <span>Imposta a tutti i selezionati:</span>
+              <select value="" onChange={(e) => { if (e.target.value) salvaQualifica([...scelti], e.target.value); }}
+                style={{ fontSize: 11.5, padding: "1px 3px", border: "1px solid #D1D5DB", borderRadius: 5 }}>
+                <option value="">—</option>
+                {QUALIFICHE.map(([v, l]) => <option key={v} value={v}>{v} — {l}</option>)}
+              </select>
+            </div>
             <button disabled={!!stampa} onClick={() => stampaRegistro("Libertas")} style={btn("#2D6A4F", "white")}>
               {stampa === "Libertas" ? "Preparo…" : "🖨️ Registro firme Libertas"}
             </button>
@@ -212,13 +230,7 @@ export default function TesseramentoIstruttori({ onChiudi }) {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
               <div style={{ background: "#F8FAFC", borderRadius: 9, padding: 10 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 6 }}>ASI (.csv)</div>
-                <label style={{ fontSize: 11, color: "#6B7280" }}>Qualifica</label>
-                <select value={qualAsi} onChange={(e) => setQualAsi(e.target.value)} style={inp}>
-                  <option value="T">T — Tecnico</option>
-                  <option value="A">A — Atleta</option>
-                  <option value="S">S — Socio</option>
-                  <option value="D">D — Dirigente</option>
-                </select>
+                <div style={{ fontSize: 11, color: "#6B7280" }}>Qualifica: quella scelta accanto a ogni nome</div>
                 <div style={{ fontSize: 11, color: "#6B7280", margin: "4px 0 8px" }}>Tipo tessera A · disciplina Ginnastica (fitness e salute)</div>
                 <button onClick={() => scaricaFile("ASI")} style={btn("#1E3A5F", "white")}>⬇️ Scarica file ASI</button>
               </div>
