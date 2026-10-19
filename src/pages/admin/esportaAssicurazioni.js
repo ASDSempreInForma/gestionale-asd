@@ -73,7 +73,9 @@ export function generaFileASI(corso, iscritti, stagione, opzioni = {}) {
     "COMUNE RESIDENZA", "INDIRIZZO RESIDENZA", "CAP", "EMAIL", "CODICE TESSERA", "DATA SCADENZA CERTIFICATO", "CODICE AFFILIAZIONE"];
   const righeASI = iscritti.map((i) => {
     const s = i.soci || {};
-    return [anno, "Ginnastica", opzioni.qualifica || "A", "A", s.nome, s.cognome, s.cf, s.comune_residenza, s.indirizzo, s.cap,
+    // DISCIPLINA (19/10/2026): con "Ginnastica" il portale registrava la
+    // disciplina generica "Ginnastica" invece di quella dell'associazione.
+    return [anno, "Attivita' sportiva ginnastica finalizzata alla salute ed al fitness", opzioni.qualifica || "A", "A", s.nome, s.cognome, s.cf, s.comune_residenza, s.indirizzo, s.cap,
       // CODICE TESSERA sempre vuoto (12/10/2026): il numero lo assegna il portale
       // ASI. Prima ci finiva il numero di tessera salvato (spesso quello Libertas
       // della stagione scorsa) e il portale rifiutava le righe con "Codice
