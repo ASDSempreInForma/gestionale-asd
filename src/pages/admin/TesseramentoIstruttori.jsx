@@ -206,7 +206,12 @@ export default function TesseramentoIstruttori({ onChiudi }) {
               <div style={{ background: "#F8FAFC", borderRadius: 9, padding: 10 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F", marginBottom: 6 }}>ASI (.csv)</div>
                 <label style={{ fontSize: 11, color: "#6B7280" }}>Qualifica</label>
-                <input value={qualAsi} onChange={(e) => setQualAsi(e.target.value)} style={inp} />
+                <select value={qualAsi} onChange={(e) => setQualAsi(e.target.value)} style={inp}>
+                  <option value="T">T — Tecnico</option>
+                  <option value="A">A — Atleta</option>
+                  <option value="S">S — Socio</option>
+                  <option value="D">D — Dirigente</option>
+                </select>
                 <div style={{ fontSize: 11, color: "#6B7280", margin: "4px 0 8px" }}>Tipo tessera A · disciplina Ginnastica (fitness e salute)</div>
                 <button onClick={() => scaricaFile("ASI")} style={btn("#1E3A5F", "white")}>⬇️ Scarica file ASI</button>
               </div>
