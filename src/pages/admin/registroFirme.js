@@ -137,7 +137,8 @@ async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile
 
     // Riga 3: Tipo tessera / Codice tessera / Data emissione (sempre la data odierna, ossia la data di stampa)
     riga("Tipo Tessera:", xTot + 8, yBase - rigaH * 2 - 13, false);
-    riga(ente === "ASI" ? "A" : "APR", xTot + 80, yBase - rigaH * 2 - 13, true);
+    // tipo_tessera_registro: lettera scelta per gli istruttori (T/A/S/D), 19/10/2026
+    riga(s.tipo_tessera_registro || (ente === "ASI" ? "A" : "APR"), xTot + 80, yBase - rigaH * 2 - 13, true);
     riga("Codice tessera:", xTot + 150, yBase - rigaH * 2 - 13, false);
     riga(s.numero_tessera ? String(s.numero_tessera) : "", xTot + 250, yBase - rigaH * 2 - 13, true);
     riga("Data emissione:", xTot + 380, yBase - rigaH * 2 - 13, false);
@@ -347,7 +348,8 @@ async function generaPDFMultiSezione({ sezioni, codiceSocieta, stagioneNome, ent
     riga("Firma ____________________", xTot + 380, yTop - rigaH - 13, false, 9);
 
     riga("Tipo Tessera:", xTot + 8, yTop - rigaH * 2 - 13, false);
-    riga(ente === "ASI" ? "A" : "APR", xTot + 80, yTop - rigaH * 2 - 13, true);
+    // tipo_tessera_registro: lettera scelta per gli istruttori (T/A/S/D), 19/10/2026
+    riga(s.tipo_tessera_registro || (ente === "ASI" ? "A" : "APR"), xTot + 80, yTop - rigaH * 2 - 13, true);
     riga("Codice tessera:", xTot + 150, yTop - rigaH * 2 - 13, false);
     riga(s.numero_tessera ? String(s.numero_tessera) : "", xTot + 250, yTop - rigaH * 2 - 13, true);
     riga("Data emissione:", xTot + 380, yTop - rigaH * 2 - 13, false);

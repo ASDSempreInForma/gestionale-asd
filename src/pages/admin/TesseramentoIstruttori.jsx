@@ -138,7 +138,13 @@ export default function TesseramentoIstruttori({ onChiudi }) {
     if (!persone.length) { alert("Seleziona almeno una persona."); return; }
     setStampa(ente);
     try {
-      const sezioni = [{ titolo: "Istruttori e collaboratori — A.S.D. Sempre in Forma", iscritti: persone.map(comeIscrizione) }];
+      const sezioni = [{ titolo: "Istruttori e collaboratori — A.S.D. Sempre in Forma", iscritti: persone.map((t) => {
+        // sul registro: la lettera scelta in "Qualifica" e, se già importato, il numero tessera
+        const x = comeIscrizione(t);
+        x.soci.tipo_tessera_registro = ente === "ASI" ? qualAsi : qualLib.trim();
+        x.soci.numero_tessera = ente === "ASI" ? t.tessera_asi : t.tessera_libertas;
+        return x;
+      }) }];
       const nomeFile = `Registro_Firme_${ente}_Istruttori.pdf`;
       if (ente === "ASI") await generaRegistroFirmeGiornoASI(sezioni, { nome: stagioneCorrente() }, nomeFile);
       else await generaRegistroFirmeGiornoLibertas(sezioni, { nome: stagioneCorrente() }, nomeFile);
@@ -192,6 +198,7 @@ export default function TesseramentoIstruttori({ onChiudi }) {
             })}
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+            <div style={{ width: "100%", fontSize: 11.5, color: "#6B7280" }}>Nel registro, alla voce "Tipo Tessera", viene stampata la qualifica scelta più sotto (ASI: {qualAsi} · Libertas: {qualLib}).</div>
             <button disabled={!!stampa} onClick={() => stampaRegistro("Libertas")} style={btn("#2D6A4F", "white")}>
               {stampa === "Libertas" ? "Preparo…" : "🖨️ Registro firme Libertas"}
             </button>
