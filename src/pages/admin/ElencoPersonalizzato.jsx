@@ -544,8 +544,21 @@ export default function ElencoPersonalizzato() {
   // Riga "segnabile": una vera iscrizione (non prova, non riga extra settembre)
   const rigaRegistro = (r) => r && !r._isProva && !r._isExtraSettembre && r.soci && r.soci.cf;
 
+  // 20/10/2026, regola di Solomon: senza un numero di tessera valido non si
+  // può aver firmato il registro. Il segno conta solo se c'è la tessera.
   function registroGiaStampato(r, ente) {
-    return !!(r && r[`registro_${ente}_stampato_il`]);
+    return !!(r && r[`registro_${ente}_stampato_il`] && tesseraEsistente(r));
+  }
+
+  function giaFirmatoUnRegistro(r) {
+    return registroGiaStampato(r, "libertas") || registroGiaStampato(r, "asi");
+  }
+  function escludiGiaFirmati() {
+    setSelezionati((prev) => {
+      const next = new Set(prev);
+      iscrizioni.forEach((r) => { if (next.has(r.id) && giaFirmatoUnRegistro(r)) next.delete(r.id); });
+      return next;
+    });
   }
 
   function personePerRegistro(ente) {
@@ -553,10 +566,12 @@ export default function ElencoPersonalizzato() {
     return iscrizioniSelezionate.filter((r) => {
       const cf = r.soci && r.soci.cf;
       if (!cf || r._isProva) return false;
+      if (!tesseraEsistente(r)) return false; // senza tessera valida non si firma (20/10/2026)
       const chiave = `${cf}|${r.corso_id}`;
       if (visti.has(chiave)) return false;
       visti.add(chiave);
-      return !(escludiRegistroStampato && registroGiaStampato(r, ente));
+      // 20/10/2026 (Solomon): chi ha già firmato ASI non firma Libertas e viceversa
+      return !(escludiRegistroStampato && giaFirmatoUnRegistro(r));
     });
   }
 
@@ -581,19 +596,24 @@ export default function ElencoPersonalizzato() {
     setMsgRegistro("");
     const lista = personePerRegistro(ente);
     const nomeEnte = ente === "libertas" ? "Libertas" : "ASI";
+    const senzaTessera = [...new Set(iscrizioniSelezionate.filter((r) => rigaRegistro(r) && !tesseraEsistente(r)).map((r) => `${r.soci.cognome || ""} ${r.soci.nome || ""}`.trim()))];
+    const notaSenza = senzaTessera.length ? ` ${senzaTessera.length} senza numero di tessera valido non sono state stampate: ${senzaTessera.slice(0, 15).join(", ")}${senzaTessera.length > 15 ? "…" : ""}.` : "";
     if (lista.length === 0) {
-      setMsgRegistro(`Tutte le persone selezionate hanno già firmato il registro ${nomeEnte} in questo corso: non c'è niente da stampare.`);
+      setMsgRegistro(senzaTessera.length
+        ? `Nessuna persona da stampare.${notaSenza}`
+        : `Tutte le persone selezionate hanno già firmato un registro (Libertas o ASI) in questo corso: non c'è niente da stampare.`);
       return;
     }
     if (ente === "libertas") await generaRegistroFirmeLibertas({ codice_corso: "Selezione" }, lista, stagione);
     else await generaRegistroFirmeASI({ codice_corso: "Selezione" }, lista, stagione);
     const ok = await segnaRegistro(ente, lista, true);
-    if (ok) setMsgRegistro(`✅ Registro ${nomeEnte}: ${lista.length} righe stampate e segnate come "già firmato" nel loro corso.`);
+    if (ok) setMsgRegistro(`✅ Registro ${nomeEnte}: ${lista.length} righe stampate e segnate come "già firmato" nel loro corso.${notaSenza}`);
   }
 
   async function segnaSelezionati(ente, stampato) {
     setMsgRegistro("");
-    const righe = iscrizioniSelezionate.filter(rigaRegistro);
+    // per segnare "già firmato" serve la tessera valida; per togliere il segno no
+    const righe = iscrizioniSelezionate.filter((r) => rigaRegistro(r) && (!stampato || tesseraEsistente(r)));
     const nomeEnte = ente === "libertas" ? "Libertas" : "ASI";
     const ok = await segnaRegistro(ente, righe, stampato);
     if (ok) setMsgRegistro(stampato
@@ -801,6 +821,10 @@ export default function ElencoPersonalizzato() {
                     style={{ fontSize: 11.5, background: "#DCFCE7", color: "#166534", border: "none", borderRadius: 6, padding: "5px 10px", cursor: incassatiNonConfermati.length ? "pointer" : "default", fontWeight: 600, opacity: incassatiNonConfermati.length ? 1 : 0.5 }}>
                     + Incasso arrivato ({incassatiNonConfermati.length})
                   </button>
+                  <button onClick={escludiGiaFirmati} title="Toglie dalla selezione chi ha già firmato il registro Libertas o ASI nel suo corso (chi ha firmato uno dei due non firma l'altro)"
+                    style={{ fontSize: 11.5, background: "#D1FAE5", color: "#065F46", border: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontWeight: 600 }}>
+                    Escludi già firmati
+                  </button>
                   <button onClick={escludiGiaTesserati} title="Toglie dalla selezione chi ha già una tessera valida (Libertas, ASI o fatta in SEDE), per non tesserare due volte la stessa persona"
                     style={{ fontSize: 11.5, background: "#DBEAFE", color: "#1E40AF", border: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontWeight: 600 }}>
                     Escludi già tesserati
@@ -994,7 +1018,7 @@ export default function ElencoPersonalizzato() {
               <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: TX, cursor: "pointer" }}>
                 <input type="checkbox" checked={escludiRegistroStampato} onChange={(e) => setEscludiRegistroStampato(e.target.checked)} style={{ marginTop: 2 }} />
                 <span>
-                  <b>Registri firme: escludi chi ha già firmato in questo corso</b> (in un altro corso dovrà firmare di nuovo).
+                  <b>Registri firme: escludi chi ha già firmato in questo corso</b> (Libertas o ASI: chi ha firmato uno dei due non firma l'altro) (in un altro corso dovrà firmare di nuovo).
                   {selezionati.size > 0 && (
                     <span style={{ color: GR }}>
                       {" "}Tra i selezionati verranno stampati: Libertas <b>{personePerRegistro("libertas").length}</b> · ASI <b>{personePerRegistro("asi").length}</b>.

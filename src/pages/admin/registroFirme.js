@@ -47,6 +47,17 @@ function base64ToBytes(b64) {
   return bytes;
 }
 
+// 20/10/2026: sul registro va solo il numero della tessera ancora valida;
+// quello della stagione scorsa (scaduto il 31/08) non si stampa.
+function numeroTesseraValido(s) {
+  if (!s || !s.numero_tessera) return "";
+  if (s.scadenza_tessera) {
+    const oggi = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Rome" });
+    if (String(s.scadenza_tessera).slice(0, 10) < oggi) return "";
+  }
+  return String(s.numero_tessera);
+}
+
 function fmtData(d) {
   if (!d) return "";
   const dt = new Date(d);
@@ -140,7 +151,7 @@ async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile
     // tipo_tessera_registro: lettera scelta per gli istruttori (T/A/S/D), 19/10/2026
     riga(s.tipo_tessera_registro || (ente === "ASI" ? "A" : "APR"), xTot + 80, yBase - rigaH * 2 - 13, true);
     riga("Codice tessera:", xTot + 150, yBase - rigaH * 2 - 13, false);
-    riga(s.numero_tessera ? String(s.numero_tessera) : "", xTot + 250, yBase - rigaH * 2 - 13, true);
+    riga(numeroTesseraValido(s), xTot + 250, yBase - rigaH * 2 - 13, true);
     riga("Data emissione:", xTot + 380, yBase - rigaH * 2 - 13, false);
     riga(fmtData(new Date()), xTot + 460, yBase - rigaH * 2 - 13, true);
 
@@ -351,7 +362,7 @@ async function generaPDFMultiSezione({ sezioni, codiceSocieta, stagioneNome, ent
     // tipo_tessera_registro: lettera scelta per gli istruttori (T/A/S/D), 19/10/2026
     riga(s.tipo_tessera_registro || (ente === "ASI" ? "A" : "APR"), xTot + 80, yTop - rigaH * 2 - 13, true);
     riga("Codice tessera:", xTot + 150, yTop - rigaH * 2 - 13, false);
-    riga(s.numero_tessera ? String(s.numero_tessera) : "", xTot + 250, yTop - rigaH * 2 - 13, true);
+    riga(numeroTesseraValido(s), xTot + 250, yTop - rigaH * 2 - 13, true);
     riga("Data emissione:", xTot + 380, yTop - rigaH * 2 - 13, false);
     riga(fmtData(new Date()), xTot + 460, yTop - rigaH * 2 - 13, true);
 
