@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { preventivoPerMessaggio } from "../../preventivoAi.js";
 
 // ============================================================
 // BASE DI CONOSCENZA — aggiornata il 17/07/2026 leggendo le email
@@ -488,8 +489,9 @@ function TabAssistenteRisposte() {
         breve: "molto breve e diretto, poche righe, adatto a un messaggio WhatsApp",
       };
       // Per l'assistente risposte inietta anche la disponibilità live
-      const disponibilita = await getDisponibilitaCorsi();
-      const systemPrompt = `${KNOWLEDGE_BASE}${disponibilita}\n\nDevi scrivere la risposta della segreteria a un messaggio ricevuto da un socio o da un potenziale socio. Canale: ${can}. Tono richiesto: ${toniDescrizione[tono]}. Scrivi SOLO il testo della risposta pronta da inviare, senza commenti aggiuntivi, senza markdown.`;
+      // 21/10/2026: quota esatta calcolata con il motore prezzi del modulo
+      const [disponibilita, preventivo] = await Promise.all([getDisponibilitaCorsi(), preventivoPerMessaggio(msg, chiediAClaude)]);
+      const systemPrompt = `${KNOWLEDGE_BASE}${disponibilita}${preventivo}\n\nDevi scrivere la risposta della segreteria a un messaggio ricevuto da un socio o da un potenziale socio. Canale: ${can}. Tono richiesto: ${toniDescrizione[tono]}. Scrivi SOLO il testo della risposta pronta da inviare, senza commenti aggiuntivi, senza markdown.`;
       const userPrompt = `Messaggio ricevuto dal socio:\n"""\n${msg}\n"""\n\nScrivi la risposta.`;
       const testoGenerato = await chiediAClaude(systemPrompt, userPrompt);
       setRisposta(testoGenerato);
@@ -735,7 +737,9 @@ function TabChatbotSoci() {
     setInput("");
     setCaricamento(true);
     try {
-      const systemPrompt = `${KNOWLEDGE_BASE}${disponibilita}\n\nSei il chatbot pubblico per i soci sul sito dell'associazione. Rispondi in modo naturale e amichevole alle domande, basandoti SOLO sulle informazioni della base di conoscenza. Se hai dati di disponibilità in tempo reale, usali per rispondere con precisione alle domande su posti disponibili. Se la domanda richiede una valutazione personale (rimborsi, casi particolari, dati di altri soci) invita a contattare la segreteria con i contatti indicati invece di inventare una risposta. Rispondi in poche frasi, senza markdown.`;
+      const storicoTesto = nuoviMessaggi.filter((m) => m.ruolo === "utente").map((m) => m.testo).join("\n");
+      const preventivo = await preventivoPerMessaggio(storicoTesto, chiediAClaude);
+      const systemPrompt = `${KNOWLEDGE_BASE}${disponibilita}${preventivo}\n\nSei il chatbot pubblico per i soci sul sito dell'associazione. Rispondi in modo naturale e amichevole alle domande, basandoti SOLO sulle informazioni della base di conoscenza. Se hai dati di disponibilità in tempo reale, usali per rispondere con precisione alle domande su posti disponibili. Se la domanda richiede una valutazione personale (rimborsi, casi particolari, dati di altri soci) invita a contattare la segreteria con i contatti indicati invece di inventare una risposta. Rispondi in poche frasi, senza markdown.`;
       const storico = nuoviMessaggi
         .map((m) => `${m.ruolo === "utente" ? "Socio" : "Assistente"}: ${m.testo}`)
         .join("\n");
