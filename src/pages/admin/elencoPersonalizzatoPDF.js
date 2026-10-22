@@ -15,7 +15,7 @@ const LOGO_ASD_B64 = "iVBORw0KGgoAAAANSUhEUgAAAKgAAACoCAIAAAD7KTLjAABiI0lEQVR4nO
 export const ORDINE_STAMPA = [
   "cognome", "nome", "tipo_iscrizione", "pagamento", "cert_consegnato", "cert_scadenza",
   "cert_appuntamento", "assicurazione", "frequenza", "mese_inizio", "combinazione",
-  "telefono", "presenza", "firma", "data_stampa", "note_manuali", "data_nascita",
+  "telefono", "email", "cf", "presenza", "firma", "data_stampa", "note_manuali", "data_nascita",
 ];
 
 function base64ToBytes(b64) {
@@ -60,6 +60,8 @@ export async function generaElencoPDF({ colonne, righe, corsoUnico, stagioneNome
     if (id === "numero") return 32;
     if (id === "cognome" || id === "nome") return 85;
     if (id === "telefono") return 100;
+    if (id === "email") return 150;
+    if (id === "cf") return 112;
     if (id === "combinazione") return 95;
     if (id === "note_manuali") return 150;
     if (id === "firma") return 165;

@@ -58,6 +58,8 @@ const GRUPPI_COLONNE = [
       { id: "nome", label: "Nome", calc: (r) => capitalizza(r.soci && r.soci.nome) },
       { id: "data_nascita", label: "Data nasc.", calc: (r) => fmtData(r.soci && r.soci.data_nascita) },
       { id: "telefono", label: "Telefono", calc: (r) => (r.soci && r.soci.telefono) || "" },
+      { id: "email", label: "Email", calc: (r) => ((r.soci && r.soci.email) || "").trim().toLowerCase() },
+      { id: "cf", label: "Cod. fiscale", calc: (r) => ((r.soci && r.soci.cf) || "").toUpperCase() },
     ],
   },
   {
@@ -368,7 +370,7 @@ export default function ElencoPersonalizzato() {
       // in fondo all'elenco del rispettivo corso con l'etichetta "Prova".
       const { data: proveDB, error: errPr } = await supabase
         .from("prove")
-        .select("id, nome, cognome, cf, telefono, data_nascita, stato, corso_id, corsi!inner ( stagione_id )")
+        .select("id, nome, cognome, cf, telefono, email, data_nascita, stato, corso_id, corsi!inner ( stagione_id )")
         .eq("corsi.stagione_id", stag.id)
         .in("stato", ["in_attesa", "confermata", "effettuata"]);
       if (errPr) throw errPr;
@@ -390,7 +392,7 @@ export default function ElencoPersonalizzato() {
           _giorniOrari: "",
           _meseInizio: corsoRiga ? corsoRiga.mese_inizio : "",
           _iniziatoIl: corsoRiga ? (corsoRiga.mese_inizio === "settembre" ? "Settembre" : "Ottobre") : "",
-          soci: { cf: p.cf, nome: p.nome, cognome: p.cognome, data_nascita: p.data_nascita, telefono: p.telefono },
+          soci: { cf: p.cf, nome: p.nome, cognome: p.cognome, data_nascita: p.data_nascita, telefono: p.telefono, email: p.email },
         };
       });
 
@@ -407,7 +409,7 @@ export default function ElencoPersonalizzato() {
         ? { data: [], error: null }
         : await supabase
           .from("iscrizioni")
-          .select("id, corso_id, corso_extra_settembre_id, frequenza_extra_settembre, sovrapprezzo_extra_settembre, tipo_pagamento, soci ( cf, nome, cognome, telefono, data_nascita )")
+          .select("id, corso_id, corso_extra_settembre_id, frequenza_extra_settembre, sovrapprezzo_extra_settembre, tipo_pagamento, soci ( cf, nome, cognome, telefono, email, data_nascita )")
           .eq("stagione_id", stag.id)
           .not("corso_extra_settembre_id", "is", null)
           .neq("stato_pagamento", "annullata");
