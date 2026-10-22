@@ -293,6 +293,7 @@ function numeroWhatsApp(tel) {
 function InviiRapidi({ socio, iscrizioni }) {
   const [inviando, setInviando] = useState('')
   const [esito, setEsito] = useState(null) // { ok, testo }
+  const [aperto, setAperto] = useState(false)
 
   const nome = (socio.soprannome || socio.nome || '').trim()
   const wa = numeroWhatsApp(socio.telefono)
@@ -389,39 +390,45 @@ function InviiRapidi({ socio, iscrizioni }) {
     cursor: attivo ? 'pointer' : 'not-allowed', background: attivo ? sfondo : '#F1F5F9', color: attivo ? colore : '#94A3B8',
   })
 
+  const visibili = messaggi.filter(m => m.disponibile)
+  const suggeriti = visibili.filter(m => m.suggerito)
+
   return (
     <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 12, marginBottom: 16 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: TX, marginBottom: 2 }}>⚡ Invii rapidi</div>
-      <div style={{ fontSize: 11.5, color: SUB, marginBottom: 8 }}>
-        📧 parte subito da info@ · 💬 apre WhatsApp con il messaggio già scritto (lo invii tu).
-        {!socio.email && ' Nessuna email registrata.'}{!wa && ' Nessun cellulare valido per WhatsApp.'}
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {messaggi.map(m => (
-          <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: 'white', border: `1px solid ${m.suggerito ? '#86EFAC' : BD}`, borderRadius: 7, padding: '6px 9px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12.5, color: m.disponibile ? TX : SUB }}>
-              {m.titolo}
-              {m.suggerito && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: G, background: GL, padding: '1px 6px', borderRadius: 5 }}>SUGGERITO</span>}
-              {!m.disponibile && <span style={{ marginLeft: 6, fontSize: 11 }}>— {m.motivo}</span>}
-            </span>
-            <span style={{ display: 'flex', gap: 5 }}>
-              {!m.soloWa && (
-                <button onClick={() => inviaEmail(m)} disabled={!m.disponibile || !socio.email || !!inviando} style={btn(m.disponibile && !!socio.email && !inviando, '#1D4ED8', '#DBEAFE')}>
-                  {inviando === m.id ? 'Invio…' : '📧 Email'}
-                </button>
-              )}
-              <button onClick={() => apriWhatsApp(m)} disabled={!m.disponibile || !wa} style={btn(m.disponibile && !!wa, '#166534', '#DCFCE7')}>
-                💬 WhatsApp
-              </button>
-            </span>
-          </div>
-        ))}
-        {wa && (
-          <button onClick={() => window.open(`https://wa.me/${wa}`, '_blank')} style={{ ...btn(true, '#166534', '#DCFCE7'), alignSelf: 'flex-start', marginTop: 2 }}>
-            💬 Apri chat WhatsApp (messaggio libero)
-          </button>
+      <button onClick={() => setAperto(a => !a)} style={{ background: 'none', border: 'none', padding: 0, fontSize: 13, fontWeight: 600, color: TX, cursor: 'pointer' }}>
+        ⚡ Invii rapidi {aperto ? '▲' : '▼'}
+        {!aperto && suggeriti.length > 0 && (
+          <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 500, color: G }}>suggerito: {suggeriti.map(m => m.titolo.replace(/^\S+\s/, '')).join(', ')}</span>
         )}
-      </div>
+      </button>
+      {aperto && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: SUB, marginBottom: 6 }}>
+            📧 parte subito da info@ · 💬 apre WhatsApp con il testo già scritto (lo invii tu).
+            {!socio.email && ' Nessuna email registrata.'}{!wa && ' Nessun cellulare valido per WhatsApp.'}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 4 }}>
+            {visibili.map(m => (
+              <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, background: m.suggerito ? '#F0FDF4' : 'white', border: `1px solid ${m.suggerito ? '#86EFAC' : BD}`, borderRadius: 7, padding: '4px 6px 4px 9px' }}>
+                <span style={{ fontSize: 12, color: TX, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={m.titolo}>{m.titolo}</span>
+                <span style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                  {!m.soloWa && (
+                    <button onClick={() => inviaEmail(m)} disabled={!socio.email || !!inviando} title="Invia email" style={btn(!!socio.email && !inviando, '#1D4ED8', '#DBEAFE')}>
+                      {inviando === m.id ? '…' : '📧'}
+                    </button>
+                  )}
+                  <button onClick={() => apriWhatsApp(m)} disabled={!wa} title="Apri WhatsApp" style={btn(!!wa, '#166534', '#DCFCE7')}>💬</button>
+                </span>
+              </div>
+            ))}
+            {wa && (
+              <button onClick={() => window.open(`https://wa.me/${wa}`, '_blank')} style={{ ...btn(true, '#166534', '#DCFCE7'), textAlign: 'left', padding: '6px 9px' }}>
+                💬 Chat WhatsApp (messaggio libero)
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {esito && <p style={{ fontSize: 12, color: esito.ok ? G : R, margin: '8px 0 0' }}>{esito.testo}</p>}
     </div>
   )
