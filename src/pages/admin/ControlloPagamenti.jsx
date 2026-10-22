@@ -99,12 +99,23 @@ export function ScegliSoci({ soci, scelti, onChange }) {
   )
 }
 
+// Se il bonifico non è il totale ma l'importo di alcune iscrizioni di un solo
+// socio (tipicamente un'integrazione), restituisce quelle iscrizioni.
+function righePagateDa(candidati, importo) {
+  if (candidati.length !== 1) return null
+  const s = candidati[0]
+  if (Math.abs((Number(s.importo) || 0) - importo) < 0.005) return null
+  const righe = (s.iscrizioni || []).filter(i => Math.abs((Number(i.importo_dichiarato) || 0) - importo) < 0.005)
+  return righe.length && righe.length < (s.iscrizioni || []).length ? righe : null
+}
+
 function SchedaMovimento({ mov, soci, onVerifica, onIgnora, inCorso }) {
   const [manuali, setManuali] = useState(null) // soci scelti a mano (sostituiscono quelli trovati)
   const [scegli, setScegli] = useState(mov.esito === 'non_abbinato' || mov.esito === 'altro')
   const candidati = manuali ?? mov.candidati
   const totale = candidati.reduce((t, s) => t + (Number(s.importo) || 0), 0)
   const differenza = importoCorrisponde(candidati, mov.importo) ? 0 : mov.importo - totale
+  const parziali = righePagateDa(candidati, mov.importo) // es. solo l'integrazione
   const nonConfermati = candidati.filter(s => s.stato !== 'confermato')
 
   return (
@@ -128,6 +139,11 @@ function SchedaMovimento({ mov, soci, onVerifica, onIgnora, inCorso }) {
               <span>dichiarato {euro(s.importo)} <BadgeStato stato={s.stato} /></span>
             </div>
           ))}
+          {parziali && (
+            <div style={{ marginTop: 6, fontSize: 12.5, color: G, background: '#ECFDF3', borderRadius: 6, padding: '5px 8px' }}>
+              ✓ Corrisponde all'integrazione di {euro(mov.importo)} per {[...new Set(parziali.map(i => i.corsi?.codice_corso).filter(Boolean))].join(' + ')}: l'incasso verrà segnato solo su {parziali.length > 1 ? 'queste iscrizioni' : 'questa iscrizione'}.
+            </div>
+          )}
           {Math.abs(differenza) >= 0.005 && (
             <div style={{ marginTop: 6, fontSize: 12.5, color: ARANCIO, background: ARANCIO_L, borderRadius: 6, padding: '5px 8px' }}>
               {differenza > 0 ? `Arrivati ${euro(differenza)} in più` : `Mancano ${euro(-differenza)}`} rispetto al dichiarato ({euro(totale)}).
@@ -215,8 +231,11 @@ export default function ControlloPagamenti() {
         incasso: s.iscrizioni.every(i => i.incasso_verificato_il) ? s.iscrizioni[0].incasso_verificato_il : null,
         confermatoIl: s.iscrizioni.map(i => i.verificato_il).filter(Boolean).sort().pop() || null,
         conRicevuta: s.iscrizioni.some(i => i.ricevuta_url),
-        // importi delle iscrizioni ancora da pagare (es. integrazione di una 2ª frequenza)
-        importiAperti: [...new Set(s.iscrizioni.filter(i => i.stato_pagamento !== 'confermato').map(i => Number(i.importo_dichiarato) || 0).filter(Boolean))],
+        // importi delle singole iscrizioni (es. integrazione di un corso aggiunto
+        // o di una 2ª frequenza): un bonifico può pagare solo una di queste.
+        // Prima si consideravano solo i pagamenti non ancora confermati, ma
+        // l'integrazione di solito è già confermata dalla ricevuta (22/10/2026).
+        importiAperti: [...new Set(s.iscrizioni.map(i => Number(i.importo_dichiarato) || 0).filter(Boolean))],
       }))
       setSoci(lista)
 
@@ -287,7 +306,10 @@ export default function ControlloPagamenti() {
     setInCorso(true)
     try {
       const utente = (await supabase.auth.getUser()).data.user?.email || null
-      const ids = candidati.flatMap(s => s.iscrizioni.map(i => i.id))
+      // Bonifico di sola integrazione: segno l'incasso solo sulle iscrizioni
+      // di quell'importo, non su quelle già pagate prima.
+      const parziali = righePagateDa(candidati, mov.importo)
+      const ids = parziali ? parziali.map(i => i.id) : candidati.flatMap(s => s.iscrizioni.map(i => i.id))
       const { error } = await supabase.from('iscrizioni').update({
         incasso_verificato_il: mov.data,
         incasso_importo: mov.importo,
@@ -297,7 +319,8 @@ export default function ControlloPagamenti() {
       if (error) throw error
       await registraMovimento(mov, 'abbinato', candidati.map(s => s.cf), ids, null)
       const cfVerificati = new Set(candidati.map(s => s.cf))
-      setSoci(prev => prev.map(s => cfVerificati.has(s.cf) ? { ...s, incasso: mov.data } : s))
+      if (!parziali) setSoci(prev => prev.map(s => cfVerificati.has(s.cf) ? { ...s, incasso: mov.data } : s))
+      else caricaDati()
     } catch (e) {
       alert('Errore: ' + (e.message || e))
     }

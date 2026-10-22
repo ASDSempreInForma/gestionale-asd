@@ -274,6 +274,159 @@ function ModaleNuovaIscrizione({ socio, corsiEsclusi, onClose, onSalvato }) {
   )
 }
 
+// Invii rapidi (22/10/2026, richiesta di Solomon): dalla scheda del socio, con
+// un click, le email che si mandano più spesso (stessi testi delle email
+// automatiche, inviate da info@ tramite Brevo) oppure lo stesso messaggio su
+// WhatsApp (si apre la chat con il testo già scritto: l'invio lo fai tu).
+// L'email "tessera pronta" mandata da qui viene segnata come già inviata, così
+// l'invio automatico serale non la rimanda.
+const URL_AREA_TESSERATI = 'https://app.asdsempreinforma.it/area-tesserati'
+const URL_ISCRIVITI = 'https://www.asdsempreinforma.it/iscriviti/'
+
+function numeroWhatsApp(tel) {
+  let n = String(tel || '').replace(/\D/g, '')
+  if (n.startsWith('0039')) n = n.slice(4)
+  if (n.startsWith('39') && n.length > 10) n = n.slice(2)
+  return n.length >= 9 ? '39' + n : ''
+}
+
+function InviiRapidi({ socio, iscrizioni }) {
+  const [inviando, setInviando] = useState('')
+  const [esito, setEsito] = useState(null) // { ok, testo }
+
+  const nome = (socio.soprannome || socio.nome || '').trim()
+  const wa = numeroWhatsApp(socio.telefono)
+  const tess = statoTessera(socio)
+
+  // situazione certificato nella stagione in corso (il più favorevole tra le iscrizioni attive)
+  const attive = (iscrizioni || []).filter(i => i.stagioni?.attiva && i.stato_pagamento !== 'annullata')
+  const conCert = attive.filter(i => i.stato_certificato === 'valido' && i.data_scadenza_certificato)
+    .sort((a, b) => (a.data_scadenza_certificato < b.data_scadenza_certificato ? 1 : -1))
+  const scadCert = conCert[0]?.data_scadenza_certificato || null
+  let cert = 'mancante'
+  if (scadCert) {
+    const oggi = new Date(); oggi.setHours(0, 0, 0, 0)
+    const giorni = Math.round((new Date(scadCert) - oggi) / 86400000)
+    cert = giorni < 0 ? 'scaduto' : giorni <= 30 ? 'in_scadenza' : 'valido'
+  }
+
+  const messaggi = [
+    {
+      id: 'tessera_pronta', titolo: '🪪 Tessera pronta',
+      disponibile: tess === 'valida', motivo: tess === 'mancante' ? 'nessun numero di tessera' : 'tessera scaduta',
+      suggerito: tess === 'valida',
+      email: { tipo: 'tessera_pronta', numeroTessera: socio.numero_tessera, enteTessera: socio.ente_tessera, scadenzaTessera: socio.scadenza_tessera },
+      wa: `Ciao ${nome}, la tua tessera associativa${socio.ente_tessera ? ' ' + socio.ente_tessera : ''} n. ${socio.numero_tessera || ''} è pronta! La trovi nella tua area privata (accedi con email e codice fiscale): ${URL_AREA_TESSERATI}\nCon la tessera puoi prenotare la visita medica nei centri convenzionati dicendo che sei dell'A.S.D. Sempre In Forma.\nA presto!\nA.S.D. Sempre In Forma`,
+    },
+    {
+      id: 'promemoria_certificato', titolo: '🩺 Promemoria certificato',
+      disponibile: true, suggerito: cert === 'mancante' && attive.length > 0,
+      email: { tipo: 'promemoria_certificato' },
+      wa: `Ciao ${nome}, ti ricordiamo che risulta ancora mancante il certificato medico per frequentare i corsi. Puoi caricarlo (foto o PDF, indicando la data di scadenza) nella tua area privata: ${URL_AREA_TESSERATI}\noppure consegnarlo in palestra. Grazie!\nA.S.D. Sempre In Forma`,
+    },
+    {
+      id: 'certificato_in_scadenza', titolo: '⏳ Certificato in scadenza',
+      disponibile: !!scadCert, motivo: 'nessuna scadenza registrata', suggerito: cert === 'in_scadenza',
+      email: { tipo: 'certificato_in_scadenza', scadenzaCertificato: scadCert },
+      wa: `Ciao ${nome}, il tuo certificato medico scade il ${scadCert ? fmtData(scadCert) : ''}. Per continuare a frequentare senza interruzioni prenota per tempo la nuova visita e carica il nuovo certificato nella tua area privata: ${URL_AREA_TESSERATI}\nGrazie!\nA.S.D. Sempre In Forma`,
+    },
+    {
+      id: 'certificato_scaduto', titolo: '⛔ Certificato scaduto',
+      disponibile: !!scadCert, motivo: 'nessuna scadenza registrata', suggerito: cert === 'scaduto',
+      email: { tipo: 'certificato_scaduto', scadenzaCertificato: scadCert },
+      wa: `Ciao ${nome}, il tuo certificato medico risulta scaduto${scadCert ? ' (scadenza ' + fmtData(scadCert) + ')' : ''}. Per continuare a frequentare i corsi carica un certificato valido nella tua area privata: ${URL_AREA_TESSERATI}\nGrazie!\nA.S.D. Sempre In Forma`,
+    },
+    {
+      id: 'conferma_pagamento', titolo: '✅ Pagamento ricevuto',
+      disponibile: true, suggerito: false,
+      email: { tipo: 'conferma_pagamento' },
+      wa: `Ciao ${nome}, confermiamo di aver ricevuto il pagamento: la tua iscrizione è completa. Ti aspettiamo ai corsi!${cert !== 'valido' ? `\nSe non l'hai già fatto, ricordati di caricare il certificato medico nella tua area privata: ${URL_AREA_TESSERATI}` : ''}\nA.S.D. Sempre In Forma`,
+    },
+    {
+      id: 'area_tesserati', titolo: '🔑 Come accedere all\'area privata',
+      disponibile: true, suggerito: false, soloWa: true,
+      wa: `Ciao ${nome}, puoi accedere alla tua area privata da qui: ${URL_AREA_TESSERATI}\nPer entrare ti servono l'email con cui ti sei iscritto/a${socio.email ? ` (${socio.email})` : ''} e il tuo codice fiscale. Lì trovi la tessera, puoi caricare ricevute di pagamento e certificato medico.\nA.S.D. Sempre In Forma`,
+    },
+    {
+      id: 'modulo_iscrizione', titolo: '📝 Link modulo di iscrizione',
+      disponibile: true, suggerito: attive.length === 0, soloWa: true,
+      wa: `Ciao ${nome}, per iscriverti ai corsi compila il modulo di adesione online da qui: ${URL_ISCRIVITI}\nAl termine riceverai un'email con la quota e le coordinate per il pagamento.\nA.S.D. Sempre In Forma`,
+    },
+  ]
+
+  const inviaEmail = async (m) => {
+    if (!socio.email) return
+    if (!window.confirm(`Inviare l'email "${m.titolo.replace(/^\S+\s/, '')}" a ${socio.email}?`)) return
+    setInviando(m.id); setEsito(null)
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/invia-email-iscrizione`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
+        body: JSON.stringify({ ...m.email, destinatarioEmail: socio.email, destinatarioNome: socio.nome }),
+      })
+      const r = await res.json().catch(() => ({}))
+      if (!res.ok || !r.success) throw new Error(r.error || r.dettaglio || 'invio non riuscito')
+      if (m.id === 'tessera_pronta') {
+        await fetch(`${SUPABASE_URL}/functions/v1/avvisa-tessere-pronte`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
+          body: JSON.stringify({ segna_cf: [socio.cf] }),
+        }).catch(() => {})
+      }
+      setEsito({ ok: true, testo: `✓ Email "${m.titolo.replace(/^\S+\s/, '')}" inviata a ${socio.email}` })
+    } catch (e) {
+      setEsito({ ok: false, testo: 'Errore: ' + e.message })
+    }
+    setInviando('')
+  }
+
+  const apriWhatsApp = (m) => {
+    window.open(`https://wa.me/${wa}?text=${encodeURIComponent(m.wa)}`, '_blank')
+  }
+
+  const btn = (attivo, colore, sfondo) => ({
+    fontSize: 11.5, fontWeight: 600, border: 'none', borderRadius: 6, padding: '5px 9px',
+    cursor: attivo ? 'pointer' : 'not-allowed', background: attivo ? sfondo : '#F1F5F9', color: attivo ? colore : '#94A3B8',
+  })
+
+  return (
+    <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: TX, marginBottom: 2 }}>⚡ Invii rapidi</div>
+      <div style={{ fontSize: 11.5, color: SUB, marginBottom: 8 }}>
+        📧 parte subito da info@ · 💬 apre WhatsApp con il messaggio già scritto (lo invii tu).
+        {!socio.email && ' Nessuna email registrata.'}{!wa && ' Nessun cellulare valido per WhatsApp.'}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {messaggi.map(m => (
+          <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: 'white', border: `1px solid ${m.suggerito ? '#86EFAC' : BD}`, borderRadius: 7, padding: '6px 9px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12.5, color: m.disponibile ? TX : SUB }}>
+              {m.titolo}
+              {m.suggerito && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: G, background: GL, padding: '1px 6px', borderRadius: 5 }}>SUGGERITO</span>}
+              {!m.disponibile && <span style={{ marginLeft: 6, fontSize: 11 }}>— {m.motivo}</span>}
+            </span>
+            <span style={{ display: 'flex', gap: 5 }}>
+              {!m.soloWa && (
+                <button onClick={() => inviaEmail(m)} disabled={!m.disponibile || !socio.email || !!inviando} style={btn(m.disponibile && !!socio.email && !inviando, '#1D4ED8', '#DBEAFE')}>
+                  {inviando === m.id ? 'Invio…' : '📧 Email'}
+                </button>
+              )}
+              <button onClick={() => apriWhatsApp(m)} disabled={!m.disponibile || !wa} style={btn(m.disponibile && !!wa, '#166534', '#DCFCE7')}>
+                💬 WhatsApp
+              </button>
+            </span>
+          </div>
+        ))}
+        {wa && (
+          <button onClick={() => window.open(`https://wa.me/${wa}`, '_blank')} style={{ ...btn(true, '#166534', '#DCFCE7'), alignSelf: 'flex-start', marginTop: 2 }}>
+            💬 Apri chat WhatsApp (messaggio libero)
+          </button>
+        )}
+      </div>
+      {esito && <p style={{ fontSize: 12, color: esito.ok ? G : R, margin: '8px 0 0' }}>{esito.testo}</p>}
+    </div>
+  )
+}
+
 function SezioneEmail({ socio }) {
   const [aperto, setAperto] = useState(false)
   const [caricando, setCaricando] = useState(false)
@@ -2117,6 +2270,8 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
         </div>
 
         <DocumentiInterni socio={socio} />
+
+        <InviiRapidi socio={socio} iscrizioni={iscrizioni} />
 
         <SezioneEmail socio={socio} />
 
