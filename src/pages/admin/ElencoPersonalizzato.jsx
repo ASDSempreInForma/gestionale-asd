@@ -290,7 +290,7 @@ export default function ElencoPersonalizzato() {
 
       const { data: iscDB, error: errI } = await supabase
         .from("iscrizioni")
-        .select("id, corso_id, frequenza, giorno_scelto, tipo_pagamento, stato_pagamento, incasso_verificato_il, incasso_metodo, stato_certificato, data_scadenza_certificato, data_iscrizione, inizio_personalizzato, note, registro_libertas_stampato_il, registro_asi_stampato_il, soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera, ente_tessera, scadenza_tessera, note, registro_libertas_stagione_id, registro_asi_stagione_id )")
+        .select("id, corso_id, frequenza, giorno_scelto, tipo_pagamento, stato_pagamento, incasso_verificato_il, incasso_metodo, stato_certificato, data_scadenza_certificato, data_iscrizione, inizio_personalizzato, note, registro_libertas_stampato_il, registro_asi_stampato_il, soci ( cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera, ente_tessera, scadenza_tessera, note, registro_libertas_stagione_id, registro_asi_stagione_id, cf_segnalazione )")
         .eq("stagione_id", stag.id)
         .neq("stato_pagamento", "annullata")
         .order("id");
@@ -849,6 +849,11 @@ export default function ElencoPersonalizzato() {
                       {r._isProva && (
                         <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#B45309", background: "#FEF3C7", padding: "1px 6px", borderRadius: 5 }}>
                           PROVA
+                        </span>
+                      )}
+                      {r.soci?.cf_segnalazione && (
+                        <span title={"Codice fiscale da verificare: " + r.soci.cf_segnalazione} style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#991B1B", background: "#FEE2E2", padding: "1px 6px", borderRadius: 5 }}>
+                          ⚠️ CF
                         </span>
                       )}
                       {tesseraEsistente(r) && (

@@ -427,6 +427,56 @@ function InviiRapidi({ socio, iscrizioni }) {
   )
 }
 
+// Segnalazione "codice fiscale errato / da verificare" (22/10/2026, richiesta
+// di Solomon, caso Barbieri Paola): una nota della segreteria salvata in
+// soci.cf_segnalazione. Finché c'è, la persona mostra il badge "⚠️ CF" in
+// Anagrafica soci ed Elenco personalizzato.
+function SegnalazioneCF({ socio, onAggiornato }) {
+  const [nota, setNota] = useState(socio.cf_segnalazione || null)
+  const [apri, setApri] = useState(false)
+  const [testo, setTesto] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  const salva = async (valore) => {
+    setSalvando(true)
+    const { error } = await supabase.from('soci').update({ cf_segnalazione: valore }).eq('cf', socio.cf)
+    setSalvando(false)
+    if (error) { alert('Errore: ' + error.message); return }
+    setNota(valore); setApri(false); setTesto('')
+    onAggiornato && onAggiornato()
+  }
+
+  if (nota) {
+    return (
+      <div style={{ background: RL, color: R, borderRadius: 8, padding: '6px 10px', fontSize: 12.5, marginTop: 6, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span>⚠️ <b>Codice fiscale da verificare:</b> {nota}</span>
+        <button disabled={salvando} onClick={() => { if (window.confirm('Il codice fiscale è stato verificato/corretto? Tolgo la segnalazione.')) salva(null) }}
+          style={{ background: 'white', color: G, border: `1px solid ${BD}`, borderRadius: 6, padding: '3px 9px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+          ✓ Risolto
+        </button>
+      </div>
+    )
+  }
+  if (!apri) {
+    return (
+      <button onClick={() => setApri(true)} style={{ background: 'none', border: 'none', padding: 0, marginTop: 4, color: SUB, fontSize: 11.5, cursor: 'pointer', textDecoration: 'underline' }}>
+        ⚠️ Segnala codice fiscale errato
+      </button>
+    )
+  }
+  return (
+    <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+      <input autoFocus value={testo} onChange={e => setTesto(e.target.value)} placeholder="Es. rifiutato dal portale ASI, chiedere tessera sanitaria"
+        style={{ flex: 1, minWidth: 220, padding: '6px 9px', borderRadius: 6, border: `1px solid ${BD}`, fontSize: 12.5 }} />
+      <button disabled={salvando} onClick={() => salva(testo.trim() || 'codice fiscale errato')}
+        style={{ background: R, color: 'white', border: 'none', borderRadius: 6, padding: '6px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+        {salvando ? '…' : 'Segnala'}
+      </button>
+      <button onClick={() => setApri(false)} style={{ background: 'none', border: `1px solid ${BD}`, borderRadius: 6, padding: '6px 10px', fontSize: 12, cursor: 'pointer' }}>Annulla</button>
+    </div>
+  )
+}
+
 function SezioneEmail({ socio }) {
   const [aperto, setAperto] = useState(false)
   const [caricando, setCaricando] = useState(false)
@@ -2042,6 +2092,7 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
           <div>
             <h2 style={{ margin: 0 }}>{socio.cognome} {socio.nome}{socio.soprannome && <span style={{ fontWeight: 400, color: SUB, fontSize: '0.8em' }}> ({socio.soprannome})</span>}</h2>
             <div style={{ fontSize: 12.5, color: SUB, fontFamily: 'monospace' }}>{socio.cf}</div>
+            <SegnalazioneCF socio={socio} onAggiornato={onAggiornato} />
           </div>
           <button onClick={onChiudi} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: SUB }}>✕</button>
         </div>
@@ -2664,7 +2715,7 @@ export default function AnagraficaSoci() {
     const parole = termineSenzaSpaziMultipli(q).split(' ').filter(Boolean)
     let query = supabase
       .from('soci')
-      .select('cf, nome, cognome, soprannome, email, telefono, numero_tessera, ente_tessera, scadenza_tessera, is_admin_blocked, blocco_motivo, data_nascita, comune_nascita, provincia_nascita, indirizzo, comune_residenza, provincia_residenza, cap, note')
+      .select('cf, nome, cognome, soprannome, email, telefono, numero_tessera, ente_tessera, scadenza_tessera, is_admin_blocked, blocco_motivo, data_nascita, comune_nascita, provincia_nascita, indirizzo, comune_residenza, provincia_residenza, cap, note, cf_segnalazione')
     parole.forEach(parola => {
       query = query.or(`nome.ilike.%${parola}%,cognome.ilike.%${parola}%,soprannome.ilike.%${parola}%,cf.ilike.%${parola}%,telefono.ilike.%${parola}%`)
     })
@@ -2715,6 +2766,7 @@ export default function AnagraficaSoci() {
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {s.is_admin_blocked && <span style={{ background: RL, color: R, borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600 }}>🔒 Bloccato</span>}
             {s.note && <span style={{ background: '#F1F5F9', color: SUB, borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600 }}>📝 Nota</span>}
+            {s.cf_segnalazione && <span title={'Codice fiscale da verificare: ' + s.cf_segnalazione} style={{ background: RL, color: R, borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600 }}>⚠️ CF</span>}
             {s.numero_tessera && <span style={{ fontSize: 12, color: SUB }}>Tessera {s.numero_tessera}</span>}
             <span style={{ color: SUB }}>›</span>
           </div>
