@@ -89,6 +89,7 @@ const GRUPPI_COLONNE = [
       { id: "presenza", label: "Presenza", calc: () => "" },
       { id: "note_manuali", label: "Note", calc: (r, ctx) => {
         const parti = [];
+        if (ctx?.noteStampa?.[r.id]) parti.push(ctx.noteStampa[r.id]);
         if (ctx?.precompilaNoteInterne && r.soci?.note) parti.push(r.soci.note);
         if (ctx?.precompilaNoteRapide && ctx?.noteRapidePerCf?.[r.soci?.cf]) parti.push(ctx.noteRapidePerCf[r.soci.cf]);
         return parti.join(" | ");
@@ -252,6 +253,14 @@ export default function ElencoPersonalizzato() {
   // scelte. Entrambe le fonti sono selezionabili insieme (richiesto da
   // Solomon l'8/09/2026).
   const [precompilaNoteInterne, setPrecompilaNoteInterne] = useState(false);
+  // Nota libera per singola persona, solo per questa stampa (22/10/2026):
+  // finisce nella colonna "Note" del PDF/Excel, non viene salvata.
+  const [noteStampa, setNoteStampa] = useState({});
+  const [notaAperta, setNotaAperta] = useState(null);
+  const scriviNotaStampa = (id, testo) => {
+    setNoteStampa((prev) => ({ ...prev, [id]: testo }));
+    if (testo && !colonneScelte.has("note_manuali")) toggleColonna("note_manuali");
+  };
   const [precompilaNoteRapide, setPrecompilaNoteRapide] = useState(false);
 
   const OPZIONI_TITOLO = [
@@ -694,7 +703,7 @@ export default function ElencoPersonalizzato() {
     const intestazione = [...(elencoNumerato ? ["N."] : []), ...colonneOrdinate.map((c) => c.label)];
     const righe = iscrizioniSelezionate.map((r, i) => [
       ...(elencoNumerato ? [i + 1] : []),
-      ...colonneOrdinate.map((c) => c.calc(r, { precompilaNoteInterne, precompilaNoteRapide, noteRapidePerCf })),
+      ...colonneOrdinate.map((c) => c.calc(r, { precompilaNoteInterne, precompilaNoteRapide, noteRapidePerCf, noteStampa })),
     ]);
     const righeExtra = Array.from({ length: Math.max(0, righeVuoteExtra) }).map(() => [
       ...(elencoNumerato ? [""] : []),
@@ -712,7 +721,7 @@ export default function ElencoPersonalizzato() {
     const colonneConNumero = elencoNumerato ? [{ id: "numero", label: "N." }, ...colonneOrdinate] : colonneOrdinate;
     const righe = iscrizioniSelezionate.map((r, i) => [
       ...(elencoNumerato ? [i + 1] : []),
-      ...colonneOrdinate.map((c) => c.calc(r, { precompilaNoteInterne, precompilaNoteRapide, noteRapidePerCf })),
+      ...colonneOrdinate.map((c) => c.calc(r, { precompilaNoteInterne, precompilaNoteRapide, noteRapidePerCf, noteStampa })),
     ]);
     const titolo = titoloPDF === "ALTRO" ? (titoloPersonalizzato || "SOCI E TESSERATI") : titoloPDF;
     generaElencoPDF({
@@ -842,7 +851,8 @@ export default function ElencoPersonalizzato() {
                   <p style={{ fontSize: 12, color: GR, padding: 12, margin: 0 }}>Nessun risultato con questi filtri.</p>
                 )}
                 {risultatiFiltrati.map((r) => (
-                  <label key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "7px 10px", borderBottom: "1px solid " + BD, cursor: "pointer" }}>
+                  <div key={r.id} style={{ borderBottom: "1px solid " + BD }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "7px 10px", cursor: "pointer" }}>
                     <input type="checkbox" checked={selezionati.has(r.id)} onChange={() => toggleSelezionato(r.id)} />
                     <span style={{ flex: 1 }}>
                       {capitalizza(r.soci && r.soci.cognome)} {capitalizza(r.soci && r.soci.nome)}
@@ -881,7 +891,19 @@ export default function ElencoPersonalizzato() {
                     <span style={{ fontSize: 11, color: GR }}>
                       {(corsi.find((c) => c.id === r.corso_id) || {}).codice_corso}
                     </span>
+                    <button type="button" title="Nota da stampare per questa persona" onClick={(e) => { e.preventDefault(); setNotaAperta(notaAperta === r.id ? null : r.id); }}
+                      style={{ background: noteStampa[r.id] ? "#FEF3C7" : "none", border: "1px solid " + (noteStampa[r.id] ? "#FCD34D" : BD), borderRadius: 6, padding: "1px 7px", fontSize: 11, cursor: "pointer", color: noteStampa[r.id] ? "#92400E" : GR }}>
+                      ✎{noteStampa[r.id] ? " nota" : ""}
+                    </button>
                   </label>
+                  {(notaAperta === r.id || noteStampa[r.id]) && (
+                    <div style={{ padding: "0 10px 7px 32px" }}>
+                      <input value={noteStampa[r.id] || ""} autoFocus={notaAperta === r.id} onChange={(e) => scriviNotaStampa(r.id, e.target.value)}
+                        placeholder="Nota da stampare (es. codice fiscale errato)"
+                        style={{ width: "100%", boxSizing: "border-box", padding: "5px 8px", borderRadius: 6, border: "1px solid #FCD34D", fontSize: 12, background: "#FFFBEB" }} />
+                    </div>
+                  )}
+                  </div>
                 ))}
               </div>
 
