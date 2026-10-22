@@ -99,14 +99,23 @@ export function ScegliSoci({ soci, scelti, onChange }) {
   )
 }
 
-// Se il bonifico non è il totale ma l'importo di alcune iscrizioni di un solo
-// socio (tipicamente un'integrazione), restituisce quelle iscrizioni.
-function righePagateDa(candidati, importo) {
+// Se il bonifico non è il totale ma solo una parte, per un solo socio:
+//  - integrazione 2ª lezione chiesta dall'area privata (integrazione_importo)
+//  - 2ª rata quadrimestrale (importo_rata2)
+//  - iscrizione di un corso aggiunto dopo (importo_dichiarato di quella riga)
+// restituisce { tipo, righe } con le iscrizioni a cui si riferisce.
+function abbinamentoParziale(candidati, importo) {
   if (candidati.length !== 1) return null
   const s = candidati[0]
-  if (Math.abs((Number(s.importo) || 0) - importo) < 0.005) return null
-  const righe = (s.iscrizioni || []).filter(i => Math.abs((Number(i.importo_dichiarato) || 0) - importo) < 0.005)
-  return righe.length && righe.length < (s.iscrizioni || []).length ? righe : null
+  const isc = s.iscrizioni || []
+  const eq = (x) => x != null && Math.abs((Number(x) || 0) - importo) < 0.005
+  if (eq(s.importo)) return null
+  const integ = isc.filter(i => eq(i.integrazione_importo))
+  if (integ.length) return { tipo: 'integrazione', righe: integ }
+  const rata2 = isc.filter(i => eq(i.importo_rata2))
+  if (rata2.length) return { tipo: 'rata2', righe: rata2 }
+  const righe = isc.filter(i => eq(i.importo_dichiarato))
+  return righe.length && righe.length < isc.length ? { tipo: 'righe', righe } : null
 }
 
 function SchedaMovimento({ mov, soci, onVerifica, onIgnora, inCorso }) {
@@ -115,7 +124,7 @@ function SchedaMovimento({ mov, soci, onVerifica, onIgnora, inCorso }) {
   const candidati = manuali ?? mov.candidati
   const totale = candidati.reduce((t, s) => t + (Number(s.importo) || 0), 0)
   const differenza = importoCorrisponde(candidati, mov.importo) ? 0 : mov.importo - totale
-  const parziali = righePagateDa(candidati, mov.importo) // es. solo l'integrazione
+  const parziale = abbinamentoParziale(candidati, mov.importo) // es. solo l'integrazione
   const nonConfermati = candidati.filter(s => s.stato !== 'confermato')
 
   return (
@@ -139,9 +148,10 @@ function SchedaMovimento({ mov, soci, onVerifica, onIgnora, inCorso }) {
               <span>dichiarato {euro(s.importo)} <BadgeStato stato={s.stato} /></span>
             </div>
           ))}
-          {parziali && (
+          {parziale && (
             <div style={{ marginTop: 6, fontSize: 12.5, color: G, background: '#ECFDF3', borderRadius: 6, padding: '5px 8px' }}>
-              ✓ Corrisponde all'integrazione di {euro(mov.importo)} per {[...new Set(parziali.map(i => i.corsi?.codice_corso).filter(Boolean))].join(' + ')}: l'incasso verrà segnato solo su {parziali.length > 1 ? 'queste iscrizioni' : 'questa iscrizione'}.
+              ✓ Corrisponde {parziale.tipo === 'rata2' ? 'alla 2ª rata' : parziale.tipo === 'integrazione' ? "all'integrazione per la 2ª lezione" : "all'integrazione"} di {euro(mov.importo)} per {[...new Set(parziale.righe.map(i => i.corsi?.codice_corso).filter(Boolean))].join(' + ')}
+              {(parziale.tipo === 'integrazione' ? parziale.righe.every(i => i.integrazione_incasso_il) : parziale.tipo === 'rata2' ? parziale.righe.every(i => i.rata2_incasso_il) : false) ? ' (incasso già segnato).' : '.'}
             </div>
           )}
           {Math.abs(differenza) >= 0.005 && (
@@ -212,7 +222,7 @@ export default function ControlloPagamenti() {
       setStagione(st)
 
       const righe = await leggiTutto(() => supabase.from('iscrizioni')
-        .select('id, socio_cf, stato_pagamento, importo_dichiarato, tipo_pagamento, data_pagamento, data_iscrizione, verificato_il, incasso_verificato_il, incasso_metodo, ricevuta_url, soci ( nome, cognome ), corsi!iscrizioni_corso_id_fkey ( codice_corso )')
+        .select('id, socio_cf, stato_pagamento, importo_dichiarato, tipo_pagamento, data_pagamento, data_iscrizione, verificato_il, incasso_verificato_il, incasso_metodo, ricevuta_url, integrazione_importo, integrazione_incasso_il, importo_rata2, rata2_incasso_il, soci ( nome, cognome ), corsi!iscrizioni_corso_id_fkey ( codice_corso )')
         .eq('stagione_id', st.id).neq('stato_pagamento', 'annullata').order('id'))
 
       const perSocio = new Map()
@@ -235,7 +245,7 @@ export default function ControlloPagamenti() {
         // o di una 2ª frequenza): un bonifico può pagare solo una di queste.
         // Prima si consideravano solo i pagamenti non ancora confermati, ma
         // l'integrazione di solito è già confermata dalla ricevuta (22/10/2026).
-        importiAperti: [...new Set(s.iscrizioni.map(i => Number(i.importo_dichiarato) || 0).filter(Boolean))],
+        importiAperti: [...new Set(s.iscrizioni.flatMap(i => [i.importo_dichiarato, i.integrazione_importo, i.importo_rata2]).map(x => Number(x) || 0).filter(Boolean))],
       }))
       setSoci(lista)
 
@@ -308,18 +318,21 @@ export default function ControlloPagamenti() {
       const utente = (await supabase.auth.getUser()).data.user?.email || null
       // Bonifico di sola integrazione: segno l'incasso solo sulle iscrizioni
       // di quell'importo, non su quelle già pagate prima.
-      const parziali = righePagateDa(candidati, mov.importo)
-      const ids = parziali ? parziali.map(i => i.id) : candidati.flatMap(s => s.iscrizioni.map(i => i.id))
-      const { error } = await supabase.from('iscrizioni').update({
-        incasso_verificato_il: mov.data,
-        incasso_importo: mov.importo,
-        incasso_verificato_da: utente,
-        incasso_metodo: mov.tipo === 'bollettino' ? 'bollettino' : mov.tipo === 'sumup' ? 'carta' : 'bonifico',
-      }).in('id', ids)
+      const parziale = abbinamentoParziale(candidati, mov.importo)
+      const ids = parziale ? parziale.righe.map(i => i.id) : candidati.flatMap(s => s.iscrizioni.map(i => i.id))
+      const datiIncasso = parziale?.tipo === 'integrazione' ? { integrazione_incasso_il: mov.data }
+        : parziale?.tipo === 'rata2' ? { rata2_incasso_il: mov.data }
+        : {
+          incasso_verificato_il: mov.data,
+          incasso_importo: mov.importo,
+          incasso_verificato_da: utente,
+          incasso_metodo: mov.tipo === 'bollettino' ? 'bollettino' : mov.tipo === 'sumup' ? 'carta' : 'bonifico',
+        }
+      const { error } = await supabase.from('iscrizioni').update(datiIncasso).in('id', ids)
       if (error) throw error
       await registraMovimento(mov, 'abbinato', candidati.map(s => s.cf), ids, null)
       const cfVerificati = new Set(candidati.map(s => s.cf))
-      if (!parziali) setSoci(prev => prev.map(s => cfVerificati.has(s.cf) ? { ...s, incasso: mov.data } : s))
+      if (!parziale) setSoci(prev => prev.map(s => cfVerificati.has(s.cf) ? { ...s, incasso: mov.data } : s))
       else caricaDati()
     } catch (e) {
       alert('Errore: ' + (e.message || e))
