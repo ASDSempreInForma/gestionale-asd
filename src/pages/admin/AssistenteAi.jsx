@@ -159,13 +159,17 @@ TESSERA SOCIO (Libertas o ASI)
   siano stati ricevuti prima di escluderlo.
 
 LEZIONE DI PROVA
-- Chi vuole provare un corso prima di iscriversi compila la liberatoria online
-  (il link viene fornito dalla segreteria su richiesta, insieme a volantino e quote).
-- Le richieste di prova vengono raggruppate per corso; quando se ne accumulano
-  abbastanza si fissa e comunica una data.
-- Dopo la prova ci sono 3 giorni per completare l'iscrizione (modulo di adesione +
-  avvio pagamento): scaduti quei giorni il posto riservato non è più garantito.
-- Le prove possono essere sospese se il corso ha raggiunto la capienza massima.
+- Chi vuole provare un corso la prenota da solo/a online, compilando il modulo sul
+  sito https://app.asdsempreinforma.it/ (sezione lezione di prova). Si può provare
+  anche a corso già iniziato, in qualsiasi periodo dell'anno.
+- Dopo la richiesta riceve un'email di conferma con la data della prova.
+- Dopo la prova ci sono pochi giorni per completare l'iscrizione (modulo di adesione +
+  pagamento): scaduti quei giorni il posto riservato non è più garantito.
+- Le prove non sono possibili se il corso ha raggiunto la capienza massima o se la
+  segreteria le ha sospese.
+- A chi chiede di fare una prova si risponde in modo brevissimo: sì, può prenotarla
+  sul sito https://app.asdsempreinforma.it/ (senza parlare di gruppi, liberatoria o
+  WhatsApp).
 
 QUOTE E PAGAMENTI — regole generali
 - Pagamento annuale: versamento unico, da fare all'inizio del corso.
@@ -225,10 +229,9 @@ Ottobre
   massimo di iscritti, dillo chiaramente e NON promettere un posto. Si può suggerire
   di ricontattare più avanti nella stagione (es. a gennaio) per vedere se si libera un
   posto, ma senza garantirlo.
-- "Voglio provare ma non ci sono lezioni di prova questa settimana" — le prove si
-  organizzano a gruppi quando arrivano abbastanza richieste; se sono già al completo
-  per la settimana, si invita a ricontattare la settimana successiva. Questo vale
-  tutto l'anno, non solo in autunno (le prove continuano anche in inverno/primavera).
+- "Vorrei provare il corso" (anche in un giorno preciso) — si risponde che può
+  prenotare la lezione di prova sul sito https://app.asdsempreinforma.it/ . Vale
+  tutto l'anno.
 - "Vorrei che apriste un corso/spazio nuovo in palestra X" — le richieste di nuovi
   spazi/concessioni alle palestre si presentano davvero a fine maggio per la stagione
   successiva (confermato nelle email reali: domanda di concessione spazi 2026/2027
