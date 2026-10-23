@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabase.js';
+import { tokenSede, sessioneSedeScaduta } from './sessioneSede.js';
 import { dateAttese, slotSettimanali, dataInizioCorso, isoLocale } from '../admin/lezioniPreviste.js';
 
 // Area SEDE → scheda "Palestre" (13/10/2026, richiesta di Solomon).
@@ -18,10 +19,11 @@ const C = '#4A5560';
 const GIORNI = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'];
 
 async function chiama(action, payload) {
-  const { data, error } = await supabase.functions.invoke('area-sede-palestre', { body: { action, payload } });
+  const { data, error } = await supabase.functions.invoke('area-sede-palestre', { body: { action, payload: { ...(payload || {}), token: tokenSede() } } });
   if (error) {
     let msg = error.message || 'Errore di comunicazione con il server';
     try { const parsed = await error.context?.json?.(); if (parsed?.error) msg = parsed.error; } catch (_) { /* ignora */ }
+    sessioneSedeScaduta(msg);
     throw new Error(msg);
   }
   if (data?.error) throw new Error(data.error);

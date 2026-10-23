@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../supabase.js';
 import AreaSedePalestre from './AreaSedePalestre.jsx';
+import { tokenSede, sessioneSedeScaduta } from './sessioneSede.js';
 
 // Area SEDE — accesso separato (email+telefono) per chi gestisce i compensi
 // istruttori della sede Via del Brolo. NON sostituisce il sistema esistente di
@@ -35,13 +36,15 @@ function euro(n) {
 
 // `funzione` permette di chiamare un'altra edge function dell'Area SEDE (es. 'area-sede-assenze').
 async function chiamaAreaSede(action, payload, funzione = 'area-sede') {
-  const { data, error } = await supabase.functions.invoke(funzione, { body: { action, payload } });
+  const token = action === 'login' ? undefined : tokenSede();
+  const { data, error } = await supabase.functions.invoke(funzione, { body: { action, payload: { ...(payload || {}), token } } });
   if (error) {
     let msg = error.message || 'Errore di comunicazione con il server';
     try {
       const parsed = await error.context?.json?.();
       if (parsed?.error) msg = parsed.error;
     } catch (_) { /* ignora */ }
+    if (action !== 'login') sessioneSedeScaduta(msg);
     throw new Error(msg);
   }
   if (data?.error) throw new Error(data.error);
@@ -71,7 +74,11 @@ export default function AreaSede() {
   useEffect(() => {
     const salvata = localStorage.getItem('sede_sessione');
     if (salvata) {
-      try { setSessione(JSON.parse(salvata)); } catch (_) { localStorage.removeItem('sede_sessione'); }
+      try {
+        const sess = JSON.parse(salvata);
+        // sessioni salvate prima del 23/10/2026 non hanno il token: si rifà il login
+        if (sess && sess.token) setSessione(sess); else localStorage.removeItem('sede_sessione');
+      } catch (_) { localStorage.removeItem('sede_sessione'); }
     }
     setCaricamentoIniziale(false);
   }, []);
