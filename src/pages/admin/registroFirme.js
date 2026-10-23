@@ -139,7 +139,7 @@ async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile
     testoInSpazio(page, (s.cognome || "").toUpperCase(), xTot + 65, yBase - 13, 150, fontBold, nero);
     riga("Nome:", xTot + 220, yBase - 13, false);
     testoInSpazio(page, (s.nome || "").toUpperCase(), xTot + 260, yBase - 13, 114, fontBold, nero);
-    riga("Data _____ / _____ / _____", xTot + 380, yBase - 13, false);
+    if (!senzaFirma) riga("Data _____ / _____ / _____", xTot + 380, yBase - 13, false);
 
     // Riga 2: Data nascita / Comune / Firma
     riga("Data nascita:", xTot + 8, yBase - rigaH - 13, false);
@@ -354,7 +354,7 @@ async function generaPDFMultiSezione({ sezioni, codiceSocieta, stagioneNome, ent
     testoInSpazio(page, (s.cognome || "").toUpperCase(), xTot + 65, yTop - 13, 150, fontBold, nero);
     riga("Nome:", xTot + 220, yTop - 13, false);
     testoInSpazio(page, (s.nome || "").toUpperCase(), xTot + 260, yTop - 13, 114, fontBold, nero);
-    riga("Data _____ / _____ / _____", xTot + 380, yTop - 13, false);
+    if (!senzaFirma) riga("Data _____ / _____ / _____", xTot + 380, yTop - 13, false);
 
     riga("Data nascita:", xTot + 8, yTop - rigaH - 13, false);
     riga(fmtData(s.data_nascita), xTot + 80, yTop - rigaH - 13, true);
