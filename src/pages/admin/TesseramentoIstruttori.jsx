@@ -67,6 +67,7 @@ export default function TesseramentoIstruttori({ onChiudi }) {
   const [scelti, setScelti] = useState(new Set());
   const [errore, setErrore] = useState("");
   const [stampa, setStampa] = useState("");
+  const [senzaFirma, setSenzaFirma] = useState(false); // 23/10/2026: stampa con tutti i dati ma senza campo firma
   const [qualLib, setQualLib] = useState(DEFAULT_QUAL_LIB);
   const [assLib, setAssLib] = useState(DEFAULT_ASS_LIB);
   const [importo, setImporto] = useState(null); // { ente, trovati:[{t, numero, scadenza}], nonTrovati:[...] }
@@ -151,9 +152,9 @@ export default function TesseramentoIstruttori({ onChiudi }) {
         x.soci.numero_tessera = ente === "ASI" ? t.tessera_asi : t.tessera_libertas;
         return x;
       }) }];
-      const nomeFile = `Registro_Firme_${ente}_Istruttori.pdf`;
-      if (ente === "ASI") await generaRegistroFirmeGiornoASI(sezioni, { nome: stagioneCorrente() }, nomeFile);
-      else await generaRegistroFirmeGiornoLibertas(sezioni, { nome: stagioneCorrente() }, nomeFile);
+      const nomeFile = `Registro_${senzaFirma ? "Tesserati_senza_firma" : "Firme"}_${ente}_Istruttori.pdf`;
+      if (ente === "ASI") await generaRegistroFirmeGiornoASI(sezioni, { nome: stagioneCorrente() }, nomeFile, { senzaFirma });
+      else await generaRegistroFirmeGiornoLibertas(sezioni, { nome: stagioneCorrente() }, nomeFile, { senzaFirma });
     } catch (e) { alert("Errore nella stampa: " + (e.message || e)); }
     setStampa("");
   }
@@ -217,11 +218,15 @@ export default function TesseramentoIstruttori({ onChiudi }) {
                 {QUALIFICHE.map(([v, l]) => <option key={v} value={v}>{v} — {l}</option>)}
               </select>
             </div>
+            <label style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "#374151", cursor: "pointer" }}>
+              <input type="checkbox" checked={senzaFirma} onChange={(e) => setSenzaFirma(e.target.checked)} />
+              <span><b>Senza campo firma</b> — stampa tutti i dati ma senza lo spazio "Firma" (per chi non deve firmare)</span>
+            </label>
             <button disabled={!!stampa} onClick={() => stampaRegistro("Libertas")} style={btn("#2D6A4F", "white")}>
-              {stampa === "Libertas" ? "Preparo…" : "🖨️ Registro firme Libertas"}
+              {stampa === "Libertas" ? "Preparo…" : (senzaFirma ? "🖨️ Registro Libertas senza firma" : "🖨️ Registro firme Libertas")}
             </button>
             <button disabled={!!stampa} onClick={() => stampaRegistro("ASI")} style={btn("#1E3A5F", "white")}>
-              {stampa === "ASI" ? "Preparo…" : "🖨️ Registro firme ASI"}
+              {stampa === "ASI" ? "Preparo…" : (senzaFirma ? "🖨️ Registro ASI senza firma" : "🖨️ Registro firme ASI")}
             </button>
           </div>
 

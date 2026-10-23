@@ -551,6 +551,7 @@ export default function ElencoPersonalizzato() {
   // persona per tutta la stagione: soci.registro_<ente>_stagione_id, non più usato qui.)
   const [escludiRegistroStampato, setEscludiRegistroStampato] = useState(true);
   const [msgRegistro, setMsgRegistro] = useState("");
+  const [registroSenzaFirma, setRegistroSenzaFirma] = useState(false); // 23/10/2026: stampa senza campo firma
 
   // Riga "segnabile": una vera iscrizione (non prova, non riga extra settembre)
   const rigaRegistro = (r) => r && !r._isProva && !r._isExtraSettembre && r.soci && r.soci.cf;
@@ -615,8 +616,9 @@ export default function ElencoPersonalizzato() {
         : `Tutte le persone selezionate hanno già firmato un registro (Libertas o ASI) in questo corso: non c'è niente da stampare.`);
       return;
     }
-    if (ente === "libertas") await generaRegistroFirmeLibertas({ codice_corso: "Selezione" }, lista, stagione);
-    else await generaRegistroFirmeASI({ codice_corso: "Selezione" }, lista, stagione);
+    const opz = { senzaFirma: registroSenzaFirma };
+    if (ente === "libertas") await generaRegistroFirmeLibertas({ codice_corso: "Selezione" }, lista, stagione, opz);
+    else await generaRegistroFirmeASI({ codice_corso: "Selezione" }, lista, stagione, opz);
     const ok = await segnaRegistro(ente, lista, true);
     if (ok) setMsgRegistro(`✅ Registro ${nomeEnte}: ${lista.length} righe stampate e segnate come "già firmato" nel loro corso.${notaSenza}`);
   }
@@ -1041,6 +1043,11 @@ export default function ElencoPersonalizzato() {
                 Registro firme Libertas
               </button>
             </div>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: TX, cursor: "pointer", marginTop: 10 }}>
+              <input type="checkbox" checked={registroSenzaFirma} onChange={(e) => setRegistroSenzaFirma(e.target.checked)} />
+              <span><b>Registri senza campo firma</b> — tutti i dati ma senza lo spazio "Firma" (per chi non deve firmare)</span>
+            </label>
 
             {/* Registro firme: si firma una sola volta per stagione */}
             <div style={{ marginTop: 14, background: "#F9FAFB", border: "1px solid " + BD, borderRadius: 10, padding: 12 }}>

@@ -69,7 +69,9 @@ function fmtData(d) {
 // dinamicamente più sotto in base allo spazio realmente disponibile.
 const ALTEZZA_RIGA_CORSO = 14; // striscia in più sopra al blocco, solo nel foglio misto
 
-async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile, misto = false }) {
+// senzaFirma (23/10/2026, richiesto da Solomon): stessa stampa con tutti i dati
+// ma senza il campo "Firma" — per istruttori e soci che non devono firmare.
+async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile, misto = false, senzaFirma = false }) {
   const pdfDoc = await PDFDocument.create();
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -144,7 +146,7 @@ async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile
     riga(fmtData(s.data_nascita), xTot + 80, yBase - rigaH - 13, true);
     riga("a:", xTot + 220, yBase - rigaH - 13, false);
     testoInSpazio(page, s.comune_nascita, xTot + 235, yBase - rigaH - 13, 139, fontBold, nero);
-    riga("Firma ____________________", xTot + 380, yBase - rigaH - 13, false, 9);
+    if (!senzaFirma) riga("Firma ____________________", xTot + 380, yBase - rigaH - 13, false, 9);
 
     // Riga 3: Tipo tessera / Codice tessera / Data emissione (sempre la data odierna, ossia la data di stampa)
     riga("Tipo Tessera:", xTot + 8, yBase - rigaH * 2 - 13, false);
@@ -242,23 +244,25 @@ async function generaPDF({ iscritti, codiceSocieta, stagioneNome, ente, nomeFile
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-export async function generaRegistroFirmeASI(corso, iscritti, stagione) {
+export async function generaRegistroFirmeASI(corso, iscritti, stagione, { senzaFirma = false } = {}) {
   await generaPDF({
     iscritti,
     codiceSocieta: "BS0905",
     stagioneNome: stagione?.nome || "",
     ente: "ASI",
-    nomeFile: `Registro_Firme_ASI_${corso.codice_corso}.pdf`,
+    nomeFile: `Registro_${senzaFirma ? "Tesserati_senza_firma" : "Firme"}_ASI_${corso.codice_corso}.pdf`,
+    senzaFirma,
   });
 }
 
-export async function generaRegistroFirmeLibertas(corso, iscritti, stagione) {
+export async function generaRegistroFirmeLibertas(corso, iscritti, stagione, { senzaFirma = false } = {}) {
   await generaPDF({
     iscritti,
     codiceSocieta: "BS481",
     stagioneNome: stagione?.nome || "",
     ente: "Libertas",
-    nomeFile: `Registro_Firme_Libertas_${corso.codice_corso}.pdf`,
+    nomeFile: `Registro_${senzaFirma ? "Tesserati_senza_firma" : "Firme"}_Libertas_${corso.codice_corso}.pdf`,
+    senzaFirma,
   });
 }
 
@@ -299,7 +303,7 @@ export async function generaRegistroFirmeMistoLibertas(iscrittiConCorso, stagion
 // di scaricare un file per turno (richiesto da Solomon il 16/09/2026).
 // `sezioni` = [{ titolo, iscritti }], una per turno/corso.
 // ─────────────────────────────────────────────────────────────────
-async function generaPDFMultiSezione({ sezioni, codiceSocieta, stagioneNome, ente, nomeFile }) {
+async function generaPDFMultiSezione({ sezioni, codiceSocieta, stagioneNome, ente, nomeFile, senzaFirma = false }) {
   const pdfDoc = await PDFDocument.create();
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -356,7 +360,7 @@ async function generaPDFMultiSezione({ sezioni, codiceSocieta, stagioneNome, ent
     riga(fmtData(s.data_nascita), xTot + 80, yTop - rigaH - 13, true);
     riga("a:", xTot + 220, yTop - rigaH - 13, false);
     testoInSpazio(page, s.comune_nascita, xTot + 235, yTop - rigaH - 13, 139, fontBold, nero);
-    riga("Firma ____________________", xTot + 380, yTop - rigaH - 13, false, 9);
+    if (!senzaFirma) riga("Firma ____________________", xTot + 380, yTop - rigaH - 13, false, 9);
 
     riga("Tipo Tessera:", xTot + 8, yTop - rigaH * 2 - 13, false);
     // tipo_tessera_registro: lettera scelta per gli istruttori (T/A/S/D), 19/10/2026
@@ -425,10 +429,10 @@ async function generaPDFMultiSezione({ sezioni, codiceSocieta, stagioneNome, ent
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-export async function generaRegistroFirmeGiornoASI(sezioni, stagione, nomeFile = "Registro_Firme_ASI_Giorno.pdf") {
-  await generaPDFMultiSezione({ sezioni, codiceSocieta: "BS0905", stagioneNome: stagione?.nome || "", ente: "ASI", nomeFile });
+export async function generaRegistroFirmeGiornoASI(sezioni, stagione, nomeFile = "Registro_Firme_ASI_Giorno.pdf", { senzaFirma = false } = {}) {
+  await generaPDFMultiSezione({ sezioni, codiceSocieta: "BS0905", stagioneNome: stagione?.nome || "", ente: "ASI", nomeFile, senzaFirma });
 }
 
-export async function generaRegistroFirmeGiornoLibertas(sezioni, stagione, nomeFile = "Registro_Firme_Libertas_Giorno.pdf") {
-  await generaPDFMultiSezione({ sezioni, codiceSocieta: "BS481", stagioneNome: stagione?.nome || "", ente: "Libertas", nomeFile });
+export async function generaRegistroFirmeGiornoLibertas(sezioni, stagione, nomeFile = "Registro_Firme_Libertas_Giorno.pdf", { senzaFirma = false } = {}) {
+  await generaPDFMultiSezione({ sezioni, codiceSocieta: "BS481", stagioneNome: stagione?.nome || "", ente: "Libertas", nomeFile, senzaFirma });
 }
