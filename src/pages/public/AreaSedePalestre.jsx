@@ -51,7 +51,7 @@ function esitoDi(riga) {
   return riga.stato; // sospesa, recupero
 }
 
-export default function AreaSedePalestre({ sessione, onCertificato }) {
+export default function AreaSedePalestre({ sessione, onCertificato, elencoCertificati }) {
   const [lunedi, setLunedi] = useState(() => lunediDi(new Date()));
   const [dati, setDati] = useState(null);
   const [caricando, setCaricando] = useState(true);
@@ -129,6 +129,7 @@ export default function AreaSedePalestre({ sessione, onCertificato }) {
       </button>
 
       <BottoneCertificato colore={C} onClick={onCertificato} />
+      {elencoCertificati}
 
       <button onClick={() => setMostraSettimana((v) => !v)}
         style={{ background: 'none', border: 'none', color: '#777', fontSize: 13, textDecoration: 'underline', cursor: 'pointer', padding: '4px 0', marginBottom: 12 }}>

@@ -29,7 +29,8 @@ async function chiama(action, payload) {
   return data;
 }
 
-export default function ScannerCertificatoArea({ colore = '#4A5560', ambito = 'sede', onChiudi }) {
+// personaIniziale (dall'elenco "Mancano N certificati"): la persona è già scelta, l'AI serve solo per la scadenza
+export default function ScannerCertificatoArea({ colore = '#4A5560', ambito = 'sede', onChiudi, onSalvato, personaIniziale = null }) {
   const [fase, setFase] = useState('scegli'); // scegli | lettura | controllo | salvato
   const [daRitagliare, setDaRitagliare] = useState(null);
   const [scansione, setScansione] = useState(null);
@@ -63,13 +64,22 @@ export default function ScannerCertificatoArea({ colore = '#4A5560', ambito = 's
       const img = ris.ritagliatoColore;
       const r = await chiama('leggi', { immagine_base64: await fileToBase64(img), immagine_tipo: img.type });
       setEstratti(r.estratti || null);
-      setCandidati(r.candidati || []);
       if (r.error) setErrore(r.error);
       setScadenza(r.estratti?.scadenza || '');
-      // proposta automatica solo se il primo è nettamente il più probabile
-      const c = r.candidati || [];
-      if (c.length && (c.length === 1 || c[0].punteggio >= (c[1]?.punteggio || 0) + 4) && c[0].punteggio >= 10) setScelto(c[0]);
-      else setScelto(null);
+      if (personaIniziale) {
+        // persona già scelta dall'elenco: la mettiamo in cima, gli altri restano come alternativa
+        const altri = (r.candidati || []).filter((c) => (personaIniziale.cf ? c.cf !== personaIniziale.cf : c.sede_ids?.[0] !== personaIniziale.sede_ids?.[0]));
+        const dalServer = (r.candidati || []).find((c) => personaIniziale.cf && c.cf === personaIniziale.cf);
+        const p0 = { ...personaIniziale, ...(dalServer || {}), sede_ids: [...new Set([...(personaIniziale.sede_ids || []), ...((dalServer && dalServer.sede_ids) || [])])] };
+        setCandidati([p0, ...altri]);
+        setScelto(p0);
+      } else {
+        setCandidati(r.candidati || []);
+        // proposta automatica solo se il primo è nettamente il più probabile
+        const c = r.candidati || [];
+        if (c.length && (c.length === 1 || c[0].punteggio >= (c[1]?.punteggio || 0) + 4) && c[0].punteggio >= 10) setScelto(c[0]);
+        else setScelto(null);
+      }
     } catch (e) { setErrore(e.message); }
     setFase('controllo');
   }
@@ -89,6 +99,7 @@ export default function ScannerCertificatoArea({ colore = '#4A5560', ambito = 's
       const campi = await campiUpload(scansione);
       const r = await chiama('salva', { cf: scelto.cf, sede_ids: scelto.sede_ids, scadenza, ...campi });
       setEsito(r.esito || {}); setFase('salvato');
+      if (onSalvato) onSalvato();
     } catch (e) { setErrore(e.message); }
     setSalvando(false);
   }
@@ -113,10 +124,14 @@ export default function ScannerCertificatoArea({ colore = '#4A5560', ambito = 's
 
         {fase === 'scegli' && (
           <div>
-            <p style={{ fontSize: 14, color: '#555', marginTop: 0, marginBottom: 16, lineHeight: 1.5 }}>
-              Fotografa il certificato: leggo nome e scadenza e ti propongo la persona
-              {ambito === 'palestre' ? ' (iscritti alle palestre e alla SEDE)' : ' (persone della SEDE e iscritti alle palestre)'}. Prima di salvare controlli tu.
-            </p>
+            {personaIniziale ? (
+              <div style={{ fontSize: 18, fontWeight: 800, color: '#222', marginBottom: 16 }}>{personaIniziale.cognome} {personaIniziale.nome}</div>
+            ) : (
+              <p style={{ fontSize: 14, color: '#555', marginTop: 0, marginBottom: 16, lineHeight: 1.5 }}>
+                Fotografa il certificato: leggo nome e scadenza e ti propongo la persona
+                {ambito === 'palestre' ? ' (iscritti alle palestre e alla SEDE)' : ' (persone della SEDE e iscritti alle palestre)'}. Prima di salvare controlli tu.
+              </p>
+            )}
             <input ref={camera} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => fileScelto(e.target)} />
             <input ref={galleria} type="file" accept="image/*,application/pdf,.heic,.heif" style={{ display: 'none' }} onChange={(e) => fileScelto(e.target)} />
             <div style={{ display: 'grid', gap: 10 }}>
@@ -147,6 +162,11 @@ export default function ScannerCertificatoArea({ colore = '#4A5560', ambito = 's
               </div>
             )}
 
+            {personaIniziale && estratti?.cognome && !String(estratti.cognome).toLowerCase().includes(String(personaIniziale.cognome || '').toLowerCase().split(' ')[0]) && (
+              <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 10 }}>
+                ⚠️ Sul certificato c'è scritto <b>{estratti.cognome} {estratti.nome}</b>: controlla che sia proprio di {personaIniziale.cognome} {personaIniziale.nome}.
+              </div>
+            )}
             <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Di chi è?</div>
             {candidati.length === 0 && <div style={{ fontSize: 13, color: '#b45309', marginBottom: 8 }}>Nessuna persona trovata in automatico: cercala qui sotto.</div>}
             <div style={{ display: 'grid', gap: 6, marginBottom: 10 }}>

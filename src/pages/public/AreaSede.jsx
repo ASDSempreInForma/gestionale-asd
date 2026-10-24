@@ -4,6 +4,7 @@ import { supabase } from '../../supabase.js';
 import AreaSedePalestre from './AreaSedePalestre.jsx';
 import ScannerCertificatoArea from './ScannerCertificatoArea.jsx';
 import CampoDettatura from './CampoDettatura.jsx';
+import ElencoSenzaCertificato from './ElencoSenzaCertificato.jsx';
 import { tokenSede, sessioneSedeScaduta } from './sessioneSede.js';
 
 // Area SEDE — accesso separato (email+telefono) per chi gestisce i compensi
@@ -75,7 +76,8 @@ export default function AreaSede() {
   // grossi pulsanti (Area Sede / Area Palestre); dentro ciascuna area resta tutto
   // come prima, più lo scanner dei certificati medici.
   const [scheda, setScheda] = useState('home');
-  const [scanner, setScanner] = useState(false);
+  const [scanner, setScanner] = useState(false); // false | true | { persona }
+  const [aggiornaElenco, setAggiornaElenco] = useState(0);
   function cambiaScheda(k) { setScheda(k); setScanner(false); window.scrollTo(0, 0); }
 
   useEffect(() => {
@@ -137,8 +139,21 @@ export default function AreaSede() {
                     {scheda === 'palestre' ? '🏋️ Area Palestre' : '🏢 Area Sede'}
                   </div>
                 </div>
-                {scheda === 'palestre' ? <AreaSedePalestre sessione={sessione} onCertificato={() => setScanner(true)} /> : <Dashboard sessione={sessione} onCertificato={() => setScanner(true)} />}
-                {scanner && <ScannerCertificatoArea colore={scheda === 'palestre' ? C_PALESTRE : C} ambito={scheda} onChiudi={() => setScanner(false)} />}
+                {(() => {
+                  const elenco = (
+                    <ElencoSenzaCertificato ambito={scheda} colore={scheda === 'palestre' ? C_PALESTRE : C} aggiorna={aggiornaElenco}
+                      onCarica={(persona) => setScanner({ persona })} />
+                  );
+                  return scheda === 'palestre'
+                    ? <AreaSedePalestre sessione={sessione} onCertificato={() => setScanner(true)} elencoCertificati={elenco} />
+                    : <Dashboard sessione={sessione} onCertificato={() => setScanner(true)} elencoCertificati={elenco} />;
+                })()}
+                {scanner && (
+                  <ScannerCertificatoArea colore={scheda === 'palestre' ? C_PALESTRE : C} ambito={scheda}
+                    personaIniziale={scanner.persona || null}
+                    onSalvato={() => setAggiornaElenco((n) => n + 1)}
+                    onChiudi={() => setScanner(false)} />
+                )}
               </>
             )}
           </>
@@ -239,7 +254,7 @@ function Login({ onLogin }) {
   );
 }
 
-function Dashboard({ sessione, onCertificato }) {
+function Dashboard({ sessione, onCertificato, elencoCertificati }) {
   const isAmpio = useIsAmpio();
   const oggi = new Date();
   const [anno, setAnno] = useState(oggi.getFullYear());
@@ -333,6 +348,7 @@ function Dashboard({ sessione, onCertificato }) {
       )}
 
       <BottoneCertificato colore={C} onClick={onCertificato} />
+      {elencoCertificati}
 
       {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '10px 14px', borderRadius: 8, marginBottom: 16 }}>{errore}</div>}
 
