@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabase.js';
 import CampoDettatura from './CampoDettatura.jsx';
+import { stileGrande, BottoneCertificato } from './AreaSede.jsx';
 import { tokenSede, sessioneSedeScaduta } from './sessioneSede.js';
 import { dateAttese, slotSettimanali, dataInizioCorso, isoLocale } from '../admin/lezioniPreviste.js';
 
@@ -122,17 +123,12 @@ export default function AreaSedePalestre({ sessione, onCertificato }) {
 
   return (
     <div>
-      <button onClick={() => setTestoAperto(true)}
-        style={{ width: '100%', background: C, color: '#fff', border: 'none', borderRadius: 10, padding: '14px 16px', fontSize: 15, fontWeight: 700, cursor: 'pointer', marginBottom: 12 }}>
-        ✍️ Segnala sostituzioni / annullamenti da testo
+      <button onClick={() => setTestoAperto(true)} style={{ ...stileGrande(C, true), marginBottom: 14 }}>
+        <span style={{ fontSize: 40 }}>✍️</span>
+        <span>Segnala assenza</span>
       </button>
 
-      {onCertificato && (
-        <button onClick={onCertificato}
-          style={{ width: '100%', background: '#fff', color: C, border: `2px solid ${C}`, borderRadius: 10, padding: '13px 16px', fontSize: 15, fontWeight: 700, cursor: 'pointer', marginBottom: 18 }}>
-          🩺 Certificato medico (foto)
-        </button>
-      )}
+      <BottoneCertificato colore={C} onClick={onCertificato} />
 
       <button onClick={() => setMostraSettimana((v) => !v)}
         style={{ background: 'none', border: 'none', color: '#777', fontSize: 13, textDecoration: 'underline', cursor: 'pointer', padding: '4px 0', marginBottom: 12 }}>
@@ -416,16 +412,15 @@ function ModaleTestoPalestre({ sessione, istruttori, conteggi, onChiudi, onAppli
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 12, zIndex: 50, overflowY: 'auto' }} onClick={lavoro ? undefined : onChiudi}>
       <div style={{ background: '#fff', borderRadius: 12, padding: 18, width: '100%', maxWidth: 620, marginTop: 20 }} onClick={(e) => e.stopPropagation()}>
-        <h3 style={{ margin: '0 0 4px', fontSize: 17 }}>Sostituzioni e annullamenti da testo — Palestre</h3>
-        <p style={{ fontSize: 12.5, color: '#666', margin: '0 0 10px' }}>
-          Scrivi come lo racconteresti a voce, ad es. "Giovedì le lezioni di Michela a Urago le fa Giorgia", "Venerdì la Zumba di Bovezzo è annullata, verrà recuperata a giugno", "Mercoledì il Pilates di Eletta lo fa Laura Bianchi, esterna, 25 euro, tel 333…". Ti mostro le lezioni una per una: non viene salvato nulla finché non premi "Conferma e applica".
-        </p>
-        <CampoDettatura value={testo} onChange={setTesto} rows={4} colore={C} placeholder="Cosa è successo? Scrivi o premi 🎤 e detta" />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-          <button disabled={!testo.trim() || !!lavoro} onClick={interpreta} style={{ background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontWeight: 600, cursor: 'pointer', opacity: !testo.trim() ? 0.5 : 1 }}>
-            {proposte ? 'Rileggi il testo' : 'Interpreta'}
-          </button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <h3 style={{ margin: 0, fontSize: 19, color: C }}>✍️ Segnala assenza</h3>
+          <button onClick={onChiudi} disabled={!!lavoro} style={{ background: 'none', border: 'none', fontSize: 24, color: '#888', cursor: 'pointer' }}>✕</button>
         </div>
+        <CampoDettatura value={testo} onChange={setTesto} rows={5} colore={C} grande />
+        <button disabled={!testo.trim() || !!lavoro} onClick={interpreta}
+          style={{ width: '100%', marginTop: 18, background: C, color: '#fff', border: 'none', borderRadius: 12, padding: '16px 0', fontSize: 18, fontWeight: 700, cursor: 'pointer', opacity: !testo.trim() || lavoro ? 0.5 : 1 }}>
+          {proposte ? 'Rileggi il testo' : 'Continua →'}
+        </button>
 
         {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 12px', borderRadius: 8, margin: '10px 0', fontSize: 13 }}>{errore}</div>}
         {lavoro && <div style={{ color: '#666', fontSize: 13, margin: '10px 0' }}>{lavoro}</div>}
@@ -491,14 +486,11 @@ function ModaleTestoPalestre({ sessione, istruttori, conteggi, onChiudi, onAppli
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
-          <button disabled={!!lavoro} onClick={onChiudi} style={btnSec}>Chiudi</button>
-          {proposte && proposte.length > 0 && (
-            <button disabled={!pronte || !!lavoro} onClick={applica} style={{ background: '#1f8a52', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontWeight: 600, cursor: pronte ? 'pointer' : 'not-allowed', opacity: pronte ? 1 : 0.5 }}>
-              Conferma e applica ({proposte.length})
-            </button>
-          )}
-        </div>
+        {proposte && proposte.length > 0 && (
+          <button disabled={!pronte || !!lavoro} onClick={applica} style={{ width: '100%', marginTop: 14, background: '#1f8a52', color: '#fff', border: 'none', borderRadius: 12, padding: '16px 0', fontSize: 18, fontWeight: 700, cursor: pronte ? 'pointer' : 'not-allowed', opacity: pronte ? 1 : 0.5 }}>
+            ✅ Conferma e applica ({proposte.length})
+          </button>
+        )}
       </div>
     </div>
   );

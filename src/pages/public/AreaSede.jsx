@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { supabase } from '../../supabase.js';
 import AreaSedePalestre from './AreaSedePalestre.jsx';
 import ScannerCertificatoArea from './ScannerCertificatoArea.jsx';
+import CampoDettatura from './CampoDettatura.jsx';
 import { tokenSede, sessioneSedeScaduta } from './sessioneSede.js';
 
 // Area SEDE — accesso separato (email+telefono) per chi gestisce i compensi
@@ -147,12 +148,21 @@ export default function AreaSede() {
   );
 }
 
+// Pulsanti grandi delle due aree (24/10/2026): pieno = Segnala assenza, bordato = Certificato
+export function stileGrande(colore, pieno) {
+  return {
+    width: '100%', minHeight: 120, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6,
+    background: pieno ? colore : '#fff', color: pieno ? '#fff' : colore, border: `3px solid ${colore}`, borderRadius: 18,
+    fontSize: 21, fontWeight: 800, cursor: 'pointer', boxShadow: '0 3px 10px rgba(0,0,0,0.10)', padding: '16px',
+  };
+}
+
 export function BottoneCertificato({ colore, onClick }) {
   if (!onClick) return null;
   return (
-    <button onClick={onClick}
-      style={{ width: '100%', background: '#fff', color: colore, border: `2px solid ${colore}`, borderRadius: 10, padding: '13px 16px', fontSize: 15, fontWeight: 700, cursor: 'pointer', marginBottom: 18 }}>
-      🩺 Certificato medico (foto)
+    <button onClick={onClick} style={{ ...stileGrande(colore, false), marginBottom: 18 }}>
+      <span style={{ fontSize: 40 }}>🩺</span>
+      <span>Certificato medico</span>
     </button>
   );
 }
@@ -311,9 +321,9 @@ function Dashboard({ sessione, onCertificato }) {
         // singola (es. recupero in un buco d'orario). Niente compensi, niente
         // elenco lezioni, niente selettore mese: quella parte resta su PC.
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
-          <button onClick={() => setModaleAssenzeAperta(true)}
-            style={{ background: C, color: '#fff', border: 'none', borderRadius: 10, padding: '14px 16px', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
-            ✍️ Segnala assenza / sostituzione / recupero
+          <button onClick={() => setModaleAssenzeAperta(true)} style={stileGrande(C, true)}>
+            <span style={{ fontSize: 40 }}>✍️</span>
+            <span>Segnala assenza</span>
           </button>
           <button onClick={() => { setLezioneInModifica(null); setModaleAperta(true); }}
             style={{ background: '#fff', color: C, border: `1px solid ${C}`, borderRadius: 10, padding: '10px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
@@ -1066,47 +1076,8 @@ function ModaleAssenzeTesto({ sessione, istruttoriSede, onChiudi, onApplicate })
   const [errore, setErrore] = useState('');
   const [risultatoApplicazione, setRisultatoApplicazione] = useState(null);
 
-  // Dettatura vocale diretta nel campo di testo: comoda su telefono, evita di
-  // dover aprire la tastiera solo per raggiungere l'icona microfono. Supportata
-  // da Chrome/Edge (desktop e Android); dove manca (es. alcune versioni di
-  // Safari) il pulsante semplicemente non compare, e resta la dettatura della
-  // tastiera di sistema che Sabina già usa.
-  const [ascoltando, setAscoltando] = useState(false);
-  const riconoscimentoRef = useRef(null);
-  const testoBaseRef = useRef('');
-  const SpeechRecognitionAPI = typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
-
-  function avviaAscolto() {
-    if (!SpeechRecognitionAPI) return;
-    const r = new SpeechRecognitionAPI();
-    r.lang = 'it-IT';
-    r.continuous = true;
-    r.interimResults = true;
-    testoBaseRef.current = testo ? `${testo} ` : '';
-    r.onresult = (e) => {
-      let finale = '';
-      let interim = '';
-      for (let i = 0; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) finale += `${t} `;
-        else interim += t;
-      }
-      setTesto((testoBaseRef.current + finale + interim).replace(/\s+/g, ' '));
-    };
-    r.onerror = () => setAscoltando(false);
-    r.onend = () => setAscoltando(false);
-    riconoscimentoRef.current = r;
-    r.start();
-    setAscoltando(true);
-  }
-  function fermaAscolto() {
-    riconoscimentoRef.current?.stop();
-    setAscoltando(false);
-  }
-  useEffect(() => () => riconoscimentoRef.current?.stop(), []);
 
   async function interpreta() {
-    if (ascoltando) fermaAscolto();
     if (!testo.trim()) { setErrore('Scrivi prima il testo da interpretare'); return; }
     setErrore(''); setInterpretando(true); setProposte(null); setAvvisi([]);
     try {
@@ -1159,10 +1130,10 @@ function ModaleAssenzeTesto({ sessione, istruttoriSede, onChiudi, onApplicate })
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}>
       <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 620, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' }}>
-        <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>Assenze, sostituzioni e lezioni extra da testo libero</h3>
-        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#777' }}>
-          Scrivi la situazione come la racconteresti a voce, ad es. "Le lezioni di martedì 22 mattina le fa Sabina perché Nadia è malata", "Sabato 26 tutte le lezioni le fa Monica", "Nadia è assente venerdì le prime due ore, sostituita da Marta", "Oggi Marta ha fatto una lezione extra alle 14:30 con 2 persone" oppure, per togliere qualcosa già inserito, "Cancella la lezione extra di Nadia del 30/09 delle 12:15". Ti mostro i turni interessati uno per uno: controlla e conferma — non viene scritto nulla finché non premi "Conferma e applica".
-        </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <h3 style={{ margin: 0, fontSize: 19, color: C }}>✍️ Segnala assenza</h3>
+          <button onClick={onChiudi} style={{ background: 'none', border: 'none', fontSize: 24, color: '#888', cursor: 'pointer' }}>✕</button>
+        </div>
 
         {risultatoApplicazione ? (
           <div>
@@ -1174,24 +1145,12 @@ function ModaleAssenzeTesto({ sessione, istruttoriSede, onChiudi, onApplicate })
           </div>
         ) : !proposte ? (
           <div>
-            <div style={{ position: 'relative' }}>
-              <textarea value={testo} onChange={(e) => setTesto(e.target.value)} rows={5}
-                placeholder="Es. Le lezioni di martedì 22 mattina verranno svolte da Sabina perché Nadia è malata."
-                style={{ width: '100%', padding: 10, paddingRight: SpeechRecognitionAPI ? 46 : 10, borderRadius: 8, border: `1px solid ${ascoltando ? C : '#ddd'}`, fontSize: 14, boxSizing: 'border-box', fontFamily: 'inherit' }} />
-              {SpeechRecognitionAPI && (
-                <button type="button" onClick={ascoltando ? fermaAscolto : avviaAscolto} title={ascoltando ? 'Ferma la dettatura' : 'Detta il testo a voce'}
-                  style={{ position: 'absolute', right: 8, bottom: 8, width: 32, height: 32, borderRadius: '50%', border: 'none', cursor: 'pointer', fontSize: 15, background: ascoltando ? '#c0392b' : C, color: '#fff' }}>
-                  {ascoltando ? '⏹' : '🎤'}
-                </button>
-              )}
-            </div>
-            {ascoltando && <div style={{ fontSize: 11, color: C, marginTop: 6 }}>🔴 In ascolto… parla pure, il testo si scrive da solo.</div>}
-            <div style={{ marginBottom: 14 }} />
+            <CampoDettatura value={testo} onChange={setTesto} rows={5} colore={C} grande />
+            <div style={{ marginBottom: 18 }} />
             {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '8px 10px', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{errore}</div>}
             <div style={{ display: 'flex', gap: 10 }}>
-              <button type="button" onClick={onChiudi} style={{ flex: 1, background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, cursor: 'pointer' }}>Annulla</button>
-              <button type="button" onClick={interpreta} disabled={interpretando} style={{ flex: 1, background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: interpretando ? 0.6 : 1 }}>
-                {interpretando ? 'Interpretazione…' : 'Interpreta con AI'}
+              <button type="button" onClick={interpreta} disabled={interpretando || !testo.trim()} style={{ flex: 1, background: C, color: '#fff', border: 'none', borderRadius: 12, padding: '16px 0', fontSize: 18, fontWeight: 700, cursor: 'pointer', opacity: interpretando || !testo.trim() ? 0.5 : 1 }}>
+                {interpretando ? 'Sto leggendo…' : 'Continua →'}
               </button>
             </div>
           </div>
