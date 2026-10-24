@@ -127,20 +127,16 @@ export default function AreaSede() {
               <HomeGestione nome={sessione.nome} onScegli={cambiaScheda} />
             ) : (
               <>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
                   <button onClick={() => cambiaScheda('home')}
                     style={{ background: '#fff', border: '1px solid #dde1e4', color: C, borderRadius: 10, padding: '9px 12px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
                     ← Home
                   </button>
-                  <button onClick={() => setScanner(true)}
-                    style={{ background: scheda === 'palestre' ? C_PALESTRE : C, color: '#fff', border: 'none', borderRadius: 10, padding: '9px 12px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-                    🩺 Certificato medico
-                  </button>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: scheda === 'palestre' ? C_PALESTRE : C }}>
+                    {scheda === 'palestre' ? '🏋️ Area Palestre' : '🏢 Area Sede'}
+                  </div>
                 </div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: scheda === 'palestre' ? C_PALESTRE : C, marginBottom: 14 }}>
-                  {scheda === 'palestre' ? '🏋️ Area Palestre' : '🏢 Area Sede'}
-                </div>
-                {scheda === 'palestre' ? <AreaSedePalestre sessione={sessione} /> : <Dashboard sessione={sessione} />}
+                {scheda === 'palestre' ? <AreaSedePalestre sessione={sessione} onCertificato={() => setScanner(true)} /> : <Dashboard sessione={sessione} onCertificato={() => setScanner(true)} />}
                 {scanner && <ScannerCertificatoArea colore={scheda === 'palestre' ? C_PALESTRE : C} ambito={scheda} onChiudi={() => setScanner(false)} />}
               </>
             )}
@@ -148,6 +144,16 @@ export default function AreaSede() {
         )}
       </div>
     </div>
+  );
+}
+
+export function BottoneCertificato({ colore, onClick }) {
+  if (!onClick) return null;
+  return (
+    <button onClick={onClick}
+      style={{ width: '100%', background: '#fff', color: colore, border: `2px solid ${colore}`, borderRadius: 10, padding: '13px 16px', fontSize: 15, fontWeight: 700, cursor: 'pointer', marginBottom: 18 }}>
+      🩺 Certificato medico (foto)
+    </button>
   );
 }
 
@@ -223,7 +229,7 @@ function Login({ onLogin }) {
   );
 }
 
-function Dashboard({ sessione }) {
+function Dashboard({ sessione, onCertificato }) {
   const isAmpio = useIsAmpio();
   const oggi = new Date();
   const [anno, setAnno] = useState(oggi.getFullYear());
@@ -235,7 +241,8 @@ function Dashboard({ sessione }) {
   const [errore, setErrore] = useState('');
   const [modaleAperta, setModaleAperta] = useState(false);
   const [lezioneInModifica, setLezioneInModifica] = useState(null);
-  const [mostraCalendario, setMostraCalendario] = useState(true);
+  // 24/10/2026: la pianificazione settimanale è nascosta di base (Sabina usa il testo libero / vocale)
+  const [mostraCalendario, setMostraCalendario] = useState(false);
   const [modaleAssenzeAperta, setModaleAssenzeAperta] = useState(false);
   const [soloModifiche, setSoloModifiche] = useState(false);
   const lezioniFiltrate = soloModifiche ? lezioni.filter((l) => !l.di_default) : lezioni;
@@ -315,9 +322,17 @@ function Dashboard({ sessione }) {
         </div>
       )}
 
+      <BottoneCertificato colore={C} onClick={onCertificato} />
+
       {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '10px 14px', borderRadius: 8, marginBottom: 16 }}>{errore}</div>}
 
-      {(isAmpio ? mostraCalendario : true) && (
+      {!isAmpio && (
+        <button onClick={() => setMostraCalendario((v) => !v)}
+          style={{ background: 'none', border: 'none', color: '#777', fontSize: 13, textDecoration: 'underline', cursor: 'pointer', padding: '4px 0', marginBottom: 12 }}>
+          {mostraCalendario ? '▲ Nascondi la pianificazione settimanale' : '📅 Mostra la pianificazione settimanale'}
+        </button>
+      )}
+      {mostraCalendario && (
         <PianificazioneSettimanale sessione={sessione} istruttoriSede={istruttoriSede} onCambiamenti={caricaTutto} />
       )}
 

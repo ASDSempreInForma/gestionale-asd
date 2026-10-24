@@ -50,7 +50,7 @@ function esitoDi(riga) {
   return riga.stato; // sospesa, recupero
 }
 
-export default function AreaSedePalestre({ sessione }) {
+export default function AreaSedePalestre({ sessione, onCertificato }) {
   const [lunedi, setLunedi] = useState(() => lunediDi(new Date()));
   const [dati, setDati] = useState(null);
   const [caricando, setCaricando] = useState(true);
@@ -59,6 +59,7 @@ export default function AreaSedePalestre({ sessione }) {
   const [soloModifiche, setSoloModifiche] = useState(false);
   const [aperta, setAperta] = useState(null);
   const [testoAperto, setTestoAperto] = useState(false);
+  const [mostraSettimana, setMostraSettimana] = useState(false); // 24/10/2026: nascosta di base
 
   const dal = isoLocale(lunedi);
   const al = isoLocale(piuGiorni(lunedi, 6));
@@ -126,6 +127,21 @@ export default function AreaSedePalestre({ sessione }) {
         ✍️ Segnala sostituzioni / annullamenti da testo
       </button>
 
+      {onCertificato && (
+        <button onClick={onCertificato}
+          style={{ width: '100%', background: '#fff', color: C, border: `2px solid ${C}`, borderRadius: 10, padding: '13px 16px', fontSize: 15, fontWeight: 700, cursor: 'pointer', marginBottom: 18 }}>
+          🩺 Certificato medico (foto)
+        </button>
+      )}
+
+      <button onClick={() => setMostraSettimana((v) => !v)}
+        style={{ background: 'none', border: 'none', color: '#777', fontSize: 13, textDecoration: 'underline', cursor: 'pointer', padding: '4px 0', marginBottom: 12 }}>
+        {mostraSettimana ? '▲ Nascondi le lezioni della settimana' : '📅 Mostra le lezioni della settimana'}
+      </button>
+
+      {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '10px 14px', borderRadius: 8, marginBottom: 14 }}>{errore}</div>}
+
+      {mostraSettimana && <>
       <div style={{ background: '#fff', borderRadius: 12, padding: 14, marginBottom: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button onClick={() => setLunedi((d) => piuGiorni(d, -7))} style={btnSec}>← Sett. prec.</button>
@@ -148,7 +164,6 @@ export default function AreaSedePalestre({ sessione }) {
         </p>
       </div>
 
-      {errore && <div style={{ background: '#fdecea', color: '#c0392b', padding: '10px 14px', borderRadius: 8, marginBottom: 14 }}>{errore}</div>}
       {caricando && !dati && <div style={{ color: '#777' }}>Caricamento…</div>}
 
       {dati && Object.keys(perGiorno).length === 0 && !caricando && (
@@ -169,6 +184,7 @@ export default function AreaSedePalestre({ sessione }) {
       {dati && corsiSenzaInsegnante > 0 && (
         <p style={{ fontSize: 12, color: '#999' }}>{corsiSenzaInsegnante} {corsiSenzaInsegnante === 1 ? 'corso non ha' : 'corsi non hanno'} un insegnante assegnato e non compaiono qui (si assegna da Gestione Istruttori).</p>
       )}
+      </>}
 
       {testoAperto && (
         <ModaleTestoPalestre
