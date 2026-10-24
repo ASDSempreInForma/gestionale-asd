@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../supabase.js';
 import AreaSedePalestre from './AreaSedePalestre.jsx';
+import ScannerCertificatoArea from './ScannerCertificatoArea.jsx';
 import { tokenSede, sessioneSedeScaduta } from './sessioneSede.js';
 
 // Area SEDE — accesso separato (email+telefono) per chi gestisce i compensi
@@ -14,6 +15,7 @@ import { tokenSede, sessioneSedeScaduta } from './sessioneSede.js';
 // uno strumento "di servizio" e non una pagina rivolta ai soci.
 const C = '#4A5560';
 const C_LIGHT = '#eef0f1';
+const C_PALESTRE = '#2D6A4F';
 
 const STATI = [
   { value: 'svolta', label: 'Svolta', badge: '#1f8a52' },
@@ -68,8 +70,12 @@ function useIsAmpio() {
 export default function AreaSede() {
   const [sessione, setSessione] = useState(null);
   const [caricamentoIniziale, setCaricamentoIniziale] = useState(true);
-  const [scheda, setScheda] = useState(() => { try { return localStorage.getItem('sede_scheda') || 'sede'; } catch (_) { return 'sede'; } });
-  function cambiaScheda(k) { setScheda(k); try { localStorage.setItem('sede_scheda', k); } catch (_) { /* ignora */ } }
+  // 24/10/2026: l'app diventa "Gestione Corsi" — all'apertura una home con due
+  // grossi pulsanti (Area Sede / Area Palestre); dentro ciascuna area resta tutto
+  // come prima, più lo scanner dei certificati medici.
+  const [scheda, setScheda] = useState('home');
+  const [scanner, setScanner] = useState(false);
+  function cambiaScheda(k) { setScheda(k); setScanner(false); window.scrollTo(0, 0); }
 
   useEffect(() => {
     const salvata = localStorage.getItem('sede_sessione');
@@ -101,7 +107,7 @@ export default function AreaSede() {
         <div style={{ maxWidth: 900, margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 13, opacity: 0.75, letterSpacing: 0.5 }}>A.S.D. SEMPRE IN FORMA</div>
-            <div style={{ fontSize: 20, fontWeight: 700 }}>Area SEDE</div>
+            <div style={{ fontSize: 20, fontWeight: 700 }}>Gestione Corsi</div>
           </div>
           {sessione && (
             <div style={{ textAlign: 'right' }}>
@@ -117,18 +123,58 @@ export default function AreaSede() {
       <div style={{ maxWidth: 900, margin: '0 auto', padding: '24px 20px 60px' }}>
         {!sessione ? <Login onLogin={handleLogin} /> : (
           <>
-            {/* 13/10/2026: stessa area anche per assenze/sostituzioni dei corsi nelle palestre */}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 18, background: '#e9ecee', padding: 4, borderRadius: 10 }}>
-              {[['sede', '🏢 SEDE'], ['palestre', '🏋️ Palestre']].map(([k, label]) => (
-                <button key={k} onClick={() => cambiaScheda(k)}
-                  style={{ flex: 1, background: scheda === k ? '#fff' : 'transparent', color: scheda === k ? C : '#666', border: 'none', borderRadius: 8, padding: '9px 10px', fontSize: 14, fontWeight: 700, cursor: 'pointer', boxShadow: scheda === k ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-            {scheda === 'palestre' ? <AreaSedePalestre sessione={sessione} /> : <Dashboard sessione={sessione} />}
+            {scheda === 'home' ? (
+              <HomeGestione nome={sessione.nome} onScegli={cambiaScheda} />
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+                  <button onClick={() => cambiaScheda('home')}
+                    style={{ background: '#fff', border: '1px solid #dde1e4', color: C, borderRadius: 10, padding: '9px 12px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                    ← Home
+                  </button>
+                  <button onClick={() => setScanner(true)}
+                    style={{ background: scheda === 'palestre' ? C_PALESTRE : C, color: '#fff', border: 'none', borderRadius: 10, padding: '9px 12px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                    🩺 Certificato medico
+                  </button>
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: scheda === 'palestre' ? C_PALESTRE : C, marginBottom: 14 }}>
+                  {scheda === 'palestre' ? '🏋️ Area Palestre' : '🏢 Area Sede'}
+                </div>
+                {scheda === 'palestre' ? <AreaSedePalestre sessione={sessione} /> : <Dashboard sessione={sessione} />}
+                {scanner && <ScannerCertificatoArea colore={scheda === 'palestre' ? C_PALESTRE : C} ambito={scheda} onChiudi={() => setScanner(false)} />}
+              </>
+            )}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Home dell'app "Gestione Corsi" (24/10/2026) ────────────────────────────
+function HomeGestione({ nome, onScegli }) {
+  const card = (bg) => ({
+    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6,
+    width: '100%', minHeight: 170, background: bg, color: '#fff', border: 'none', borderRadius: 18,
+    cursor: 'pointer', boxShadow: '0 4px 14px rgba(0,0,0,0.12)', padding: '20px 16px',
+  });
+  return (
+    <div>
+      <div style={{ fontSize: 16, color: '#555', marginBottom: 16 }}>Ciao {nome}, dove vuoi lavorare?</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
+        <button onClick={() => onScegli('sede')} style={card(C)}>
+          <span style={{ fontSize: 46 }}>🏢</span>
+          <span style={{ fontSize: 22, fontWeight: 800 }}>Area Sede</span>
+          <span style={{ fontSize: 13, opacity: 0.85 }}>Via del Brolo · turni, assenze, sostituzioni</span>
+        </button>
+        <button onClick={() => onScegli('palestre')} style={card(C_PALESTRE)}>
+          <span style={{ fontSize: 46 }}>🏋️</span>
+          <span style={{ fontSize: 22, fontWeight: 800 }}>Area Palestre</span>
+          <span style={{ fontSize: 13, opacity: 0.85 }}>Corsi nelle palestre · assenze e sostituzioni</span>
+        </button>
+      </div>
+      <div style={{ fontSize: 12.5, color: '#888', marginTop: 16, lineHeight: 1.5 }}>
+        In entrambe le aree puoi scrivere o dettare a voce le sostituzioni (🎤) e fotografare i certificati medici con il pulsante 🩺.
       </div>
     </div>
   );

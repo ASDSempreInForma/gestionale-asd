@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabase.js';
+import CampoDettatura from './CampoDettatura.jsx';
 import { tokenSede, sessioneSedeScaduta } from './sessioneSede.js';
 import { dateAttese, slotSettimanali, dataInizioCorso, isoLocale } from '../admin/lezioniPreviste.js';
 
@@ -15,7 +16,7 @@ import { dateAttese, slotSettimanali, dataInizioCorso, isoLocale } from '../admi
 // I dati vanno nella stessa tabella `lezioni` usata dal calendario di Gestione
 // Istruttori e da Compensi, tramite l'edge function `area-sede-palestre`.
 
-const C = '#4A5560';
+const C = '#2D6A4F'; // 24/10/2026: Area Palestre in verde, per distinguerla dall'Area Sede (grafite)
 const GIORNI = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'];
 
 async function chiama(action, payload) {
@@ -403,7 +404,7 @@ function ModaleTestoPalestre({ sessione, istruttori, conteggi, onChiudi, onAppli
         <p style={{ fontSize: 12.5, color: '#666', margin: '0 0 10px' }}>
           Scrivi come lo racconteresti a voce, ad es. "Giovedì le lezioni di Michela a Urago le fa Giorgia", "Venerdì la Zumba di Bovezzo è annullata, verrà recuperata a giugno", "Mercoledì il Pilates di Eletta lo fa Laura Bianchi, esterna, 25 euro, tel 333…". Ti mostro le lezioni una per una: non viene salvato nulla finché non premi "Conferma e applica".
         </p>
-        <textarea value={testo} onChange={(e) => setTesto(e.target.value)} rows={4} placeholder="Cosa è successo?" style={{ ...campo, resize: 'vertical' }} />
+        <CampoDettatura value={testo} onChange={setTesto} rows={4} colore={C} placeholder="Cosa è successo? Scrivi o premi 🎤 e detta" />
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
           <button disabled={!testo.trim() || !!lavoro} onClick={interpreta} style={{ background: C, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontWeight: 600, cursor: 'pointer', opacity: !testo.trim() ? 0.5 : 1 }}>
             {proposte ? 'Rileggi il testo' : 'Interpreta'}

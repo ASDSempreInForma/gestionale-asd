@@ -1,7 +1,7 @@
 {
-  "name": "A.S.D. Sempre In Forma — Area SEDE",
-  "short_name": "Area SEDE",
-  "description": "Area SEDE (Via del Brolo) — A.S.D. Sempre In Forma",
+  "name": "A.S.D. Sempre In Forma — Gestione Corsi",
+  "short_name": "Gestione Corsi",
+  "description": "Gestione Corsi (Sede e Palestre) — A.S.D. Sempre In Forma",
   "start_url": "/area-sede",
   "display": "standalone",
   "background_color": "#ffffff",

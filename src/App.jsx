@@ -23,7 +23,7 @@ const PWA_META = {
   '/prova': { manifest: '/manifest-prova.json', title: 'A.S.D. Sempre In Forma — Prova gratuita', themeColor: '#2CA8E0', appTitle: 'Prova gratuita' },
   '/area-tesserati': { manifest: '/manifest-tesserati.json', title: 'A.S.D. Sempre In Forma — Area Tesserati', themeColor: '#F5A623', appTitle: 'Area Tesserati' },
   '/area-istruttori': { manifest: '/manifest-istruttori.json', title: 'A.S.D. Sempre In Forma — Area Istruttori', themeColor: '#2A6F86', appTitle: 'Area Istruttori' },
-  '/area-sede': { manifest: '/manifest-sede.json', title: 'A.S.D. Sempre In Forma — Area SEDE', themeColor: '#4A5560', appTitle: 'Area SEDE' },
+  '/area-sede': { manifest: '/manifest-sede.json', title: 'A.S.D. Sempre In Forma — Gestione Corsi', themeColor: '#4A5560', appTitle: 'Gestione Corsi' },
   '/admin': { manifest: '/manifest-admin.json', title: 'A.S.D. Sempre In Forma — Segreteria', themeColor: '#E8501F', appTitle: 'Segreteria' },
 }
 const PWA_META_DEFAULT = PWA_META['/']
