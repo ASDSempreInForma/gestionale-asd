@@ -5,6 +5,7 @@ import AreaSedePalestre from './AreaSedePalestre.jsx';
 import ScannerCertificatoArea from './ScannerCertificatoArea.jsx';
 import CampoDettatura from './CampoDettatura.jsx';
 import ElencoSenzaCertificato from './ElencoSenzaCertificato.jsx';
+import CercaPersonaArea from './CercaPersonaArea.jsx';
 import { tokenSede, sessioneSedeScaduta } from './sessioneSede.js';
 
 // Area SEDE — accesso separato (email+telefono) per chi gestisce i compensi
@@ -204,9 +205,7 @@ function HomeGestione({ nome, onScegli }) {
           <span style={{ fontSize: 13, opacity: 0.85 }}>Corsi nelle palestre · assenze e sostituzioni</span>
         </button>
       </div>
-      <div style={{ fontSize: 12.5, color: '#888', marginTop: 16, lineHeight: 1.5 }}>
-        In entrambe le aree puoi scrivere o dettare a voce le sostituzioni (🎤) e fotografare i certificati medici con il pulsante 🩺.
-      </div>
+      <CercaPersonaArea />
     </div>
   );
 }
