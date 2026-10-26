@@ -6,7 +6,7 @@ import { calcolaQuotaAttesa, spiegaDifferenza, CAMPI_CORSO_MOTORE } from '../../
 
 // 12/10/2026: campi necessari anche per calcolare la quota attesa
 const SELECT_ISCRIZIONE = `
-        id, socio_cf, stagione_id, data_iscrizione, inizio_personalizzato, note,
+        id, socio_cf, stagione_id, data_iscrizione, inizio_personalizzato, inizio_frequenza, note,
         tipo_pagamento, stato_pagamento, importo_dichiarato, data_pagamento, ricevuta_url, nota_pagamento,
         stato_certificato, data_scadenza_certificato, certificato_url, verificato_da, verificato_il,
         frequenza, giorno_scelto,

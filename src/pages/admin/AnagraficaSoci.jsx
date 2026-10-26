@@ -5,6 +5,7 @@ import ComboComune from '../../ComboComune.jsx'
 import CampoDocumento from '../../CampoDocumento.jsx'
 import { statoTessera, scaricaTesseraPdf, scadenzaPerNuovoNumero, enteIniziale, ENTI_TESSERA } from '../../tesseraAssociativa.js'
 import RitaglioDocumento from '../../RitaglioDocumento.jsx'
+import { quotaGruppoAlla, CAMPI_CORSO_MOTORE } from '../../quotaAttesa.js'
 
 // Chiave pubblica (anon) per chiamare l'edge function genera-testo-ai,
 // la stessa già usata in AcquisisciModulo.jsx — pubblica per natura.
@@ -1079,6 +1080,7 @@ function ReinviaEmailConferma({ iscrizione, socio, altreIscrizioniStessaStagione
           causale,
           tipoPagamentoLabel: labelPagamento,
           richiedeIscrizione: true,
+          inizioFrequenza: iscrizione.inizio_frequenza || undefined,
         }),
       })
       const data = await res.json()
@@ -1098,6 +1100,143 @@ function ReinviaEmailConferma({ iscrizione, socio, altreIscrizioniStessaStagione
       {esito === 'ok' && <span style={{ fontSize: 11, color: G }}>✓ Inviata a {socio.email}</span>}
       {esito === 'errore' && <span style={{ fontSize: 11, color: R }}>✕ Errore invio</span>}
     </span>
+  )
+}
+
+// ─── "Fai partire dal mese prossimo" (26/10/2026, caso Francesca Turri) ─────
+// A fine mese c'è chi chiede di iscriversi dal mese successivo per non pagare il
+// mese in corso. Si sceglie il mese di inizio: la quota viene ricalcolata con lo
+// stesso motore prezzi come se l'iscrizione fosse fatta il 1° di quel mese (vale
+// per tutti i corsi compilati nello stesso modulo, non ancora pagati), si salva
+// in iscrizioni.inizio_frequenza e si rimanda l'email di conferma col nuovo conto.
+const MESI_IT = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre']
+function isoPrimoDelMese(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01` }
+function etichettaMese(iso) { const [y, m] = iso.split('-'); return `1° ${MESI_IT[Number(m) - 1]} ${y}` }
+function euroIt(n) { return Number(n).toLocaleString('it-IT', { minimumFractionDigits: Number.isInteger(Number(n)) ? 0 : 2, maximumFractionDigits: 2 }) + ' €' }
+
+function PartenzaMeseProssimo({ iscrizione, socio, tutte, onAggiornato }) {
+  const [aperto, setAperto] = useState(false)
+  const [righe, setRighe] = useState(null)
+  const [mese, setMese] = useState('')
+  const [inviaEmail, setInviaEmail] = useState(true)
+  const [lavoro, setLavoro] = useState('')
+  const [errore, setErrore] = useState('')
+
+  // stesso modulo = stessa persona, stessa stagione, stesso giorno di iscrizione, non annullate né pagate
+  const giorno = String(iscrizione.data_iscrizione || '').slice(0, 10)
+  const gruppoIds = (tutte || []).filter(x => x.stagione_id === iscrizione.stagione_id && x.stato_pagamento !== 'annullata'
+    && x.stato_pagamento !== 'confermato' && String(x.data_iscrizione || '').slice(0, 10) === giorno).map(x => x.id)
+
+  const opzioni = (() => {
+    const out = []
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + 1)
+    for (let k = 0; k < 7; k++) {
+      if (d.getMonth() + 1 >= 6 && d.getMonth() + 1 <= 8) break // la stagione finisce a maggio
+      out.push(isoPrimoDelMese(d)); d.setMonth(d.getMonth() + 1)
+    }
+    return out
+  })()
+
+  async function apri() {
+    setAperto(true); setErrore(''); setMese(iscrizione.inizio_frequenza || opzioni[0] || '')
+    const { data, error } = await supabase.from('iscrizioni')
+      .select(`id, tipo_pagamento, frequenza, giorno_scelto, inizio_personalizzato, inizio_frequenza, importo_dichiarato, note, data_iscrizione, stato_pagamento,
+        corsi!iscrizioni_corso_id_fkey ( ${CAMPI_CORSO_MOTORE}, sedi ( nome ) ), stagioni ( data_inizio )`)
+      .in('id', gruppoIds.length ? gruppoIds : [iscrizione.id])
+    if (error) { setErrore(error.message); return }
+    setRighe(data || [])
+  }
+
+  const anno = righe && righe[0] ? Number(String(righe[0].stagioni?.data_inizio || '').slice(0, 4)) : null
+  const prima = righe && righe[0] ? Number(righe[0].importo_dichiarato) : null
+  const dopo = righe && mese && anno ? quotaGruppoAlla(righe, socio, anno, new Date(mese + 'T12:00:00')) : null
+
+  async function conferma() {
+    if (dopo == null) return
+    setErrore(''); setLavoro('Salvataggio…')
+    const nota = `Inizio frequenza dal ${etichettaMese(mese)} su richiesta (quota ricalcolata: ${euroIt(dopo)} invece di ${euroIt(prima)})`
+    for (const r of righe) {
+      const { error } = await supabase.from('iscrizioni').update({
+        inizio_frequenza: mese, importo_dichiarato: dopo,
+        note: r.note ? `${r.note} | ${nota}` : nota,
+      }).eq('id', r.id)
+      if (error) { setErrore('Salvataggio non riuscito: ' + error.message); setLavoro(''); return }
+    }
+    if (inviaEmail && socio.email) {
+      setLavoro('Invio email…')
+      const nomeMaiusc = `${(socio.nome || '').toUpperCase()} ${(socio.cognome || '').toUpperCase()}`
+      const causale = `${nomeMaiusc} ${righe.map(r => componiCodiceCompleto(r.corsi, r.frequenza, r.tipo_pagamento)).join(' + ')}`
+      const tp = righe[0].tipo_pagamento
+      try {
+        const res = await fetch('https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/invia-email-iscrizione', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tipo: 'conferma_iscrizione', destinatarioEmail: socio.email, destinatarioNome: `${socio.nome} ${socio.cognome}`,
+            corsi: righe.map(r => ({ nome: r.corsi?.nome_visualizzato || r.corsi?.disciplina, sede: r.corsi?.sedi?.nome,
+              giorniOrari: giorniOrariVisualizzati(r.corsi, r.frequenza, r.giorno_scelto), codiceCompleto: componiCodiceCompleto(r.corsi, r.frequenza, r.tipo_pagamento) })),
+            quotaTotale: dopo, causale, richiedeIscrizione: true, inizioFrequenza: mese,
+            tipoPagamentoLabel: tp === 'quad2' ? '2ª rata quadrimestrale' : tp === 'quad1' ? '1ª rata quadrimestrale' : 'quota annuale',
+          }),
+        })
+        const d = await res.json().catch(() => ({}))
+        if (!(d.success || d.messageId)) setErrore('Salvato, ma l\'email non è partita: ' + (d.error || res.status))
+      } catch (e) { setErrore('Salvato, ma l\'email non è partita: ' + e.message) }
+    }
+    setLavoro('')
+    setAperto(false)
+    onAggiornato && onAggiornato()
+  }
+
+  if (!opzioni.length) return null
+  return (
+    <>
+      <button onClick={apri}
+        style={{ fontSize: 12, background: '#FEF3C7', color: '#92400E', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', marginLeft: 6 }}>
+        📅 {iscrizione.inizio_frequenza ? 'Cambia mese di inizio' : 'Fai partire dal mese prossimo'}
+      </button>
+      {aperto && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 20, width: '100%', maxWidth: 460 }}>
+            <h3 style={{ margin: '0 0 4px' }}>📅 Inizio dal mese prossimo</h3>
+            <div style={{ fontSize: 13, color: SUB, marginBottom: 14 }}>{socio.cognome} {socio.nome}</div>
+            {!righe ? <div style={{ color: SUB }}>Caricamento…</div> : (
+              <>
+                <div style={{ fontSize: 13, marginBottom: 10 }}>
+                  {righe.map(r => <div key={r.id}>• {r.corsi?.nome_visualizzato || r.corsi?.disciplina} — {r.corsi?.sedi?.nome} ({r.tipo_pagamento === 'annuale' ? 'annuale' : r.tipo_pagamento === 'quad1' ? '1° quadrimestre' : 'da gennaio'})</div>)}
+                  {righe.length > 1 && <div style={{ color: SUB, fontSize: 12, marginTop: 4 }}>Corsi compilati nello stesso modulo: si ricalcolano insieme.</div>}
+                </div>
+                <label style={{ fontSize: 13, fontWeight: 600 }}>Inizia dal</label>
+                <select value={mese} onChange={e => setMese(e.target.value)} style={{ display: 'block', width: '100%', padding: 8, borderRadius: 8, border: '1px solid ' + BD, fontSize: 14, margin: '4px 0 14px' }}>
+                  {opzioni.map(o => <option key={o} value={o}>{etichettaMese(o)}</option>)}
+                </select>
+                <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+                  <div style={{ flex: 1, background: '#F3F4F6', borderRadius: 8, padding: 10, textAlign: 'center' }}>
+                    <div style={{ fontSize: 11.5, color: SUB }}>Quota attuale</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, textDecoration: 'line-through', color: SUB }}>{prima != null ? euroIt(prima) : '—'}</div>
+                  </div>
+                  <div style={{ flex: 1, background: GL, borderRadius: 8, padding: 10, textAlign: 'center' }}>
+                    <div style={{ fontSize: 11.5, color: G }}>Nuova quota</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: G }}>{dopo != null ? euroIt(dopo) : 'non calcolabile'}</div>
+                  </div>
+                </div>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, marginBottom: 6 }}>
+                  <input type="checkbox" checked={inviaEmail} onChange={e => setInviaEmail(e.target.checked)} disabled={!socio.email} />
+                  Rimanda l'email di conferma con il nuovo importo {socio.email ? `a ${socio.email}` : '(manca l\'email)'}
+                </label>
+              </>
+            )}
+            {errore && <div style={{ background: RL, color: R, padding: '8px 10px', borderRadius: 8, fontSize: 13, marginTop: 10 }}>{errore}</div>}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button onClick={() => setAperto(false)} disabled={!!lavoro} style={{ background: '#F3F4F6', border: 'none', borderRadius: 8, padding: '9px 14px', cursor: 'pointer' }}>Annulla</button>
+              <button onClick={conferma} disabled={!!lavoro || dopo == null}
+                style={{ background: G, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontWeight: 600, cursor: 'pointer', opacity: dopo == null ? 0.5 : 1 }}>
+                {lavoro || 'Conferma'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -1788,7 +1927,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
         id, corso_id, stagione_id, tipo_pagamento, stato_pagamento, importo_dichiarato, ricevuta_url,
         stato_certificato, data_scadenza_certificato, certificato_url, certificato_ereditato,
         data_iscrizione, note, nota_socio, firma_url, firma_genitore_url, modulo_cartaceo_url,
-        frequenza, giorno_scelto, data_pagamento, verificato_il, stato_pagamento_prima_annullamento,
+        frequenza, giorno_scelto, data_pagamento, verificato_il, stato_pagamento_prima_annullamento, inizio_frequenza,
         incasso_verificato_il, incasso_importo, incasso_verificato_da, incasso_metodo,
         corso_extra_settembre_id, frequenza_extra_settembre, sovrapprezzo_extra_settembre,
         corsi!iscrizioni_corso_id_fkey ( codice_corso, disciplina, nome_visualizzato, giorni_orari, ha_variante_frequenza, sedi ( nome ) ),
@@ -2439,7 +2578,15 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
                 const confermate = iscrizioni.filter(a => a.id !== i.id && a.stagione_id === i.stagione_id && ['confermato', 'dichiarato'].includes(a.stato_pagamento))
                 return confermate.length > 0 ? <RichiestaIntegrazione iscrizione={i} socio={socio} altreConfermate={confermate} /> : null
               })()}
+              {['in_attesa', 'rifiutato', 'dichiarato'].includes(i.stato_pagamento) && i.tipo_pagamento !== 'quad2' && (
+                <PartenzaMeseProssimo iscrizione={i} socio={socio} tutte={iscrizioni} onAggiornato={caricaIscrizioni} />
+              )}
             </div>
+            {i.inizio_frequenza && (
+              <div style={{ fontSize: 12, color: '#92400E', background: '#FEF3C7', borderRadius: 6, padding: '3px 8px', marginTop: 6, display: 'inline-block', fontWeight: 600 }}>
+                📅 Frequenza dal {i.inizio_frequenza.split('-').reverse().join('/')}
+              </div>
+            )}
             {i.note && <div style={{ fontSize: 11.5, color: SUB, marginTop: 6, fontStyle: 'italic' }}>{i.note}</div>}
             <NotaVisibileSocio iscrizione={i} />
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

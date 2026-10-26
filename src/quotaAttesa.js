@@ -106,7 +106,8 @@ export function calcolaQuotaAttesa(row, tutte) {
     if (!row || !row.corsi || !pagamentoMotore(row.tipo_pagamento)) return null;
     const socio = row.soci || {};
     const annoStagione = Number(String(row.stagioni?.data_inizio || "").slice(0, 4)) || new Date().getFullYear();
-    const alla = row.data_iscrizione ? new Date(row.data_iscrizione) : new Date();
+    // inizio_frequenza (26/10/2026): "Fai partire dal mese prossimo" — i mesi prima non si pagano
+    const alla = row.inizio_frequenza ? new Date(row.inizio_frequenza + "T12:00:00") : row.data_iscrizione ? new Date(row.data_iscrizione) : new Date();
     const note = String(row.note || "");
     const stessaPersona = (tutte || []).filter((i) => i.id !== row.id && i.corsi);
 
@@ -142,6 +143,21 @@ export function calcolaQuotaAttesa(row, tutte) {
       spiegazione: `${descrizione(sel)}${gruppo.length > 1 ? ", stessa ricevuta" : ""}${extra}`,
       codici: sel.map((s) => componiCodice(s.corso, s.frequenza, s.pagamento)).join(" + "),
     };
+  } catch {
+    return null;
+  }
+}
+
+// Quota di un gruppo di iscrizioni (stesso modulo) calcolata come se l'iscrizione
+// fosse fatta alla data `alla` — usata da "Fai partire dal mese prossimo" (26/10/2026).
+// righe: iscrizioni con corsi (CAMPI_CORSO_MOTORE + sedi(nome)); socio: per Ginnastica Dolce Bovezzo.
+export function quotaGruppoAlla(righe, socio, annoStagione, alla) {
+  try {
+    const sel = (righe || []).filter((i) => i.corsi).map((i) => perMotore(i, socio || {}, annoStagione, alla));
+    if (!sel.length || sel.some((s) => !s.pagamento)) return null;
+    const r = calcolaPrezzoTotale(sel, { alla });
+    if (r.totale == null || r.incompleto) return null;
+    return Math.round(r.totale * 100) / 100;
   } catch {
     return null;
   }
