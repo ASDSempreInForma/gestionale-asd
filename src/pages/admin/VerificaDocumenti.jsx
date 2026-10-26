@@ -3,6 +3,7 @@ import { scadenzaPerNuovoNumero, enteIniziale, ENTI_TESSERA } from '../../tesser
 import { supabase } from '../../supabase.js'
 import { percorsoOriginale, apriDocumentoStorage } from '../../scansioneDocumento.js'
 import { calcolaQuotaAttesa, spiegaDifferenza, CAMPI_CORSO_MOTORE } from '../../quotaAttesa.js'
+import PannelloSolleciti from './PannelloSolleciti.jsx'
 
 // 12/10/2026: campi necessari anche per calcolare la quota attesa
 const SELECT_ISCRIZIONE = `
@@ -954,10 +955,10 @@ export default function VerificaDocumenti() {
     }))
   }
 
-  useEffect(() => { if (vista !== 'scadenze' && vista !== 'rata2') carica() }, [vista])
+  useEffect(() => { if (vista !== 'scadenze' && vista !== 'rata2' && vista !== 'solleciti') carica() }, [vista])
 
   if (errore) return <div style={{ padding: 24, color: '#DC2626' }}>Errore: {errore}</div>
-  if (vista !== 'scadenze' && vista !== 'rata2' && !righe) return <div style={{ padding: 24, color: SUB }}>Caricamento...</div>
+  if (vista !== 'scadenze' && vista !== 'rata2' && vista !== 'solleciti' && !righe) return <div style={{ padding: 24, color: SUB }}>Caricamento...</div>
 
   const righeFiltrate = (righe || []).filter(r => {
     // Filtro per tipo di documento: in "Da verificare" conta lo stato
@@ -981,7 +982,7 @@ export default function VerificaDocumenti() {
         Ricevute e certificati caricati dai soci dalla loro area privata.
       </p>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         <button
           onClick={() => setVista('in_attesa')}
           style={{ background: vista === 'in_attesa' ? G : 'white', color: vista === 'in_attesa' ? 'white' : TX, border: `1px solid ${vista === 'in_attesa' ? G : BD}`, borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
@@ -1006,13 +1007,20 @@ export default function VerificaDocumenti() {
         >
           🔁 Rinnovi 2° quadrimestre
         </button>
+        <button
+          onClick={() => setVista('solleciti')}
+          style={{ background: vista === 'solleciti' ? G : 'white', color: vista === 'solleciti' ? 'white' : TX, border: `1px solid ${vista === 'solleciti' ? G : BD}`, borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+        >
+          💸 Da sollecitare
+        </button>
       </div>
 
       {vista === 'in_attesa' && <PannelloRicevutePos />}
       {vista === 'scadenze' && <PannelloScadenzeCertificati />}
       {vista === 'rata2' && <PannelloRinnoviRata2 />}
+      {vista === 'solleciti' && <PannelloSolleciti />}
 
-      {vista !== 'scadenze' && vista !== 'rata2' && (
+      {vista !== 'scadenze' && vista !== 'rata2' && vista !== 'solleciti' && (
         <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ fontSize: 12.5, color: SUB }}>Mostra:</span>
           {[
@@ -1033,7 +1041,7 @@ export default function VerificaDocumenti() {
       )}
 
       {/* 08/10/2026: ricerca anche in "Da verificare" (richiesta di Solomon) */}
-      {vista !== 'scadenze' && vista !== 'rata2' && (
+      {vista !== 'scadenze' && vista !== 'rata2' && vista !== 'solleciti' && (
         <input
           value={ricerca}
           onChange={e => setRicerca(e.target.value)}
@@ -1042,13 +1050,13 @@ export default function VerificaDocumenti() {
         />
       )}
 
-      {vista !== 'scadenze' && vista !== 'rata2' && righeFiltrate.length === 0 && (
+      {vista !== 'scadenze' && vista !== 'rata2' && vista !== 'solleciti' && righeFiltrate.length === 0 && (
         <div style={{ color: SUB, fontSize: 14, padding: 20, textAlign: 'center', background: 'white', borderRadius: 12, border: `1px solid ${BD}` }}>
           {vista === 'in_attesa' ? 'Nessun documento in attesa di verifica. ✅' : 'Nessun documento trovato.'}
         </div>
       )}
 
-      {vista !== 'scadenze' && vista !== 'rata2' && righeFiltrate.map(r => <RigaIscritto key={r.id} row={r} soloConsultazione={vista === 'storico'} onAggiorna={carica} solo={tipoFiltro} />)}
+      {vista !== 'scadenze' && vista !== 'rata2' && vista !== 'solleciti' && righeFiltrate.map(r => <RigaIscritto key={r.id} row={r} soloConsultazione={vista === 'storico'} onAggiorna={carica} solo={tipoFiltro} />)}
     </div>
   )
 }
