@@ -5,8 +5,9 @@ import { supabase } from '../../supabase.js'
    DA SOLLECITARE — Verifica documenti (26/10/2026, richiesta di Solomon)
    Chi è iscritto da più di N giorni e non ha ancora pagato: si spuntano le
    persone e si invia il promemoria (email "sollecito_pagamento": quota,
-   causale, coordinate e termine di 7 giorni oltre il quale il posto non è
-   più garantito). Una email per persona, con tutti i suoi corsi non pagati.
+   causale, coordinate e termine di 3 giorni). 27/10/2026: scaduto il termine,
+   l'edge function annulla-non-pagati (ogni mattina) annulla l'iscrizione e
+   blocca l'anagrafica. Una email per persona, con tutti i suoi corsi non pagati.
    Esclusi: chi ha l'incasso già arrivato (bonifico/bollettino/carta visti dal
    controllo pagamenti) e chi ha caricato una ricevuta da verificare.
    Senza email: pulsante WhatsApp con il messaggio già scritto.
@@ -49,7 +50,7 @@ export default function PannelloSolleciti() {
     if (!st) { setRighe([]); return }
     const { data, error } = await supabase.from('iscrizioni')
       .select(`id, socio_cf, data_iscrizione, inizio_frequenza, tipo_pagamento, frequenza, giorno_scelto, importo_dichiarato, stato_pagamento,
-        ricevuta_url, incasso_verificato_il, sollecito_pagamento_il, sollecito_pagamento_n, note,
+        ricevuta_url, incasso_verificato_il, sollecito_pagamento_il, sollecito_pagamento_n, sollecito_scadenza, note,
         soci ( cf, nome, cognome, email, telefono, is_admin_blocked ),
         corsi!iscrizioni_corso_id_fkey ( codice_corso, disciplina, nome_visualizzato, giorni_orari, ha_variante_frequenza, sedi ( nome ) )`)
       .eq('stagione_id', st.id).in('stato_pagamento', ['in_attesa', 'rifiutato']).is('incasso_verificato_il', null)
@@ -75,6 +76,7 @@ export default function PannelloSolleciti() {
       x.giorni = giorniDa(x.dal)
       x.ultimoSollecito = x.righe.map(r => r.sollecito_pagamento_il).filter(Boolean).sort().pop() || null
       x.nSolleciti = Math.max(0, ...x.righe.map(r => r.sollecito_pagamento_n || 0))
+      x.scadenza = x.righe.map(r => r.sollecito_scadenza).filter(Boolean).sort().pop() || null
       // importo: il totale del modulo è ripetuto su ogni riga dello stesso giorno → uno per giorno
       const perGiorno = {}
       for (const r of x.righe) perGiorno[String(r.data_iscrizione).slice(0, 10)] = Number(r.importo_dichiarato) || 0
@@ -84,24 +86,24 @@ export default function PannelloSolleciti() {
     return out.sort((a, b) => b.giorni - a.giorni)
   }, [righe])
 
-  const visibili = persone.filter(p => p.giorni >= giorni && !(nascondiRecenti && p.ultimoSollecito && giorniDa(p.ultimoSollecito) < 7))
+  const visibili = persone.filter(p => p.giorni >= giorni && !(nascondiRecenti && p.scadenza && p.scadenza >= isoLocale(new Date())))
   const conEmail = visibili.filter(p => String(p.socio.email || '').includes('@'))
   const selezionate = visibili.filter(p => scelti.has(p.cf))
 
   const toggle = (cf) => setScelti(s => { const n = new Set(s); n.has(cf) ? n.delete(cf) : n.add(cf); return n })
 
   function messaggioWhatsapp(p) {
-    const entro = new Date(); entro.setDate(entro.getDate() + 7)
+    const entro = new Date(); entro.setDate(entro.getDate() + 3)
     const corsi = p.righe.map(r => r.corsi?.nome_visualizzato || r.corsi?.disciplina).join(', ')
     const causale = `${(p.socio.nome || '').toUpperCase()} ${(p.socio.cognome || '').toUpperCase()} ${p.righe.map(r => codiceCompleto(r.corsi, r.frequenza, r.tipo_pagamento)).join(' + ')}`
-    return `Buongiorno ${p.socio.nome}, dai nostri controlli non risulta ancora il pagamento della tua iscrizione (${corsi}): ${euro(p.importo)}. Ti chiediamo di effettuarlo entro il ${entro.toLocaleDateString('it-IT')}, dopo questa data il posto nel corso non sarà più garantito.\n\nBonifico: IBAN IT11R0760111200000023388259\nBollettino: c/c postale 23388259\nIntestato a: ASSOCIAZIONE SEMPRE IN FORMA\nCausale: ${causale}\n\nSe hai già pagato, carica la ricevuta nell'area privata: https://app.asdsempreinforma.it/area-tesserati\nGrazie! A.S.D. Sempre In Forma`
+    return `Buongiorno ${p.socio.nome}, dai nostri controlli non risulta ancora il pagamento della tua iscrizione (${corsi}): ${euro(p.importo)}. Ti chiediamo di effettuarlo e di caricare la ricevuta nell'area privata entro il ${entro.toLocaleDateString('it-IT')}: dopo questa data, se il pagamento non risulterà, l'iscrizione verrà annullata automaticamente.\n\nBonifico: IBAN IT11R0760111200000023388259\nBollettino: c/c postale 23388259\nIntestato a: ASSOCIAZIONE SEMPRE IN FORMA\nCausale: ${causale}\n\nSe hai già pagato, carica la ricevuta nell'area privata: https://app.asdsempreinforma.it/area-tesserati\nGrazie! A.S.D. Sempre In Forma`
   }
 
   async function invia() {
     const lista = selezionate.filter(p => String(p.socio.email || '').includes('@'))
     if (!lista.length) return
-    if (!window.confirm(`Inviare il promemoria di pagamento a ${lista.length} ${lista.length === 1 ? 'persona' : 'persone'}?\n\nL'email chiede di pagare entro 7 giorni, altrimenti il posto non è più garantito.`)) return
-    const entro = new Date(); entro.setDate(entro.getDate() + 7)
+    if (!window.confirm(`Inviare il promemoria di pagamento a ${lista.length} ${lista.length === 1 ? 'persona' : 'persone'}?\n\nL'email chiede di pagare entro 3 giorni: scaduto il termine, se non arriva la ricevuta o il pagamento, l'iscrizione viene ANNULLATA automaticamente e l'anagrafica BLOCCATA.`)) return
+    const entro = new Date(); entro.setDate(entro.getDate() + 3)
     const entroIso = isoLocale(entro)
     let ok = 0; const falliti = []
     for (let k = 0; k < lista.length; k++) {
@@ -125,7 +127,7 @@ export default function PannelloSolleciti() {
         if (!(d.success || d.messageId)) throw new Error(d.error || res.status)
         const adesso = new Date().toISOString()
         for (const r of p.righe) {
-          await supabase.from('iscrizioni').update({ sollecito_pagamento_il: adesso, sollecito_pagamento_n: (r.sollecito_pagamento_n || 0) + 1 }).eq('id', r.id)
+          await supabase.from('iscrizioni').update({ sollecito_pagamento_il: adesso, sollecito_pagamento_n: (r.sollecito_pagamento_n || 0) + 1, sollecito_scadenza: entroIso }).eq('id', r.id)
         }
         ok++
       } catch (e) { falliti.push(`${p.socio.cognome} ${p.socio.nome}`) }
@@ -143,7 +145,7 @@ export default function PannelloSolleciti() {
     <div style={{ marginBottom: 20 }}>
       <div style={{ background: 'white', border: `1px solid ${BD}`, borderRadius: 12, padding: 16, marginBottom: 14 }}>
         <div style={{ fontSize: 14, color: TX, marginBottom: 10, lineHeight: 1.5 }}>
-          Iscritti che <b>non hanno ancora pagato</b>. Esclusi quelli con l'incasso già arrivato (bonifico, bollettino, carta) e chi ha caricato una ricevuta da verificare.
+          Iscritti che <b>non hanno ancora pagato</b>. Esclusi quelli con l'incasso già arrivato (bonifico, bollettino, carta) e chi ha caricato una ricevuta da verificare. Il promemoria dà <b>3 giorni</b>: poi, se non arriva la ricevuta o il pagamento, ogni mattina il sistema <b>annulla l'iscrizione e blocca l'anagrafica</b> (riepilogo via email a info@; si ripristina da Anagrafica).
         </div>
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', fontSize: 13 }}>
           <label>Iscritti da almeno{' '}
@@ -153,7 +155,7 @@ export default function PannelloSolleciti() {
           </label>
           <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <input type="checkbox" checked={nascondiRecenti} onChange={e => setNascondiRecenti(e.target.checked)} />
-            Nascondi chi ha già ricevuto un sollecito negli ultimi 7 giorni
+            Nascondi chi ha già ricevuto il sollecito ed è nei 3 giorni per pagare
           </label>
         </div>
       </div>
@@ -190,7 +192,14 @@ export default function PannelloSolleciti() {
               <div style={{ fontSize: 12.5, color: TX, marginTop: 2 }}>
                 <b>{euro(p.importo)}</b> · iscritto il {fmt(p.righe[0].data_iscrizione)} (<b>{p.giorni} giorni</b>)
                 {p.righe.some(r => r.stato_pagamento === 'rifiutato') && <span style={{ color: '#991B1B' }}> · ricevuta rifiutata</span>}
-                {p.ultimoSollecito && <span style={{ color: A }}> · già sollecitato {p.nSolleciti > 1 ? `${p.nSolleciti} volte, ` : ''}l'ultima il {fmt(p.ultimoSollecito)}</span>}
+                {p.ultimoSollecito && <span style={{ color: A }}> · sollecitato il {fmt(p.ultimoSollecito)}</span>}
+                {p.scadenza && (() => {
+                  const oggi = isoLocale(new Date())
+                  const gg = Math.round((new Date(p.scadenza + 'T12:00:00') - new Date(oggi + 'T12:00:00')) / 86400000)
+                  return gg >= 0
+                    ? <span style={{ marginLeft: 6, background: AL, color: A, borderRadius: 6, padding: '1px 6px', fontWeight: 700 }}>⏳ paga entro il {p.scadenza.split('-').reverse().join('/')} ({gg === 0 ? 'oggi' : gg === 1 ? 'domani' : `${gg} giorni`}), poi annullata</span>
+                    : <span style={{ marginLeft: 6, background: '#FEE2E2', color: '#991B1B', borderRadius: 6, padding: '1px 6px', fontWeight: 700 }}>scaduto: verrà annullata domattina</span>
+                })()}
               </div>
               {!email && <div style={{ fontSize: 12, color: '#991B1B', marginTop: 2 }}>Senza email{telWa ? ': mandagli un WhatsApp' : ' né telefono'}</div>}
             </div>
