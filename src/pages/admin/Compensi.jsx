@@ -22,6 +22,13 @@ const CL = "#EEF0F1";
 // SEDE fa molte meno sospensioni della Palestra).
 
 function euro(n) { return `€ ${Number(n || 0).toFixed(2)}`; }
+// File Word (Uint8Array) → base64 per l'allegato email
+function inBase64(bytes) {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
 function dataItaliana(iso) { const [a, m, g] = iso.split("-"); return `${g}/${m}/${a}`; }
 
 
@@ -69,7 +76,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza,
         indirizzo_residenza, cap, cf, data_contratto, qualifica, sesso, tipo_contratto, partita_iva,
         disciplina_contratto, disponibilita_oraria, compenso_orario_contratto, data_fine_contratto,
-        compenso_annuo_lordo, scadenza_pagamento_iva`)
+        compenso_annuo_lordo, scadenza_pagamento_iva, email`)
       .eq("attivo", true).in("tipo", ["istruttore", "collaboratore"]).order("cognome");
     // (27/09/2026) Inclusi anche i COLLABORATORI: il loro compenso sono le ore
     // di segreteria dichiarate in ore_collaboratori × tariffa oraria. Lo stesso
@@ -89,6 +96,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         disciplinaContratto: t.disciplina_contratto, disponibilitaOraria: t.disponibilita_oraria,
         compensoOrarioContratto: t.compenso_orario_contratto, dataFineContratto: t.data_fine_contratto,
         compensoAnnuoLordo: t.compenso_annuo_lordo, scadenzaPagamentoIva: t.scadenza_pagamento_iva,
+        email: (t.email || "").trim(),
       })));
     }
     setCaricandoIstr(false);
@@ -195,25 +203,54 @@ export default function Compensi({ istruttoreIniziale } = {}) {
     caricaIstruttori();
   }
 
-  async function generaContratto() {
+  async function generaContratto(invia = false) {
     if (!istruttoreId || !contratto || !anagraficaCompleta) return;
     setErrore("");
     try {
+      const opz = { soloFile: invia };
+      let file;
       if (anagrafica.tipoContratto === "partita_iva") {
-        await generaContrattoPartitaIva({
+        file = await generaContrattoPartitaIva({
           nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
           partitaIva: anagrafica.partitaIva, compensoAnnuoLordo: contratto.compensoAnnuoLordo,
           scadenzaPagamentoIva: contratto.scadenzaPagamentoIva, clausolaAggiuntiva: contratto.clausolaAggiuntiva,
-        });
+        }, opz);
       } else {
-        await generaContrattoCollaborazione({
+        file = await generaContrattoCollaborazione({
           nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
           disciplinaContratto: contratto.disciplinaContratto, disponibilitaOraria: contratto.disponibilitaOraria,
           compensoOrarioContratto: contratto.compensoOrarioContratto, dataFineContratto: contratto.dataFineContratto,
           clausolaAggiuntiva: contratto.clausolaAggiuntiva,
-        });
+        }, opz);
       }
-    } catch (err) { setErrore("Contratto non generato: " + err.message); }
+      if (invia) await inviaPerEmail(file, {
+        oggetto: "A.S.D. Sempre In Forma - Copia del contratto",
+        descrizione: anagrafica.tipoContratto === "partita_iva" ? "del tuo incarico di collaborazione sportiva" : "del tuo contratto di collaborazione",
+      });
+    } catch (err) { setErrore("Contratto non " + (invia ? "inviato: " : "generato: ") + err.message); }
+  }
+
+  // ── Invio per email all'istruttore (28/10/2026, richiesta di Solomon) ──────
+  // Il documento Word viene generato come per il download e mandato in
+  // allegato all'email dell'istruttore (anagrafica), con info@ in copia nascosta.
+  const [inviando, setInviando] = useState(false);
+  async function inviaPerEmail(file, { oggetto, descrizione, riepilogo }) {
+    const email = istruttore?.email;
+    if (!email) throw new Error("manca l'email dell'istruttore in anagrafica (Gestione Istruttori)");
+    if (!window.confirm(`Inviare "${file.nomeFile}" a ${email}?`)) return;
+    setInviando(true); setMessaggio("");
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/invia-documenti-istruttore`, {
+        method: "POST", headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+        body: JSON.stringify({
+          istruttoreId, destinatarioNome: istruttore.nome, oggetto, descrizione, riepilogo,
+          allegati: [{ nome: file.nomeFile, contenutoBase64: inBase64(file.bytes) }],
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!d.success) throw new Error(d.error || `errore ${res.status}`);
+      setMessaggio(`📧 ${file.nomeFile} inviato a ${d.email || email}.`);
+    } finally { setInviando(false); }
   }
 
   const eCompleta = (a) => !!a && (
@@ -456,21 +493,25 @@ export default function Compensi({ istruttoreIniziale } = {}) {
   // (27/09/2026) Prima lo storico era di sola lettura: per riscaricare
   // l'autocertificazione di un mese già pagato o correggerne l'importo
   // bisognava passare da Supabase.
-  async function stampaAutocertificazioneStorico(p) {
+  async function stampaAutocertificazioneStorico(p, invia = false) {
     if (!anagraficaCompleta || anagrafica?.tipoContratto === "partita_iva") {
       setErrore("Completa prima i dati anagrafici/contratto dell'istruttore (sopra): servono per l'autocertificazione.");
       return;
     }
     setErrore("");
     try {
-      await generaAutocertificazione({
+      const file = await generaAutocertificazione({
         nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
         periodoLabel: p.periodo_label, dataPagamento: dataDichiarazione || p.data_pagamento || isoData(new Date()),
         importoPeriodo: Number(p.importo_totale || 0),
         cumulativoPrima: Number(p.cumulativo_annuo_dopo || 0) - Number(p.importo_totale || 0),
         dataInizioPeriodo: p.data_inizio,
+      }, { soloFile: invia });
+      if (invia) await inviaPerEmail(file, {
+        oggetto: `A.S.D. Sempre In Forma - Compenso ${p.periodo_label || ""}`.trim(),
+        descrizione: `dell'autocertificazione del compenso di ${p.periodo_label || "questo periodo"} (${euro(p.importo_totale)})`,
       });
-    } catch (err) { setErrore("Autocertificazione non generata: " + err.message); }
+    } catch (err) { setErrore("Autocertificazione non " + (invia ? "inviata: " : "generata: ") + err.message); }
   }
 
   // Dopo una modifica/eliminazione il "cumulativo dopo" di questo pagamento e
@@ -542,30 +583,39 @@ export default function Compensi({ istruttoreIniziale } = {}) {
     return () => { annullato = true; };
   }, [istruttoreId, annoAnnuale, storico]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function generaAnnuale() {
+  async function generaAnnuale(invia = false) {
     if (!anagraficaCompleta || anagrafica.tipoContratto === "partita_iva") return;
     setErrore("");
     try {
-      await generaAutocertificazioneAnnuale({
+      const file = await generaAutocertificazioneAnnuale({
         nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
         anno: Number(annoAnnuale), importo: Number(importoAnnuale),
+      }, { soloFile: invia });
+      if (invia) await inviaPerEmail(file, {
+        oggetto: `A.S.D. Sempre In Forma - Autocertificazione annuale ${annoAnnuale}`,
+        descrizione: `dell'autocertificazione annuale dei compensi ${annoAnnuale}`,
       });
-    } catch (err) { setErrore("Autocertificazione annuale non generata: " + err.message); }
+    } catch (err) { setErrore("Autocertificazione annuale non " + (invia ? "inviata: " : "generata: ") + err.message); }
   }
 
-  async function stampaAutocertificazione() {
+  async function stampaAutocertificazione(invia = false) {
     if (!risultato || !anagraficaCompleta || anagrafica.tipoContratto === "partita_iva") return;
     setErrore("");
     try {
-      await generaAutocertificazione({
+      const file = await generaAutocertificazione({
         nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
         // Nelle righe va il compenso del PERIODO; il cumulativo prima del
         // pagamento serve solo a scegliere la fascia (vedi generaAutocertificazione.js)
         periodoLabel, dataPagamento: dataDichiarazione || isoData(new Date()),
         importoPeriodo: importoFinale, cumulativoPrima: risultato.cumulativoPrima,
         dataInizioPeriodo: dataInizio,
+      }, { soloFile: invia });
+      if (invia) await inviaPerEmail(file, {
+        oggetto: `A.S.D. Sempre In Forma - Compenso ${periodoLabel || ""}`.trim(),
+        descrizione: `dell'autocertificazione del compenso${periodoLabel ? ` di ${periodoLabel}` : ""}`,
+        riepilogo: risultato.testoWhatsapp,
       });
-    } catch (err) { setErrore("Autocertificazione non generata: " + err.message); }
+    } catch (err) { setErrore("Autocertificazione non " + (invia ? "inviata: " : "generata: ") + err.message); }
   }
 
   return (
@@ -700,11 +750,12 @@ export default function Compensi({ istruttoreIniziale } = {}) {
 
           {!anagraficaCompleta && <div style={{ fontSize: 12, color: "#c0392b", marginBottom: 10 }}>Completa prima i dati anagrafici qui sopra — servono anche per il contratto.</div>}
 
-          <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <button onClick={salvaContratto} disabled={salvandoContratto} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{salvandoContratto ? "Salvo…" : "Salva questi dati"}</button>
-            <button onClick={generaContratto} disabled={!anagraficaCompleta} style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: anagraficaCompleta ? "pointer" : "default", opacity: anagraficaCompleta ? 1 : 0.5 }}>
+            <button onClick={() => generaContratto()} disabled={!anagraficaCompleta} style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: anagraficaCompleta ? "pointer" : "default", opacity: anagraficaCompleta ? 1 : 0.5 }}>
               📄 Genera contratto (Word)
             </button>
+            <BottoneInvia onClick={() => generaContratto(true)} disabled={!anagraficaCompleta || inviando} email={istruttore?.email} inviando={inviando} />
           </div>
         </div>
       )}
@@ -725,11 +776,12 @@ export default function Compensi({ istruttoreIniziale } = {}) {
               <label style={{ display: "block", fontSize: 11, color: "#888", marginBottom: 4 }}>Importo lordo percepito nell'anno (€)</label>
               <input type="number" step="0.01" value={importoAnnuale} onChange={(e) => setImportoAnnuale(e.target.value)} style={{ width: 200, padding: 7, borderRadius: 6, border: "1px solid #ddd" }} />
             </div>
-            <button onClick={generaAnnuale} disabled={!anagraficaCompleta || !(Number(importoAnnuale) > 0)}
+            <button onClick={() => generaAnnuale()} disabled={!anagraficaCompleta || !(Number(importoAnnuale) > 0)}
               title={!(Number(importoAnnuale) > 0) ? "Nessun compenso registrato per quest'anno: inserisci l'importo" : ""}
               style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: anagraficaCompleta && Number(importoAnnuale) > 0 ? 1 : 0.5 }}>
               📄 Genera autocertificazione annuale (Word)
             </button>
+            <BottoneInvia onClick={() => generaAnnuale(true)} disabled={!anagraficaCompleta || !(Number(importoAnnuale) > 0) || inviando} email={istruttore?.email} inviando={inviando} />
           </div>
         </div>
       )}
@@ -808,7 +860,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
                 <div style={{ color: "#c0392b", fontWeight: 600, marginTop: 6 }}>⚠️ Questo pagamento fa passare l'istruttore da uno scaglione all'altro nel corso dell'anno — verifica con il commercialista come ripartire l'importo tra i due scaglioni prima di far firmare l'autocertificazione.</div>
               )}
             </div>
-            <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+            <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
               <button onClick={segnaComePagato} disabled={salvando} style={{ background: "#1f8a52", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{salvando ? "Salvo…" : "✓ Segna come pagato"}</button>
               {anagrafica?.tipoContratto === "partita_iva" ? (
                 <div style={{ fontSize: 12, color: "#888", alignSelf: "center" }}>Partita IVA — fattura direttamente lui/lei, nessuna autocertificazione da generare.</div>
@@ -817,10 +869,11 @@ export default function Compensi({ istruttoreIniziale } = {}) {
                 <label style={{ fontSize: 12, color: "#666", display: "flex", alignItems: "center", gap: 6 }}>Data dichiarazione
                   <input type="date" value={dataDichiarazione} onChange={(e) => setDataDichiarazione(e.target.value)}
                     style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd", fontSize: 13 }} /></label>
-                <button onClick={stampaAutocertificazione} disabled={!anagraficaCompleta} title={!anagraficaCompleta ? "Completa prima i dati anagrafici" : ""}
+                <button onClick={() => stampaAutocertificazione()} disabled={!anagraficaCompleta} title={!anagraficaCompleta ? "Completa prima i dati anagrafici" : ""}
                   style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: anagraficaCompleta ? "pointer" : "default", opacity: anagraficaCompleta ? 1 : 0.5 }}>
                   📄 Genera autocertificazione (Word)
                 </button>
+                <BottoneInvia onClick={() => stampaAutocertificazione(true)} disabled={!anagraficaCompleta || inviando} email={istruttore?.email} inviando={inviando} />
                 </>
               )}
             </div>
@@ -859,6 +912,11 @@ export default function Compensi({ istruttoreIniziale } = {}) {
                     {anagrafica?.tipoContratto !== "partita_iva" && (
                       <button onClick={() => stampaAutocertificazioneStorico(p)} title="Riscarica l'autocertificazione di questo pagamento"
                         style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 6, padding: "3px 8px", fontSize: 11.5, cursor: "pointer" }}>📄 Autocertificazione</button>
+                    )}
+                    {anagrafica?.tipoContratto !== "partita_iva" && (
+                      <button onClick={() => stampaAutocertificazioneStorico(p, true)} disabled={inviando || !istruttore?.email}
+                        title={istruttore?.email ? `Invia l'autocertificazione a ${istruttore.email}` : "Manca l'email dell'istruttore in anagrafica"}
+                        style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 6, padding: "3px 8px", fontSize: 11.5, cursor: "pointer", opacity: istruttore?.email ? 1 : 0.5 }}>📧 Invia</button>
                     )}
                     <button onClick={() => modificaPagamentoStorico(p)} title="Correggi l'importo registrato"
                       style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 6, padding: "3px 8px", fontSize: 11.5, cursor: "pointer" }}>✏️ Modifica</button>
@@ -904,5 +962,17 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         </div>
       </div>
     </div>
+  );
+}
+
+// Pulsante "📧 Invia all'istruttore" accanto ai pulsanti "Genera … (Word)"
+function BottoneInvia({ onClick, disabled, email, inviando }) {
+  const off = disabled || !email;
+  return (
+    <button onClick={onClick} disabled={off}
+      title={email ? `Invia il documento per email a ${email}` : "Manca l'email dell'istruttore in anagrafica (Gestione Istruttori)"}
+      style={{ background: "#fff", color: "#1E3A5F", border: "1px solid #1E3A5F", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: off ? "default" : "pointer", opacity: off ? 0.5 : 1 }}>
+      {inviando ? "Invio…" : "📧 Invia all'istruttore"}
+    </button>
   );
 }

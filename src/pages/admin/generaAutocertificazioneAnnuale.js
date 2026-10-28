@@ -50,7 +50,7 @@ export function valoriAutocertificazioneAnnuale(dati) {
   };
 }
 
-export async function generaAutocertificazioneAnnuale(dati) {
+export async function generaAutocertificazioneAnnuale(dati, opzioni) {
   const nomeFile = `Autocertificazione_annuale_${dati.anno}_${dati.cognome}_${dati.nome}.docx`.replace(/\s+/g, "_");
-  await generaDaTemplate("autocertificazione_annuale.docx", valoriAutocertificazioneAnnuale(dati), nomeFile);
+  return generaDaTemplate("autocertificazione_annuale.docx", valoriAutocertificazioneAnnuale(dati), nomeFile, opzioni);
 }

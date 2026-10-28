@@ -100,10 +100,10 @@ export function valoriContrattoPartitaIva(dati) {
 
 const nomeFileContratto = ({ cognome, nome }) => `Contratto_${cognome}_${nome}.docx`.replace(/\s+/g, "_");
 
-export async function generaContrattoCollaborazione(dati) {
-  await generaDaTemplate("contratto_collaborazione.docx", valoriContrattoCollaborazione(dati), nomeFileContratto(dati));
+export async function generaContrattoCollaborazione(dati, opzioni) {
+  return generaDaTemplate("contratto_collaborazione.docx", valoriContrattoCollaborazione(dati), nomeFileContratto(dati), opzioni);
 }
 
-export async function generaContrattoPartitaIva(dati) {
-  await generaDaTemplate("incarico_partita_iva.docx", valoriContrattoPartitaIva(dati), nomeFileContratto(dati));
+export async function generaContrattoPartitaIva(dati, opzioni) {
+  return generaDaTemplate("incarico_partita_iva.docx", valoriContrattoPartitaIva(dati), nomeFileContratto(dati), opzioni);
 }

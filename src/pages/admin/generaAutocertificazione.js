@@ -100,8 +100,8 @@ export function valoriAutocertificazione(dati) {
   };
 }
 
-export async function generaAutocertificazione(dati) {
+export async function generaAutocertificazione(dati, opzioni) {
   const nomeFile = `Autocertificazione_${dati.cognome}_${dati.nome}_${String(dati.periodoLabel || "").replace(/\s+/g, "_")}.docx`
     .replace(/\s+/g, "_");
-  await generaDaTemplate("autocertificazione.docx", valoriAutocertificazione(dati), nomeFile);
+  return generaDaTemplate("autocertificazione.docx", valoriAutocertificazione(dati), nomeFile, opzioni);
 }

@@ -175,7 +175,11 @@ export function scaricaDocx(bytes, nomeFile) {
   URL.revokeObjectURL(url);
 }
 
-export async function generaDaTemplate(nomeTemplate, valori, nomeFile) {
+// Con { soloFile: true } non scarica: restituisce { bytes, nomeFile } (serve per
+// mandare il documento per email all'istruttore — 28/10/2026).
+export async function generaDaTemplate(nomeTemplate, valori, nomeFile, opzioni = {}) {
   const bytes = await compilaDocx(await caricaTemplate(nomeTemplate), valori);
+  if (opzioni.soloFile) return { bytes, nomeFile };
   scaricaDocx(bytes, nomeFile);
+  return { bytes, nomeFile };
 }
