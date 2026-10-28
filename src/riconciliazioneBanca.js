@@ -179,6 +179,7 @@ export function abbina(movimenti, soci) {
     const parole = paroleMovimento(mov.descrizione);
 
     const punteggi = [];
+    const soloCognome = []; // cognome nel testo ma nome diverso (es. "Maria Stella" / "Maristella")
     for (const s of preparati) {
       const cognomeOk = presenti(s.tCognome, parole) || presenti([s.tCognome.join("")], parole);
       if (!cognomeOk) continue;
@@ -189,6 +190,7 @@ export function abbina(movimenti, soci) {
       else if (nomeOk) punti = 2;
       else if (codiceOk) punti = 1; // solo cognome + codice: plausibile, da confermare a vista
       if (punti) punteggi.push({ socio: s, punti, nomeOk, codiceOk });
+      else soloCognome.push(s);
     }
     punteggi.sort((a, b) => b.punti - a.punti);
 
@@ -212,6 +214,29 @@ export function abbina(movimenti, soci) {
       if (nellaCausale.length) candidati = nellaCausale;
     }
 
+    // Un solo bonifico per più familiari (28/10/2026, Terna Giuseppe + Caffi
+    // Maristella, scritta "Maria Stella" nel bonifico): se l'importo non torna,
+    // si aggiungono le persone trovate solo per cognome che fanno tornare il
+    // totale esatto. Restano segnalate da controllare a vista.
+    let aggiuntiPerImporto = [];
+    if (candidati.length && !importoCorrisponde(candidati, mov.importo) && soloCognome.length) {
+      const base = candidati.reduce((t, s) => t + (Number(s.importo) || 0), 0);
+      const resto = mov.importo - base;
+      const altri = soloCognome.filter((s) => !candidati.some((c) => c.cf === s.cf) && Number(s.importo) > 0).slice(0, 8);
+      outer: for (let n = 1; n <= Math.min(3, altri.length); n++) {
+        const combina = (start, scelti, somma) => {
+          if (scelti.length === n) return Math.abs(somma - resto) < 0.005 ? scelti : null;
+          for (let i = start; i < altri.length; i++) {
+            const r = combina(i + 1, [...scelti, altri[i]], somma + Number(altri[i].importo));
+            if (r) return r;
+          }
+          return null;
+        };
+        const trovati = combina(0, [], 0);
+        if (trovati) { aggiuntiPerImporto = trovati; candidati = [...candidati, ...trovati]; break outer; }
+      }
+    }
+
     const totaleDichiarato = candidati.reduce((t, s) => t + (Number(s.importo) || 0), 0);
     // Esiti (controllo interno: NON cambia lo stato del pagamento del socio,
     // che dipende solo dalla ricevuta caricata e verificata dalla segreteria):
@@ -233,6 +258,7 @@ export function abbina(movimenti, soci) {
       candidati,
       totaleDichiarato,
       affidabilita: migliore, // 3 = nome+cognome+codice, 2 = nome+cognome, 1 = cognome+codice
+      aggiuntiPerImporto: aggiuntiPerImporto.map((s) => s.cf),
       esito,
     };
   });

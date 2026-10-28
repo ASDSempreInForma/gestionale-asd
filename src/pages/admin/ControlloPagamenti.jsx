@@ -165,6 +165,11 @@ function SchedaMovimento({ mov, soci, onVerifica, onIgnora, inCorso }) {
               {nonConfermati.some(s => s.stato === 'dichiarato') ? ' (c\'è una ricevuta da verificare in Verifica documenti)' : ' (ricevuta non caricata)'}.
             </div>
           )}
+          {!manuali && (mov.aggiuntiPerImporto || []).length > 0 && (
+            <div style={{ marginTop: 6, fontSize: 12, color: SUB }}>
+              {candidati.filter(s => mov.aggiuntiPerImporto.includes(s.cf)).map(s => `${s.cognome} ${s.nome}`).join(', ')}: trovato/a solo per cognome e aggiunto/a perché così l'importo torna esatto (un bonifico per più persone). Controlla che sia giusto.
+            </div>
+          )}
           {!manuali && mov.affidabilita === 1 && (
             <div style={{ marginTop: 6, fontSize: 12, color: SUB }}>Trovato solo per cognome + codice corso: controlla che sia la persona giusta.</div>
           )}
@@ -185,8 +190,8 @@ function SchedaMovimento({ mov, soci, onVerifica, onIgnora, inCorso }) {
           </button>
         )}
         {!scegli && (
-          <button onClick={() => setScegli(true)} style={{ background: 'white', color: TX, border: `1px solid ${BD}`, borderRadius: 8, padding: '8px 12px', fontSize: 12.5, cursor: 'pointer' }}>
-            Cambia socio
+          <button onClick={() => { setManuali(manuali ?? mov.candidati); setScegli(true) }} style={{ background: 'white', color: TX, border: `1px solid ${BD}`, borderRadius: 8, padding: '8px 12px', fontSize: 12.5, cursor: 'pointer' }}>
+            Aggiungi / cambia persone
           </button>
         )}
         <button disabled={inCorso} onClick={() => onIgnora(mov)}
