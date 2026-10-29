@@ -569,7 +569,14 @@ export default function GestioneProve() {
     if (ricercaTesto.trim()) {
       const t = ricercaTesto.trim().toLowerCase();
       const campi = [p.nome, p.cognome, p.cf, p.email, p.telefono].map(v => (v || "").toLowerCase());
-      if (!campi.some(v => v.includes(t))) return false;
+      // Numero di telefono in qualsiasi formato (29/10/2026): "+39 339 287 1679"
+      // trova anche "3392871679" — si confrontano solo le cifre, senza +39.
+      const cifre = t.replace(/\D/g, "");
+      const sembraTelefono = cifre.length >= 6 && /^[\d\s+().\-/]+$/.test(t);
+      const senza39 = (x) => x.replace(/^(0039|39)(?=\d{9,10}$)/, "");
+      if (sembraTelefono) {
+        if (!senza39((p.telefono || "").replace(/\D/g, "")).includes(senza39(cifre))) return false;
+      } else if (!campi.some(v => v.includes(t))) return false;
     }
     // Solo le prove con lezione fissata OGGI — per sapere a colpo d'occhio
     // chi si presenta in palestra nella data odierna.

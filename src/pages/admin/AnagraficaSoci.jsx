@@ -2866,13 +2866,20 @@ export default function AnagraficaSoci() {
     // quindi va cercata parola per parola — ogni parola deve corrispondere ad
     // ALMENO uno tra nome/cognome/CF, ma parole diverse possono corrispondere
     // a campi diversi (bug scoperto il 02/09/2026 con "Re Anna" non trovata).
-    const parole = termineSenzaSpaziMultipli(q).split(' ').filter(Boolean)
+    // Numero di telefono (29/10/2026): "+39 339 287 1679", "339 2871679",
+    // "3392871679"... si tolgono spazi, trattini e prefisso +39 e si cercano le
+    // cifre in sequenza, qualunque sia il formato con cui il numero è salvato.
+    const cifre = q.replace(/\D/g, '')
+    const sembraTelefono = cifre.length >= 6 && /^[\d\s+().\-/]+$/.test(q.trim())
+    const nazionale = cifre.replace(/^(0039|39)(?=\d{9,10}$)/, '')
+    const parole = sembraTelefono ? [] : termineSenzaSpaziMultipli(q).split(' ').filter(Boolean)
     let query = supabase
       .from('soci')
       .select('cf, nome, cognome, soprannome, email, telefono, numero_tessera, ente_tessera, scadenza_tessera, is_admin_blocked, blocco_motivo, data_nascita, comune_nascita, provincia_nascita, indirizzo, comune_residenza, provincia_residenza, cap, note, cf_segnalazione')
     parole.forEach(parola => {
       query = query.or(`nome.ilike.%${parola}%,cognome.ilike.%${parola}%,soprannome.ilike.%${parola}%,cf.ilike.%${parola}%,telefono.ilike.%${parola}%`)
     })
+    if (sembraTelefono) query = query.ilike('telefono', `%${nazionale.split('').join('%')}%`)
     const { data, error } = await query.order('cognome').limit(30)
     setCercando(false)
     if (!error) setRisultati(data || [])
