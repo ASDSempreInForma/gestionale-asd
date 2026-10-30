@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { generaAutocertificazione } from "./generaAutocertificazione.js";
 import { generaAutocertificazioneAnnuale } from "./generaAutocertificazioneAnnuale.js";
-import { dataInizioCorso, dateAttese } from "./lezioniPreviste.js";
+import { dataInizioCorso, dataFineCorso, dateAttese } from "./lezioniPreviste.js";
 import { generaContrattoCollaborazione, generaContrattoPartitaIva } from "./generaContratto.js";
 import { stimaNetto, ALIQUOTA_STANDARD, ALIQUOTA_RIDOTTA } from "./calcoloNetto.js";
 import { calcolaSedePeriodo, testoCalcoloOre, isoData, isDataSospesa, MESI, GIORNI_LABEL } from "./calcoloSede.js";
@@ -372,7 +372,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
       const [{ data: stag }, { data: assegn }] = await Promise.all([
         supabase.from("stagioni").select("id, data_inizio, data_fine").eq("attiva", true).maybeSingle(),
         supabase.from("istruttori_corsi")
-          .select("giorno_settimana, corsi(id, giorni_orari, stagione_id, mese_inizio, data_inizio_effettiva)")
+          .select("giorno_settimana, corsi(id, giorni_orari, stagione_id, mese_inizio, data_inizio_effettiva, data_fine_effettiva)")
           .eq("istruttore_id", istruttoreId),
       ]);
       let lezioniFuture = 0;
@@ -381,7 +381,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         for (const a of assegn || []) {
           const c = a.corsi;
           if (!c || c.stagione_id !== stag.id) continue;
-          if (!corsiInfo[c.id]) corsiInfo[c.id] = { giorniOrari: c.giorni_orari, inizio: dataInizioCorso(c, stag.data_inizio), istruttori: [] };
+          if (!corsiInfo[c.id]) corsiInfo[c.id] = { giorniOrari: c.giorni_orari, inizio: dataInizioCorso(c, stag.data_inizio), fine: dataFineCorso(c), istruttori: [] };
           corsiInfo[c.id].istruttori.push({ istruttoreId, giornoSettimana: a.giorno_settimana });
         }
         const dal = dataInizio > stag.data_inizio ? dataInizio : stag.data_inizio;

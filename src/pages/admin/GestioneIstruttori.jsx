@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { dataInizioCorso, dateAttese } from "./lezioniPreviste.js";
+import { dataInizioCorso, dataFineCorso, dateAttese } from "./lezioniPreviste.js";
 import SettimanaIstruttori from "./SettimanaIstruttori.jsx";
 import TesseramentoIstruttori from "./TesseramentoIstruttori.jsx";
 import { calcolaSedePeriodo, testoCalcoloOre } from "./calcoloSede.js";
@@ -213,7 +213,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
       // Corsi disponibili per assegnazione
       const {data:corsiDB}=await supabase
         .from("corsi")
-        .select("id,codice_corso,disciplina,giorni_orari,mese_inizio,data_inizio_effettiva,sedi(nome)")
+        .select("id,codice_corso,disciplina,giorni_orari,mese_inizio,data_inizio_effettiva,data_fine_effettiva,sedi(nome)")
         .eq("stagione_id",stag.id)
         .order("codice_corso");
       setCorsiDisponibili(corsiDB||[]);
@@ -277,7 +277,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
       formatted.filter(t=>t.tipo==="istruttore").forEach(t=>{
         t.corsi_ids.forEach((cid,i)=>{
           const corsoDB=(corsiDB||[]).find(c=>c.id===cid);
-          if(!corsiInfoObj[cid]) corsiInfoObj[cid]={ nome:t.corsi_nomi[i], giorniOrari:corsoDB?.giorni_orari, inizio:dataInizioCorso(corsoDB,stag?.data_inizio), istruttori:[] };
+          if(!corsiInfoObj[cid]) corsiInfoObj[cid]={ nome:t.corsi_nomi[i], giorniOrari:corsoDB?.giorni_orari, inizio:dataInizioCorso(corsoDB,stag?.data_inizio), fine:dataFineCorso(corsoDB), istruttori:[] };
           corsiInfoObj[cid].istruttori.push({ istruttoreId:t.id, giornoSettimana:t.corsi_giorno[i] });
         });
       });

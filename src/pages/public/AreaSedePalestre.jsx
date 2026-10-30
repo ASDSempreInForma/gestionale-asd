@@ -3,7 +3,7 @@ import { supabase } from '../../supabase.js';
 import CampoDettatura from './CampoDettatura.jsx';
 import { stileGrande, BottoneCertificato } from './AreaSede.jsx';
 import { tokenSede, sessioneSedeScaduta } from './sessioneSede.js';
-import { dateAttese, slotSettimanali, dataInizioCorso, isoLocale } from '../admin/lezioniPreviste.js';
+import { dateAttese, slotSettimanali, dataInizioCorso, dataFineCorso, isoLocale } from '../admin/lezioniPreviste.js';
 
 // Area SEDE → scheda "Palestre" (13/10/2026, richiesta di Solomon).
 // Dallo stesso sistema con cui Sabina segnala assenze e sostituzioni della SEDE,
@@ -87,6 +87,7 @@ export default function AreaSedePalestre({ sessione, onCertificato, elencoCertif
       corsiInfo[c.id] = {
         giorniOrari: c.giorni_orari,
         inizio: dataInizioCorso(c, dati.stagione?.data_inizio),
+        fine: dataFineCorso(c),
         istruttori: (c.istruttori_corsi || []).map((a) => ({ istruttoreId: a.istruttore_id, giornoSettimana: a.giorno_settimana })),
       };
     }

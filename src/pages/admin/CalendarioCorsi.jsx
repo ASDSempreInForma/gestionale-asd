@@ -33,7 +33,8 @@ export default function CalendarioCorsi() {
         setNomeStagione(stag.nome || "");
         const { data, error: e2 } = await supabase.from("corsi")
           .select("id, disciplina, giorni_orari, mese_inizio, sedi(nome), istruttori_corsi(giorno_settimana, istruttori(nome, cognome, tipo, attivo))")
-          .eq("stagione_id", stag.id);
+          .eq("stagione_id", stag.id)
+          .or(`data_fine_effettiva.is.null,data_fine_effettiva.gte.${new Date().toLocaleDateString("sv-SE")}`); // corsi chiusi non più proposti (30/10/2026)
         if (e2) throw e2;
         setCorsi(data || []);
       } catch (err) {

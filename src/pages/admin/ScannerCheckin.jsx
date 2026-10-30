@@ -97,6 +97,7 @@ export default function Scanner() {
           .from("corsi")
           .select("id, disciplina, giorni_orari, sedi(nome)")
           .eq("stagione_id", stag.id)
+          .or(`data_fine_effettiva.is.null,data_fine_effettiva.gte.${new Date().toLocaleDateString("sv-SE")}`) // corsi chiusi non più proposti (30/10/2026)
           .order("codice_corso");
         setCorsi(corsiDB || []);
       }

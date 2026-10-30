@@ -60,6 +60,20 @@ export function isoLocale(d) {
 }
 
 // Data da cui il corso ha lezioni. `inizioStagione` = data_inizio della stagione (AAAA-MM-GG).
+// Ultimo giorno di lezione di un corso chiuso a stagione in corso (null = nessun limite).
+export function dataFineCorso(corso) {
+  return corso?.data_fine_effettiva ? String(corso.data_fine_effettiva).slice(0, 10) : null;
+}
+
+// Il corso è ancora attivo oggi? (per non proporre più nei moduli/calendari i corsi chiusi)
+export function corsoAttivoOggi(corso) {
+  const f = dataFineCorso(corso);
+  if (!f) return true;
+  const d = new Date();
+  const oggi = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return f >= oggi;
+}
+
 export function dataInizioCorso(corso, inizioStagione) {
   if (corso?.data_inizio_effettiva) return String(corso.data_inizio_effettiva).slice(0, 10);
   const anno = String(inizioStagione || "").slice(0, 4);
@@ -88,6 +102,7 @@ export function dateAttese({ corsiInfo, dal, al, sospensioni = [] }) {
       if (!giorni.includes(dow)) continue;
       const data = isoLocale(cursor);
       if (info.inizio && data < info.inizio) continue;
+      if (info.fine && data > info.fine) continue; // corso chiuso a stagione in corso (data_fine_effettiva, 30/10/2026)
       const sosp = sospensioni.find((s) => data >= s.dal && data <= s.al);
       istruttori
         .filter((ic) => ic.giornoSettimana == null || ic.giornoSettimana === dow)

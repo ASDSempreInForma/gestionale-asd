@@ -19,7 +19,8 @@ async function caricaCorsi() {
   if (cache) return cache;
   const { data: stag } = await supabase.from("stagioni").select("id, data_inizio").eq("attiva", true).single();
   if (!stag) return null;
-  const { data: corsi } = await supabase.from("corsi").select(CAMPI).eq("stagione_id", stag.id);
+  const { data: corsi } = await supabase.from("corsi").select(CAMPI).eq("stagione_id", stag.id)
+    .or(`data_fine_effettiva.is.null,data_fine_effettiva.gte.${new Date().toLocaleDateString("sv-SE")}`); // corsi chiusi non più proposti (30/10/2026)
   cache = { anno: Number(String(stag.data_inizio || "").slice(0, 4)) || new Date().getFullYear(), corsi: corsi || [] };
   return cache;
 }
