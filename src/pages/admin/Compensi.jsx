@@ -354,12 +354,14 @@ export default function Compensi({ istruttoreIniziale } = {}) {
       if (errL) throw new Error(errL.message);
 
       const contaPerMese = new Map(); // "AAAA-MM" -> ore (1 lezione = 1 ora)
+      const sostituzioniPalestra = []; // 31/10/2026: le sostituzioni fatte in palestra vanno in righe a parte
       for (const l of lezPalestra || []) {
         // Lezione sostituita: la paga il sostituto (non il titolare); con sostituto esterno, pagato
         // in contanti, non la paga nessuno qui. Prima il sostituto non veniva contato (13/10/2026).
         const conta = ((l.stato === "fatta" || l.stato === "recupero") || (l.stato === "sostituto" && l.istruttore_sostituto_id === istruttoreId))
           && !isDataSospesa(l.data, festivitaPalestra);
         if (!conta) continue;
+        if (l.stato === "sostituto" && l.istruttore_sostituto_id === istruttoreId) { sostituzioniPalestra.push(l); continue; }
         const chiaveMese = l.data.slice(0, 7);
         contaPerMese.set(chiaveMese, (contaPerMese.get(chiaveMese) || 0) + 1);
       }
@@ -396,12 +398,28 @@ export default function Compensi({ istruttoreIniziale } = {}) {
           if (d.data >= oggiStr) lezioniFuture++;
         }
       }
-      const righePalestra = Array.from(contaPerMese.entries())
+      let righePalestra = Array.from(contaPerMese.entries())
         .sort(([a], [b]) => (a < b ? -1 : 1))
         .map(([chiaveMese, ore]) => {
           const [a, m] = chiaveMese.split("-").map(Number);
           return { label: `${MESI[m - 1]}`, anno: a, ore, importo: ore * (istruttore.compensoLezione || 0) };
         });
+      if (sostituzioniPalestra.length) {
+        const idsCorsi = [...new Set(sostituzioniPalestra.map((l) => l.corso_id))];
+        const { data: corsiSost } = await supabase.from("corsi").select("id, disciplina, nome_visualizzato, sedi(nome)").in("id", idsCorsi);
+        const perId = Object.fromEntries((corsiSost || []).map((c) => [c.id, c]));
+        righePalestra = righePalestra.concat(
+          sostituzioniPalestra.sort((a, b) => a.data.localeCompare(b.data)).map((l) => {
+            const c = perId[l.corso_id];
+            const d = new Date(l.data + "T00:00:00");
+            const corso = c ? `${c.disciplina}${c.sedi?.nome ? " " + c.sedi.nome.split(/\s[–-]\s/)[0] : ""}` : "corso";
+            return {
+              label: `${corso} ${GIORNI_LABEL[d.getDay()].toLowerCase()} ${d.getDate()} ${MESI[d.getMonth()].toLowerCase()}`,
+              sostituzione: true, data: l.data, ore: 1, importo: istruttore.compensoLezione || 0,
+            };
+          })
+        );
+      }
       const orePalestraTotali = righePalestra.reduce((s, r) => s + r.ore, 0);
       const importoPalestra = righePalestra.reduce((s, r) => s + r.importo, 0);
 

@@ -144,7 +144,13 @@ export function testoCalcoloOre({
 
   if (righePalestra.length > 0) {
     righe.push("*Palestra*");
-    righePalestra.forEach((r) => righe.push(`• *${r.label}: ${oreTesto(r.ore)}*`));
+    righePalestra.filter((r) => !r.sostituzione).forEach((r) => righe.push(`• *${r.label}: ${oreTesto(r.ore)}*`));
+    // 31/10/2026: le sostituzioni fatte in palestra in righe a parte, con corso e data
+    const sost = righePalestra.filter((r) => r.sostituzione);
+    if (sost.length) {
+      righe.push("_Sostituzioni:_");
+      sost.forEach((r) => righe.push(`• ${r.label}: ${oreTesto(r.ore)}`));
+    }
     righe.push("");
   }
 
