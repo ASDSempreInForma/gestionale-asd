@@ -64,6 +64,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
   const [dataDichiarazione, setDataDichiarazione] = useState(() => isoData(new Date()));
 
   const [storico, setStorico] = useState([]);
+  const [storicoAperto, setStoricoAperto] = useState(null); // pagamento registrato aperto per vedere il riepilogo
   const [saldoIniziale, setSaldoIniziale] = useState(0);
   const [salvandoAnagrafica, setSalvandoAnagrafica] = useState(false);
   const [anagrafica, setAnagrafica] = useState(null);
@@ -528,6 +529,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
       if (invia) await inviaPerEmail(file, {
         oggetto: `A.S.D. Sempre In Forma - Compenso ${p.periodo_label || ""}`.trim(),
         descrizione: `dell'autocertificazione del compenso di ${p.periodo_label || "questo periodo"} (${euro(p.importo_totale)})`,
+        riepilogo: testoRiepilogoPagamento(p, istruttore?.nome || "") || undefined,
       });
     } catch (err) { setErrore("Autocertificazione non " + (invia ? "inviata: " : "generata: ") + err.message); }
   }
@@ -923,8 +925,12 @@ export default function Compensi({ istruttoreIniziale } = {}) {
           {storico.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {storico.map((p) => (
-                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", background: CL, borderRadius: 8, fontSize: 13 }}>
-                  <span>{p.periodo_label} ({dataItaliana(p.data_inizio)} – {dataItaliana(p.data_fine)}){p.aggiustamento_importo ? ` · rimanenza ${euro(p.aggiustamento_importo)}${p.aggiustamento_nota ? ` (${p.aggiustamento_nota})` : ""}` : ""}</span>
+                <div key={p.id} style={{ background: CL, borderRadius: 8, fontSize: 13 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px" }}>
+                  <span onClick={() => setStoricoAperto((x) => (x === p.id ? null : p.id))} title="Clicca per vedere il riepilogo" style={{ cursor: "pointer" }}>
+                    <span style={{ color: C, fontWeight: 700, marginRight: 6 }}>{storicoAperto === p.id ? "▾" : "▸"}</span>
+                    {p.periodo_label} ({dataItaliana(p.data_inizio)} – {dataItaliana(p.data_fine)}){p.aggiustamento_importo ? ` · rimanenza ${euro(p.aggiustamento_importo)}${p.aggiustamento_nota ? ` (${p.aggiustamento_nota})` : ""}` : ""}
+                  </span>
                   <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <span style={{ fontWeight: 600 }}>{euro(p.importo_totale)} · cumulativo dopo: {euro(p.cumulativo_annuo_dopo)}</span>
                     {anagrafica?.tipoContratto !== "partita_iva" && (
@@ -941,6 +947,8 @@ export default function Compensi({ istruttoreIniziale } = {}) {
                     <button onClick={() => eliminaPagamentoStorico(p)} title="Elimina questo pagamento registrato"
                       style={{ background: "#fff", border: "1px solid #f3c1c1", color: "#b91c1c", borderRadius: 6, padding: "3px 8px", fontSize: 11.5, cursor: "pointer" }}>🗑️</button>
                   </span>
+                </div>
+                {storicoAperto === p.id && <DettaglioPagamento p={p} nome={istruttore?.nome || ""} />}
                 </div>
               ))}
             </div>
@@ -992,5 +1000,77 @@ function BottoneInvia({ onClick, disabled, email, inviando }) {
       style={{ background: "#fff", color: "#1E3A5F", border: "1px solid #1E3A5F", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: off ? "default" : "pointer", opacity: off ? 0.5 : 1 }}>
       {inviando ? "Invio…" : "📧 Invia all'istruttore"}
     </button>
+  );
+}
+
+// ── Riepilogo di un pagamento già registrato (31/10/2026, richiesta di Solomon) ──
+// Dal dettaglio salvato al momento del pagamento: ore × compenso per la palestra,
+// ore × tariffa per lo studio (la tariffa dipende dal numero di persone, quindi è
+// ricavata da importo/ore di ogni riga), segreteria e rimanenza.
+function testoRiepilogoPagamento(p, nome) {
+  const d = p?.dettaglio || {};
+  const rp = d.righePalestra || [], rs = d.righeSede || [], rg = d.righeSegreteria || [];
+  if (!rp.length && !rs.length && !rg.length) return "";
+  return testoCalcoloOre({
+    nome, dataInizio: String(p.data_inizio).slice(0, 10), dataFine: String(p.data_fine).slice(0, 10),
+    righePalestra: rp, righeSede: rs, righeSegreteria: rg,
+    orePalestraTotali: Number(p.ore_palestra) || rp.reduce((t, r) => t + (Number(r.ore) || 0), 0),
+    oreSedeTotali: Number(p.ore_sede) || rs.reduce((t, r) => t + (Number(r.ore) || 0), 0),
+    oreSegreteriaTotali: rg.reduce((t, r) => t + (Number(r.ore) || 0), 0),
+  });
+}
+
+export function DettaglioPagamento({ p, nome }) {
+  const [copiato, setCopiato] = useState(false);
+  const d = p.dettaglio || {};
+  const rp = d.righePalestra || [], rs = d.righeSede || [], rg = d.righeSegreteria || [];
+  const ordineGiorno = (g) => (g === 0 ? 7 : g);
+  const sede = [...rs].sort((a, b) => (a.orario ? 0 : 1) - (b.orario ? 0 : 1) || ordineGiorno(a.giorno) - ordineGiorno(b.giorno) || String(a.orario || a.data || "").localeCompare(String(b.orario || b.data || "")));
+  const tariffa = (r) => (Number(r.ore) ? Number(r.importo || 0) / Number(r.ore) : 0);
+  const cella = { padding: "4px 6px", borderBottom: "1px solid #eee" };
+  const num = { ...cella, textAlign: "right", whiteSpace: "nowrap" };
+  const riga = (etichetta, r, unita) => (
+    <tr key={etichetta + (r.data || r.orario || "")}>
+      <td style={cella}>{etichetta}</td>
+      <td style={num}>{r.ore} {unita}</td>
+      <td style={num}>× {euro(tariffa(r))}</td>
+      <td style={{ ...num, fontWeight: 600 }}>{euro(r.importo)}</td>
+    </tr>
+  );
+  const titolo = (t) => <tr><td colSpan={4} style={{ padding: "8px 6px 2px", fontWeight: 700, color: C }}>{t}</td></tr>;
+  const testo = testoRiepilogoPagamento(p, nome);
+  const vuoto = !rp.length && !rs.length && !rg.length;
+  return (
+    <div style={{ background: "#fff", margin: "0 8px 8px", borderRadius: 8, padding: "8px 10px", border: "1px solid #e5e7eb" }}>
+      {vuoto ? (
+        <div style={{ color: "#888", fontSize: 12.5 }}>Pagamento registrato senza dettaglio delle ore (importo inserito come rimanenza/saldo).</div>
+      ) : (
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+          <tbody>
+            {rp.length > 0 && titolo(`Palestra — ${p.ore_palestra} ${Number(p.ore_palestra) === 1 ? "lezione" : "lezioni"}`)}
+            {rp.filter((r) => !r.sostituzione).map((r) => riga(r.label, r, "lez."))}
+            {rp.filter((r) => r.sostituzione).map((r) => riga(`Sostituzione: ${r.label}`, r, "lez."))}
+            {rs.length > 0 && titolo(`Studio — ${p.ore_sede} ore`)}
+            {sede.map((r) => riga(r.orario ? `${GIORNI_LABEL[r.giorno]} ore ${String(r.orario).slice(0, 5).replace(":", ",")}` : r.label, r, "ore"))}
+            {rg.length > 0 && titolo("Segreteria")}
+            {rg.map((r) => riga(`${r.label}${r.forfait != null ? " (forfait)" : ""}`, r, "ore"))}
+            {Number(p.aggiustamento_importo) ? (
+              <tr><td style={cella} colSpan={3}>Rimanenza / aggiustamento{p.aggiustamento_nota ? ` (${p.aggiustamento_nota})` : ""}</td><td style={{ ...num, fontWeight: 600 }}>{euro(p.aggiustamento_importo)}</td></tr>
+            ) : null}
+            <tr><td style={{ ...cella, fontWeight: 700 }} colSpan={3}>Totale</td><td style={{ ...num, fontWeight: 700, color: C }}>{euro(p.importo_totale)}</td></tr>
+          </tbody>
+        </table>
+      )}
+      {testo && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+            <span style={{ fontSize: 12, color: "#666", fontWeight: 600 }}>Testo per WhatsApp</span>
+            <button onClick={async () => { try { await navigator.clipboard.writeText(testo); setCopiato(true); setTimeout(() => setCopiato(false), 2000); } catch { /* copia a mano */ } }}
+              style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 6, padding: "3px 10px", fontSize: 11.5, cursor: "pointer" }}>{copiato ? "✓ Copiato" : "📋 Copia testo"}</button>
+          </div>
+          <pre style={{ background: CL, borderRadius: 6, padding: 10, fontSize: 12, whiteSpace: "pre-wrap", fontFamily: "inherit", margin: 0 }}>{testo}</pre>
+        </div>
+      )}
+    </div>
   );
 }
