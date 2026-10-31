@@ -149,24 +149,28 @@ export function testoCalcoloOre({
   }
 
   if (righeSede.length > 0) {
-    // Se lo stesso orario compare in giorni diversi si aggiunge il giorno, altrimenti
-    // due righe avrebbero lo stesso nome ("Corso ore 9,00").
-    const giorniPerOrario = new Map();
-    righeSede.filter((r) => r.orario).forEach((r) => {
-      if (!giorniPerOrario.has(r.orario)) giorniPerOrario.set(r.orario, new Set());
-      giorniPerOrario.get(r.orario).add(r.giorno);
-    });
+    // 31/10/2026 (richiesta di Solomon): chi insegna più giorni in studio non capiva
+    // "Corso ore 8,30" senza il giorno. Ora i corsi ricorrenti sono raggruppati per
+    // GIORNO (lunedì → domenica), con gli orari in ordine; poi lezioni singole e
+    // sostituzioni, con la loro data.
     righe.push("*Studio*");
-    righeSede.forEach((r) => {
-      let etichetta;
-      if (r.orario) {
-        const ambiguo = (giorniPerOrario.get(r.orario)?.size || 0) > 1;
-        etichetta = `Corso ${ambiguo ? GIORNI_LABEL[r.giorno] + " " : ""}ore ${oraBreve(r.orario)}`;
-      } else {
-        etichetta = r.label; // lezione singola: "Corso Sabato 28 Marzo"
+    const ordineGiorno = (g) => (g === 0 ? 7 : g); // domenica in fondo
+    const ricorrenti = righeSede.filter((r) => r.orario)
+      .sort((a, b) => ordineGiorno(a.giorno) - ordineGiorno(b.giorno) || (a.orario || "").localeCompare(b.orario || ""));
+    let giornoCorrente = null;
+    ricorrenti.forEach((r) => {
+      if (r.giorno !== giornoCorrente) {
+        if (giornoCorrente !== null) righe.push("");
+        righe.push(`_${GIORNI_LABEL[r.giorno]}_`);
+        giornoCorrente = r.giorno;
       }
-      righe.push(`• *${etichetta}*: ${oreTesto(r.ore)}`);
+      righe.push(`• *ore ${oraBreve(r.orario)}*: ${oreTesto(r.ore)}`);
     });
+    const singole = righeSede.filter((r) => !r.orario);
+    if (singole.length) {
+      if (ricorrenti.length) righe.push("");
+      singole.forEach((r) => righe.push(`• *${r.label}*: ${oreTesto(r.ore)}`)); // "Sostituzione Sabato 28 Marzo"
+    }
     righe.push("");
   }
 
