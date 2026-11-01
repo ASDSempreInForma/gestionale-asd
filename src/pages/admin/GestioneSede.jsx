@@ -845,6 +845,12 @@ function ModaleTurno({ turno, giornoDefault, istruttori, onChiudi, onSalvato }) 
 
   async function salva() {
     if (!form.istruttore_id || !form.orario) { setErrore("Istruttore e orario sono obbligatori."); return; }
+    // 01/11/2026: un anno sbagliato nella data di inizio (2027 invece di 2026) teneva il
+    // turno "non iniziato" e le sue ore sparivano dai compensi. Si chiede conferma.
+    if (form.data_inizio) {
+      const giorni = (new Date(form.data_inizio + "T00:00:00") - new Date()) / 86400000;
+      if (giorni > 60 && !window.confirm(`La data di inizio è il ${form.data_inizio.split("-").reverse().join("/")}, tra più di due mesi: finché non arriva, le lezioni di questo turno non vengono contate nei compensi. Confermi questa data?`)) return;
+    }
     setSalvando(true); setErrore("");
     try {
       await chiamaAreaSede("salva_turno", { id: turno?.id, ...form, numero_persone_default: turno?.numero_persone_default });
