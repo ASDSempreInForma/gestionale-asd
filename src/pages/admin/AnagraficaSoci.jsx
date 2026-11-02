@@ -1654,6 +1654,21 @@ function CambiaCorso({ iscrizione, socioCf, onAggiornato }) {
       if (bisettimanale2 && frequenza2 === '1x' && !giornoScelto2) { setErrore('Seleziona il giorno per il secondo corso.'); return }
     }
 
+    // 02/11/2026 (caso Cristini Adriana): "secondo corso" uguale al primo = stesso corso
+    // nell'altro giorno. Non si può fare una seconda iscrizione allo stesso corso: si passa
+    // la prima a "2 volte/sett." (entrambi i giorni).
+    if (aggiungiSecondo && corsoId2 === corsoId) {
+      if (!bisettimanale) { setErrore('Il secondo corso è lo stesso del primo: scegli un corso diverso.'); return }
+      const msg = `Il secondo corso è lo stesso del primo: l'iscrizione diventa "${corso.disciplina} — ${corso.giorni_orari}" 2 volte a settimana (tutti e due i giorni).${secondoStessoPagamento ? '' : "\n\nRicordati di chiedere l'integrazione con \"Invia richiesta integrazione\" o \"Modifica pagamento\"."}\n\nProcedo?`
+      if (!window.confirm(msg)) return
+      setSalvando(true)
+      const nota = `${iscrizione.note ? iscrizione.note + ' | ' : ''}Passata a 2 volte/settimana su "${corso.disciplina} — ${corso.giorni_orari}" il ${new Date().toLocaleDateString('it-IT')}${secondoStessoPagamento ? ' (stesso pagamento)' : ' — INTEGRAZIONE DA CHIEDERE'}.`
+      const { error } = await supabase.from('iscrizioni').update({ corso_id: corsoId, frequenza: '2x', giorno_scelto: null, note: nota }).eq('id', iscrizione.id)
+      setSalvando(false)
+      if (error) { setErrore('Errore: ' + error.message); return }
+      setAperto(false); onAggiornato(); return
+    }
+
     const vecchio = iscrizione.corsi
     const nuovaEtichetta = `${corso.disciplina} — ${corso.giorni_orari}${bisettimanale && frequenza === '1x' ? ` (${giornoScelto})` : ''}`
     const vecchiaEtichetta = `${vecchio?.disciplina} — ${vecchio?.giorni_orari}`
