@@ -572,7 +572,7 @@ export default function GestioneProve() {
       // Numero di telefono in qualsiasi formato (29/10/2026): "+39 339 287 1679"
       // trova anche "3392871679" — si confrontano solo le cifre, senza +39.
       const cifre = t.replace(/\D/g, "");
-      const sembraTelefono = cifre.length >= 6 && /^[\d\s+().\-/]+$/.test(t);
+      const sembraTelefono = cifre.length >= 6 && !/\p{L}/u.test(t); // 03/11/2026: tollera caratteri invisibili copiati dal telefono
       const senza39 = (x) => x.replace(/^(0039|39)(?=\d{9,10}$)/, "");
       if (sembraTelefono) {
         if (!senza39((p.telefono || "").replace(/\D/g, "")).includes(senza39(cifre))) return false;

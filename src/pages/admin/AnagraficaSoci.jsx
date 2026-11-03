@@ -2915,7 +2915,9 @@ export default function AnagraficaSoci() {
     // "3392871679"... si tolgono spazi, trattini e prefisso +39 e si cercano le
     // cifre in sequenza, qualunque sia il formato con cui il numero è salvato.
     const cifre = q.replace(/\D/g, '')
-    const sembraTelefono = cifre.length >= 6 && /^[\d\s+().\-/]+$/.test(q.trim())
+    // 03/11/2026: il numero copiato dal telefono può contenere caratteri invisibili
+    // (es. quelli che l'iPhone aggiunge attorno ai numeri): basta che non ci siano lettere
+    const sembraTelefono = cifre.length >= 6 && !/\p{L}/u.test(q)
     const nazionale = cifre.replace(/^(0039|39)(?=\d{9,10}$)/, '')
     const parole = sembraTelefono ? [] : termineSenzaSpaziMultipli(q).split(' ').filter(Boolean)
     let query = supabase
