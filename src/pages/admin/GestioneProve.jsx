@@ -304,9 +304,11 @@ export default function GestioneProve() {
       if (errP) throw errP;
       setProve(proveDB || []);
 
-      const { data: eccDB } = await supabase.from("eccezioni_limite_prova").select("cf, motivo");
+      // 03/11/2026: le eccezioni durano 1 settimana (scade_il): si mostrano solo quelle ancora valide
+      const oggiIso = new Date().toLocaleDateString("sv-SE");
+      const { data: eccDB } = await supabase.from("eccezioni_limite_prova").select("cf, motivo, scade_il").gte("scade_il", oggiIso);
       const eccObj = {};
-      (eccDB || []).forEach(e => { eccObj[e.cf] = e.motivo || "Eccezione attiva"; });
+      (eccDB || []).forEach(e => { eccObj[e.cf] = { motivo: e.motivo || "Eccezione attiva", scade: e.scade_il }; });
       setEccezioni(eccObj);
 
     } catch (err) {
@@ -321,8 +323,10 @@ export default function GestioneProve() {
   async function toggleEccezione(cf, attiva) {
     if (attiva) {
       const motivo = window.prompt("Motivo dell'eccezione (facoltativo):", "") || "Eccezione manuale";
-      const { error } = await supabase.from("eccezioni_limite_prova").upsert({ cf, motivo }, { onConflict: "cf" });
-      if (!error) setEccezioni(prev => ({ ...prev, [cf]: motivo }));
+      const scad = new Date(); scad.setDate(scad.getDate() + 7);
+      const scade = scad.toLocaleDateString("sv-SE");
+      const { error } = await supabase.from("eccezioni_limite_prova").upsert({ cf, motivo, scade_il: scade, creato_il: new Date().toISOString() }, { onConflict: "cf" });
+      if (!error) setEccezioni(prev => ({ ...prev, [cf]: { motivo, scade } }));
     } else {
       const { error } = await supabase.from("eccezioni_limite_prova").delete().eq("cf", cf);
       if (!error) setEccezioni(prev => { const n = { ...prev }; delete n[cf]; return n; });
@@ -1176,7 +1180,7 @@ export default function GestioneProve() {
                             <button onClick={() => toggleEccezione(p.cf, !eccezioneAttiva)}
                               style={{ fontSize:11, padding:"4px 9px", borderRadius:7, border:`1px solid ${eccezioneAttiva?G:BD}`,
                                 background: eccezioneAttiva?GL:"white", color: eccezioneAttiva?GD:SUB, cursor:"pointer" }}>
-                              {eccezioneAttiva ? `🔓 Eccezione attiva — clicca per rimuovere` : "🔒 Sblocca limite per questa persona"}
+                              {eccezioneAttiva ? `🔓 Eccezione attiva fino al ${String(eccezioneAttiva.scade || "").split("-").reverse().join("/")} — clicca per rimuovere` : "🔒 Sblocca limite per 1 settimana"}
                             </button>
                           </div>
                         );
