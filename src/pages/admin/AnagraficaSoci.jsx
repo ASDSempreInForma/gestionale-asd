@@ -2404,7 +2404,12 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
           {!modificaAnagrafica ? (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 13, color: SUB, marginTop: 8 }}>
               <div>📍 {socio.indirizzo || '—'}{socio.comune_residenza ? `, ${socio.comune_residenza}` : ''}{socio.provincia_residenza ? ` (${socio.provincia_residenza})` : ''} {socio.cap || ''}</div>
-              <div>📞 {socio.telefono || '—'}</div>
+              <div>📞 {socio.telefono || '—'}
+                {numeroWhatsApp(socio.telefono) && (
+                  <a href={`https://wa.me/${numeroWhatsApp(socio.telefono)}`} target="_blank" rel="noreferrer" title="Apri la chat WhatsApp"
+                    style={{ marginLeft: 8, fontSize: 12, background: '#DCFCE7', color: '#166534', borderRadius: 6, padding: '2px 8px', textDecoration: 'none', fontWeight: 600, whiteSpace: 'nowrap' }}>💬 WhatsApp</a>
+                )}
+              </div>
               <div style={{ gridColumn: 'span 2' }}>📧 {socio.email || <span style={{ color: R }}>nessuna email</span>}</div>
             </div>
           ) : (
