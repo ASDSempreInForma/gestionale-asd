@@ -17,6 +17,12 @@ import { fmtData, euro, sessoEffettivo, splitIndirizzo, generaDaTemplate } from 
    compenso del periodo fa superare una soglia, si divide tra le due righe
    (es. 4.800 € già percepiti + 400 € nel mese → 200 € riga 1, 200 € riga 2).
 
+   03/11/2026 (caso Celfeza): le soglie valgono sul TOTALE dei compensi
+   sportivi dell'anno, anche da altre associazioni. Il chiamante somma a
+   cumulativoPrima anche i compensi dichiarati da altri enti (altriEnti),
+   che vengono scritti nella riga "Di aver ricevuto, da altro organismo
+   sportivo, ... pari a euro".
+
    Le voci a scelta (dipendente pubblico, gestione INPS, ecc.) restano
    come nell'originale: le barra a mano l'istruttore prima di firmare.
    ===================================================================== */
@@ -63,6 +69,7 @@ export function valoriAutocertificazione(dati) {
     dataContratto, qualifica, periodoLabel, dataPagamento, importoPeriodo, cumulativoPrima,
     dataInizioPeriodo, // inizio del periodo pagato: serve a scegliere il contratto in vigore
     importoCumulativo, scaglioneRiga, // vecchi parametri, usati solo se mancano i due nuovi
+    altriEnti, // 03/11/2026: compensi da ALTRE associazioni nell'anno (già compresi in cumulativoPrima)
   } = dati;
 
   const s = sessoEffettivo(sesso, cf);
@@ -97,6 +104,7 @@ export function valoriAutocertificazione(dati) {
     RIGA1: testoRiga(0, RIGA_VUOTA_1),
     RIGA2: testoRiga(1, RIGA_VUOTA_1),
     RIGA3: testoRiga(2, RIGA_VUOTA_3),
+    ALTRI_ENTI: Number(altriEnti) > 0 ? `${euro(Number(altriEnti))}€` : "_______________________________",
   };
 }
 

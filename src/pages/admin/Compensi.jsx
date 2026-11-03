@@ -66,6 +66,9 @@ export default function Compensi({ istruttoreIniziale } = {}) {
   const [storico, setStorico] = useState([]);
   const [storicoAperto, setStoricoAperto] = useState(null); // pagamento registrato aperto per vedere il riepilogo
   const [saldoIniziale, setSaldoIniziale] = useState(0);
+  // 03/11/2026 (caso Celfeza): compensi ricevuti nell'anno da ALTRE associazioni,
+  // dichiarati dall'istruttore. Le soglie 5.000/15.000 valgono sul totale.
+  const [altriEnti, setAltriEnti] = useState("");
   const [salvandoAnagrafica, setSalvandoAnagrafica] = useState(false);
   const [anagrafica, setAnagrafica] = useState(null);
 
@@ -135,12 +138,15 @@ export default function Compensi({ istruttoreIniziale } = {}) {
   // in conto.
   const aggiustamentoNum = Number(aggiustamentoImporto) || 0;
   const importoFinale = risultato ? risultato.importoTotale + aggiustamentoNum : 0;
+  const altriEntiNum = Math.max(0, Number(String(altriEnti).replace(",", ".")) || 0);
+  // Per soglie, netto e autocertificazione conta anche quanto ricevuto da altre associazioni
+  const cumulativoPrimaFiscale = risultato ? risultato.cumulativoPrima + altriEntiNum : 0;
   const cumulativoDopoFinale = risultato ? risultato.cumulativoPrima + importoFinale : 0;
   // Stima del netto (27/09/2026): regole ricavate dalle buste paga della
   // commercialista, vedi calcoloNetto.js. Solo per i collaboratori (non P.IVA).
   const netto = risultato && istruttore
     ? stimaNetto({
-        lordo: importoFinale, cumulativoPrima: risultato.cumulativoPrima, aliquotaInps: istruttore.aliquotaInps,
+        lordo: importoFinale, cumulativoPrima: cumulativoPrimaFiscale, aliquotaInps: istruttore.aliquotaInps,
         // giorni del periodo pagato: le detrazioni in busta sono proporzionali ai giorni (es. 31/365 a marzo)
         giorniPeriodo: Math.round((new Date(dataFine + "T12:00:00") - new Date(dataInizio + "T12:00:00")) / 86400000) + 1,
       })
@@ -152,8 +158,8 @@ export default function Compensi({ istruttoreIniziale } = {}) {
     if (error) { setErrore("Aliquota non salvata: " + error.message); return; }
     setIstruttori((prev) => prev.map((i) => (i.id === istruttore.id ? { ...i, aliquotaInps: v } : i)));
   }
-  const scDopoFinale = risultato ? scaglioneDi(cumulativoDopoFinale) : null;
-  const avvisoCambioScaglioneFinale = risultato ? risultato.scPrima.riga !== scDopoFinale.riga : false;
+  const scDopoFinale = risultato ? scaglioneDi(cumulativoDopoFinale + altriEntiNum) : null;
+  const avvisoCambioScaglioneFinale = risultato ? scaglioneDi(cumulativoPrimaFiscale).riga !== scDopoFinale.riga : false;
 
   useEffect(() => {
     if (istruttore) {
@@ -306,6 +312,8 @@ export default function Compensi({ istruttoreIniziale } = {}) {
     ]);
     setStorico(pagamenti || []);
     setSaldoIniziale(saldo?.importo || 0);
+    const ultimo = (pagamenti || [])[(pagamenti || []).length - 1];
+    setAltriEnti(ultimo && Number(ultimo.altri_enti_prima) > 0 ? String(ultimo.altri_enti_prima) : "");
   }, [istruttoreId, dataFine]);
   useEffect(() => { caricaStorico(); }, [caricaStorico]);
 
@@ -499,6 +507,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         importo_sede: risultato.importoSede, importo_palestra: risultato.importoPalestra, importo_totale: importoFinale,
         aggiustamento_importo: aggiustamentoNum, aggiustamento_nota: aggiustamentoNota || null,
         cumulativo_annuo_dopo: cumulativoDopoFinale, data_pagamento: isoData(new Date()), pagato: true,
+        altri_enti_prima: altriEntiNum,
         dettaglio: { righeSede: risultato.righeSede, righePalestra: risultato.righePalestra, righeSegreteria: risultato.righeSegreteria || [] },
       });
       if (error) throw new Error(error.message);
@@ -523,7 +532,8 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         nome: istruttore.nomeLegale || istruttore.nome, cognome: istruttore.cognome, ...anagrafica,
         periodoLabel: p.periodo_label, dataPagamento: dataDichiarazione || p.data_pagamento || isoData(new Date()),
         importoPeriodo: Number(p.importo_totale || 0),
-        cumulativoPrima: Number(p.cumulativo_annuo_dopo || 0) - Number(p.importo_totale || 0),
+        cumulativoPrima: Number(p.cumulativo_annuo_dopo || 0) - Number(p.importo_totale || 0) + Number(p.altri_enti_prima || 0),
+        altriEnti: Number(p.altri_enti_prima || 0),
         dataInizioPeriodo: p.data_inizio,
       }, { soloFile: invia });
       if (invia) await inviaPerEmail(file, {
@@ -570,6 +580,18 @@ export default function Compensi({ istruttoreIniziale } = {}) {
       setMessaggio(`Importo di ${p.periodo_label} aggiornato. Ricordati di riscaricare l'autocertificazione.`);
       caricaStorico();
     } catch (err) { setErrore("Modifica non riuscita: " + err.message); }
+  }
+
+  // 03/11/2026: compensi da altre associazioni dichiarati per un pagamento già registrato
+  async function modificaAltriEntiStorico(p) {
+    const inserito = window.prompt(`Compensi sportivi ricevuti nel ${p.anno || ""} da ALTRE associazioni, alla data del pagamento "${p.periodo_label}" (lordo, €):`, String(Number(p.altri_enti_prima || 0) || ""));
+    if (inserito === null) return;
+    const v = Math.round((Number(String(inserito).replace(",", ".")) || 0) * 100) / 100;
+    if (!Number.isFinite(v) || v < 0) { alert("Importo non valido."); return; }
+    const { error } = await supabase.from("compensi_pagamenti").update({ altri_enti_prima: v }).eq("id", p.id);
+    if (error) { setErrore("Non salvato: " + error.message); return; }
+    setMessaggio(`Compensi da altre associazioni per ${p.periodo_label}: ${euro(v)}. Riscarica l'autocertificazione.`);
+    caricaStorico();
   }
 
   async function eliminaPagamentoStorico(p) {
@@ -627,7 +649,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         // Nelle righe va il compenso del PERIODO; il cumulativo prima del
         // pagamento serve solo a scegliere la fascia (vedi generaAutocertificazione.js)
         periodoLabel, dataPagamento: dataDichiarazione || isoData(new Date()),
-        importoPeriodo: importoFinale, cumulativoPrima: risultato.cumulativoPrima,
+        importoPeriodo: importoFinale, cumulativoPrima: cumulativoPrimaFiscale, altriEnti: altriEntiNum,
         dataInizioPeriodo: dataInizio,
       }, { soloFile: invia });
       if (invia) await inviaPerEmail(file, {
@@ -875,7 +897,15 @@ export default function Compensi({ istruttoreIniziale } = {}) {
             )}
             <div style={{ background: CL, borderRadius: 8, padding: 12, fontSize: 13 }}>
               <div>Totale {dataFine.slice(0, 4)} già pagato prima di questo periodo: <strong>{euro(risultato.cumulativoPrima)}</strong></div>
-              <div>Totale {dataFine.slice(0, 4)} DOPO questo pagamento: <strong>{euro(cumulativoDopoFinale)}</strong> — scaglione: {scDopoFinale.label}</div>
+              <div>Totale {dataFine.slice(0, 4)} DOPO questo pagamento: <strong>{euro(cumulativoDopoFinale)}</strong>{altriEntiNum > 0 ? <> + {euro(altriEntiNum)} da altre associazioni = <strong>{euro(cumulativoDopoFinale + altriEntiNum)}</strong></> : null} — scaglione: {scDopoFinale.label}</div>
+              {anagrafica?.tipoContratto !== "partita_iva" && (
+                <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap", fontSize: 12.5, color: "#555" }}>
+                  Compensi sportivi ricevuti nel {dataFine.slice(0, 4)} da <strong>altre associazioni</strong> (dichiarati dall'istruttore), €
+                  <input type="number" min="0" step="0.01" value={altriEnti} onChange={(e) => setAltriEnti(e.target.value)} placeholder="0"
+                    style={{ width: 110, padding: "4px 6px", borderRadius: 6, border: "1px solid #ddd", fontSize: 12.5 }} />
+                  <span style={{ fontSize: 11, color: "#888" }}>contano per le soglie 5.000/15.000 € e vengono scritti nell'autocertificazione</span>
+                </label>
+              )}
               {avvisoCambioScaglioneFinale && (
                 <div style={{ color: "#c0392b", fontWeight: 600, marginTop: 6 }}>⚠️ Questo pagamento fa passare l'istruttore da uno scaglione all'altro nel corso dell'anno — verifica con il commercialista come ripartire l'importo tra i due scaglioni prima di far firmare l'autocertificazione.</div>
               )}
@@ -941,6 +971,12 @@ export default function Compensi({ istruttoreIniziale } = {}) {
                       <button onClick={() => stampaAutocertificazioneStorico(p, true)} disabled={inviando || !istruttore?.email}
                         title={istruttore?.email ? `Invia l'autocertificazione a ${istruttore.email}` : "Manca l'email dell'istruttore in anagrafica"}
                         style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 6, padding: "3px 8px", fontSize: 11.5, cursor: "pointer", opacity: istruttore?.email ? 1 : 0.5 }}>📧 Invia</button>
+                    )}
+                    {anagrafica?.tipoContratto !== "partita_iva" && (
+                      <button onClick={() => modificaAltriEntiStorico(p)} title="Compensi ricevuti da altre associazioni alla data di questo pagamento"
+                        style={{ background: Number(p.altri_enti_prima) > 0 ? "#FEF3C7" : "#fff", border: "1px solid #ddd", borderRadius: 6, padding: "3px 8px", fontSize: 11.5, cursor: "pointer" }}>
+                        🏢 Altre ASD{Number(p.altri_enti_prima) > 0 ? `: ${euro(p.altri_enti_prima)}` : ""}
+                      </button>
                     )}
                     <button onClick={() => modificaPagamentoStorico(p)} title="Correggi l'importo registrato"
                       style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 6, padding: "3px 8px", fontSize: 11.5, cursor: "pointer" }}>✏️ Modifica</button>
