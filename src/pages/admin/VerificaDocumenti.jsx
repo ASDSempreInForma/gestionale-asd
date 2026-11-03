@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { scadenzaPerNuovoNumero, enteIniziale, ENTI_TESSERA } from '../../tesseraAssociativa.js'
 import { supabase } from '../../supabase.js'
-import { percorsoOriginale, apriDocumentoStorage } from '../../scansioneDocumento.js'
+import { percorsoOriginale, apriDocumentoStorage, riconosciFile, eImmagine } from '../../scansioneDocumento.js'
+import RitaglioDocumento from '../../RitaglioDocumento.jsx'
 import { calcolaQuotaAttesa, spiegaDifferenza, CAMPI_CORSO_MOTORE } from '../../quotaAttesa.js'
 import PannelloSolleciti from './PannelloSolleciti.jsx'
 
@@ -106,6 +107,71 @@ async function apriOriginale(path) {
     return
   }
   window.open(data.signedUrl, '_blank')
+}
+
+// 03/11/2026 (richiesta di Solomon): ritagliare e ruotare dalla segreteria una
+// foto arrivata storta o con troppo sfondo. Si riparte dalla foto originale se
+// c'è (così si può rifare il ritaglio quante volte si vuole), altrimenti dal
+// file attuale. Il risultato si salva con un NOME NUOVO (evita che il browser
+// mostri ancora la vecchia versione dalla cache) e si aggiornano tutte le
+// iscrizioni che puntavano al vecchio file (il certificato è spesso lo stesso
+// su più corsi). La foto di partenza diventa la "foto originale" del nuovo file.
+const COLONNE_DOCUMENTI = ['ricevuta_url', 'ricevuta_rata2_url', 'integrazione_ricevuta_url', 'certificato_url']
+
+function BottoneSistemaFoto({ path, onFatto }) {
+  const [file, setFile] = useState(null)
+  const [occupato, setOccupato] = useState(false)
+  if (!path) return null
+
+  const apri = async () => {
+    setOccupato(true)
+    try {
+      let { data: blob, error } = await supabase.storage.from(BUCKET).download(percorsoOriginale(path))
+      if (error || !blob) ({ data: blob, error } = await supabase.storage.from(BUCKET).download(path))
+      if (error || !blob) throw new Error(error?.message || 'file non trovato')
+      const f = await riconosciFile(new File([blob], path.split('/').pop() || 'documento', { type: blob.type }))
+      if (!eImmagine(f)) { alert('Questo documento è un PDF: si può ritagliare e ruotare solo una foto.'); return }
+      setFile(f)
+    } catch (e) {
+      alert('Impossibile aprire il documento: ' + (e?.message || e))
+    } finally {
+      setOccupato(false)
+    }
+  }
+
+  const salva = async (risultato) => {
+    const sorgente = file
+    setFile(null)
+    setOccupato(true)
+    try {
+      const cartella = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : ''
+      const base = (path.split('/').pop() || 'documento').replace(/\.[^.]+$/, '').replace(/_r\d{13}$/, '')
+      const nuovo = `${cartella}${base}_r${Date.now()}.jpg`
+      const { error } = await supabase.storage.from(BUCKET).upload(nuovo, risultato.scansionato, { contentType: 'image/jpeg' })
+      if (error) throw error
+      await supabase.storage.from(BUCKET).upload(percorsoOriginale(nuovo), sorgente, { contentType: sorgente.type || 'image/jpeg' })
+      for (const col of COLONNE_DOCUMENTI) {
+        const { error: e2 } = await supabase.from('iscrizioni').update({ [col]: nuovo }).eq(col, path)
+        if (e2) throw e2
+      }
+      await supabase.from('sede_persone').update({ certificato_url: nuovo }).eq('certificato_url', path)
+      onFatto?.()
+    } catch (e) {
+      alert('Salvataggio non riuscito: ' + (e?.message || e))
+    } finally {
+      setOccupato(false)
+    }
+  }
+
+  return (
+    <>
+      <button onClick={apri} disabled={occupato} title="Ritaglia o ruota la foto"
+        style={{ background: '#F1F5F9', color: '#334155', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>
+        {occupato ? '⏳ Attendi…' : '✂️ Ritaglia / ruota'}
+      </button>
+      {file && <RitaglioDocumento file={file} colore="#1F4D3A" onConferma={salva} onAnnulla={() => setFile(null)} />}
+    </>
+  )
 }
 
 function ModaleRifiuto({ onClose, onConfirm }) {
@@ -331,6 +397,7 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
               <button onClick={() => apriDocumento(row.ricevuta_url)} style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>👁️ Apri file</button>
               <button onClick={() => apriOriginale(row.ricevuta_url)} title="Foto originale, prima del ritaglio" style={{ background: 'none', color: '#64748b', border: 'none', padding: '7px 4px', fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}>Vedi foto originale</button>
+              {<BottoneSistemaFoto path={row.ricevuta_url} onFatto={onAggiorna} />}
               {!soloConsultazione && row.stato_pagamento === 'dichiarato' && (
                 <>
                   <button
@@ -406,6 +473,7 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
             )}
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
               {row.integrazione_ricevuta_url && <button onClick={() => apriDocumento(row.integrazione_ricevuta_url)} style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>👁️ Apri file</button>}
+              {<BottoneSistemaFoto path={row.integrazione_ricevuta_url} onFatto={onAggiorna} />}
               {!soloConsultazione && row.integrazione_stato === 'dichiarato' && (
                 <>
                   <button
@@ -441,6 +509,7 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
               <button onClick={() => apriDocumento(row.ricevuta_rata2_url)} style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>👁️ Apri file</button>
               <button onClick={() => apriOriginale(row.ricevuta_rata2_url)} title="Foto originale, prima del ritaglio" style={{ background: 'none', color: '#64748b', border: 'none', padding: '7px 4px', fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}>Vedi foto originale</button>
+              {<BottoneSistemaFoto path={row.ricevuta_rata2_url} onFatto={onAggiorna} />}
               {!soloConsultazione && row.stato_pagamento_rata2 === 'dichiarato' && (
                 <>
                   <button
@@ -511,6 +580,7 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
               <button onClick={() => apriDocumento(row.certificato_url)} style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', padding: '7px 12px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer' }}>👁️ Apri file</button>
               <button onClick={() => apriOriginale(row.certificato_url)} title="Foto originale, prima del ritaglio" style={{ background: 'none', color: '#64748b', border: 'none', padding: '7px 4px', fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}>Vedi foto originale</button>
+              {<BottoneSistemaFoto path={row.certificato_url} onFatto={onAggiorna} />}
               {!soloConsultazione && row.stato_certificato === 'dichiarato' && (
                 <>
                   <button
