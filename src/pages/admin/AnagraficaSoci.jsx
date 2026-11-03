@@ -6,6 +6,7 @@ import CampoDocumento from '../../CampoDocumento.jsx'
 import { statoTessera, scaricaTesseraPdf, scadenzaPerNuovoNumero, enteIniziale, ENTI_TESSERA } from '../../tesseraAssociativa.js'
 import RitaglioDocumento from '../../RitaglioDocumento.jsx'
 import { quotaGruppoAlla, CAMPI_CORSO_MOTORE } from '../../quotaAttesa.js'
+import { dataIntegrazionePerIntero } from '../../motorePrezzi.js'
 
 // Chiave pubblica (anon) per chiamare l'edge function genera-testo-ai,
 // la stessa già usata in AcquisisciModulo.jsx — pubblica per natura.
@@ -1240,6 +1241,119 @@ function PartenzaMeseProssimo({ iscrizione, socio, tutte, onAggiornato }) {
   )
 }
 
+// ─── "Aggiungi l'altro giorno" (03/11/2026, caso Giacomantonio Corinne) ──────
+// Chi frequenta 1 volta un corso "a coppia" ed è già pagato passa a 2 volte dalla
+// segreteria, anche se l'altro giorno è pieno (con avviso). Come dall'area privata
+// si crea la richiesta di integrazione (calcolata per intero, regola del 03/11)
+// che la persona carica nella sua area; qui però il secondo giorno è attivo subito.
+function AggiungiAltroGiorno({ iscrizione, socio, onAggiornato }) {
+  const [aperto, setAperto] = useState(false)
+  const [importo, setImporto] = useState('')
+  const [info, setInfo] = useState(null)
+  const [salvando, setSalvando] = useState(false)
+  const [errore, setErrore] = useState('')
+  const giorni = estraiGiorniSingoli(iscrizione.corsi?.giorni_orari).map(g => g.giorno)
+  const altro = giorni.find(g => g !== iscrizione.giorno_scelto)
+
+  const apri = async () => {
+    setAperto(true); setErrore(''); setInfo(null)
+    const [{ data: righe }, { data: corso }, { data: occ }] = await Promise.all([
+      supabase.from('iscrizioni')
+        .select(`id, frequenza, giorno_scelto, tipo_pagamento, stato_pagamento, inizio_personalizzato, inizio_frequenza, data_iscrizione, note,
+          corsi!iscrizioni_corso_id_fkey ( ${CAMPI_CORSO_MOTORE}, sedi ( nome ) ), stagioni ( data_inizio )`)
+        .eq('socio_cf', iscrizione.socio_cf || socio.cf).eq('stagione_id', iscrizione.stagione_id)
+        .in('stato_pagamento', ['confermato', 'dichiarato']),
+      supabase.from('corsi').select('capienza_giorno1, capienza_giorno2, capienza_max').eq('id', iscrizione.corso_id).maybeSingle(),
+      supabase.from('iscrizioni').select('frequenza, giorno_scelto, posto_non_conteggiato')
+        .eq('corso_id', iscrizione.corso_id).neq('stato_pagamento', 'annullata').neq('id', iscrizione.id),
+    ])
+    const tutte = (righe || []).some(r => r.id === iscrizione.id) ? righe : [...(righe || []), { ...iscrizione }]
+    const anno = Number(String(tutte.find(r => r.stagioni)?.stagioni?.data_inizio || '').slice(0, 4)) || new Date().getFullYear()
+    const alla = dataIntegrazionePerIntero(anno)
+    const prima = quotaGruppoAlla(tutte, socio, anno, alla)
+    const dopo = quotaGruppoAlla(tutte.map(r => r.id === iscrizione.id ? { ...r, frequenza: '2x', giorno_scelto: null } : r), socio, anno, alla)
+    const diff = prima != null && dopo != null ? Math.max(0, Math.round((dopo - prima) * 100) / 100) : null
+    setImporto(diff != null ? String(diff) : '')
+    const idx = giorni.indexOf(altro)
+    const cap = idx === 0 ? corso?.capienza_giorno1 : idx === 1 ? corso?.capienza_giorno2 : corso?.capienza_max
+    const occupati = (occ || []).filter(r => !r.posto_non_conteggiato && (r.frequenza === '2x' || r.giorno_scelto === altro)).length
+    setInfo({ calcolato: diff, cap, occupati })
+  }
+
+  const conferma = async () => {
+    const imp = Math.round((Number(String(importo).replace(',', '.')) || 0) * 100) / 100
+    if (imp < 0) { setErrore('Importo non valido.'); return }
+    const pieno = info?.cap != null && info.occupati >= info.cap
+    if (!window.confirm(`${socio.nome} ${socio.cognome} frequenterà ${iscrizione.corsi?.disciplina} anche il ${altro} (2 volte a settimana), da subito.${pieno ? `\n\nAttenzione: il ${altro} è già al completo (${info.occupati}/${info.cap}): si va oltre il limite.` : ''}${imp > 0 ? `\n\nLe arriva l'email con l'integrazione di ${imp.toFixed(2).replace('.', ',')} € da caricare nell'area privata.` : '\n\nNessuna integrazione da pagare.'}\n\nProcedo?`)) return
+    setSalvando(true); setErrore('')
+    const oggi = new Date().toLocaleDateString('it-IT')
+    const nota = `${oggi}: aggiunto il ${altro} dalla segreteria${pieno ? ' (oltre la capienza)' : ''}${imp > 0 ? `; integrazione ${imp.toFixed(2).replace('.', ',')}€ da caricare nell'area privata` : ''}`
+    const payload = {
+      frequenza: '2x', giorno_scelto: null, integrazione_giorno_precedente: iscrizione.giorno_scelto,
+      note: iscrizione.note ? `${iscrizione.note} | ${nota}` : nota,
+    }
+    if (imp > 0) Object.assign(payload, {
+      integrazione_importo: imp, integrazione_stato: 'in_attesa', integrazione_richiesta_il: new Date().toISOString(),
+      integrazione_ricevuta_url: null, integrazione_data_pagamento: null, integrazione_verificata_il: null, integrazione_nota: null,
+    })
+    const { error } = await supabase.from('iscrizioni').update(payload).eq('id', iscrizione.id)
+    if (error) { setErrore('Errore: ' + error.message); setSalvando(false); return }
+    if (imp > 0 && socio.email) {
+      const codice = componiCodiceCompleto(iscrizione.corsi, '2x', iscrizione.tipo_pagamento)
+      try {
+        await fetch('https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/invia-email-iscrizione', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tipo: 'richiesta_integrazione', destinatarioEmail: socio.email, destinatarioNome: `${socio.nome} ${socio.cognome}`,
+            corsi: [{ nome: `${iscrizione.corsi?.nome_visualizzato || iscrizione.corsi?.disciplina} — seconda lezione (${altro})`,
+              sede: iscrizione.corsi?.sedi?.nome, giorniOrari: iscrizione.corsi?.giorni_orari, codiceCompleto: codice }],
+            quotaTotale: imp,
+            causale: `${(socio.nome || '').trim().toUpperCase()} ${(socio.cognome || '').trim().toUpperCase()} ${codice} INTEGRAZIONE`,
+          }),
+        })
+      } catch { /* l'iscrizione è aggiornata; l'email si può rimandare con "Invia richiesta integrazione" */ }
+    }
+    setSalvando(false); setAperto(false); onAggiornato()
+  }
+
+  if (!altro) return null
+  if (!aperto) {
+    return (
+      <button onClick={apri} title={`Passa a 2 volte a settimana aggiungendo il ${altro}`}
+        style={{ fontSize: 12, background: '#DCFCE7', color: '#166534', border: 'none', borderRadius: 8, padding: '6px 10px', fontWeight: 600, cursor: 'pointer' }}>
+        ➕ Aggiungi il {altro}
+      </button>
+    )
+  }
+  const pieno = info?.cap != null && info.occupati >= info.cap
+  return (
+    <div style={{ width: '100%', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, padding: 12, marginTop: 8 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>➕ Aggiungi il {altro} (2 volte a settimana)</div>
+      {!info ? <div style={{ fontSize: 12, color: SUB }}>Calcolo…</div> : (
+        <>
+          <div style={{ fontSize: 12.5, color: pieno ? R : SUB, marginBottom: 8 }}>
+            {info.cap != null ? `${altro}: ${info.occupati} iscritti su ${info.cap}${pieno ? ' — AL COMPLETO, si andrà oltre il limite' : ''}` : `${altro}: nessun limite impostato`}
+          </div>
+          <label style={{ fontSize: 12, color: SUB }}>Integrazione da pagare (€){info.calcolato != null ? ` — calcolata: ${info.calcolato.toFixed(2).replace('.', ',')}` : ' — non calcolabile, inseriscila tu'}<br />
+            <input value={importo} onChange={e => setImporto(e.target.value)} style={{ padding: '6px 8px', borderRadius: 6, border: `1px solid ${BD}`, fontSize: 13, width: 100 }} />
+          </label>
+          <div style={{ fontSize: 11.5, color: SUB, margin: '6px 0 8px' }}>
+            Il {altro} è attivo subito. {socio.email ? <>Con un importo maggiore di 0, a <b>{socio.email}</b> arriva l'email con importo e causale; la ricevuta la carica nella sua area privata e la confermi in Verifica documenti.</> : 'Questo socio non ha email: l\'integrazione chiedila tu.'}
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button onClick={conferma} disabled={salvando}
+              style={{ background: G, color: 'white', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+              {salvando ? 'Salvo…' : 'Conferma'}
+            </button>
+            <button onClick={() => setAperto(false)} style={{ background: 'none', border: 'none', color: SUB, textDecoration: 'underline', cursor: 'pointer', fontSize: 12 }}>annulla</button>
+            {errore && <span style={{ fontSize: 12, color: R }}>{errore}</span>}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // Email di richiesta INTEGRAZIONE (aggiunto il 25/09/2026, caso Bersi Valeria):
 // chi aggiunge un corso o una seconda frequenza dopo aver già pagato versa solo
 // la differenza. Sulla nuova iscrizione l'importo è già la differenza; qui si
@@ -1942,7 +2056,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
         id, corso_id, stagione_id, tipo_pagamento, stato_pagamento, importo_dichiarato, ricevuta_url,
         stato_certificato, data_scadenza_certificato, certificato_url, certificato_ereditato,
         data_iscrizione, note, nota_socio, firma_url, firma_genitore_url, modulo_cartaceo_url,
-        frequenza, giorno_scelto, data_pagamento, verificato_il, stato_pagamento_prima_annullamento, inizio_frequenza, posto_non_conteggiato,
+        frequenza, giorno_scelto, data_pagamento, verificato_il, stato_pagamento_prima_annullamento, inizio_frequenza, posto_non_conteggiato, integrazione_stato,
         incasso_verificato_il, incasso_importo, incasso_verificato_da, incasso_metodo,
         corso_extra_settembre_id, frequenza_extra_settembre, sovrapprezzo_extra_settembre,
         corsi!iscrizioni_corso_id_fkey ( codice_corso, disciplina, nome_visualizzato, giorni_orari, ha_variante_frequenza, sedi ( nome ) ),
@@ -2630,6 +2744,10 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
               <CambiaCorso iscrizione={i} socioCf={socio.cf} onAggiornato={caricaIscrizioni} />
               <ModificaPagamento iscrizione={i} onAggiornato={caricaIscrizioni} />
               <AggiungiExtraSettembre iscrizione={i} onAggiornato={caricaIscrizioni} />
+              {['confermato', 'dichiarato'].includes(i.stato_pagamento) && i.frequenza === '1x' && i.giorno_scelto && i.corsi?.ha_variante_frequenza
+                && !['in_attesa', 'dichiarato'].includes(i.integrazione_stato) && (
+                <AggiungiAltroGiorno iscrizione={i} socio={socio} onAggiornato={caricaIscrizioni} />
+              )}
               {i.stato_pagamento !== 'annullata' && (
                 <button
                   onClick={() => cambiaPostoConteggiato(i)}
