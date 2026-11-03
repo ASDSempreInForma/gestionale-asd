@@ -203,7 +203,7 @@ export default function GestioneProve() {
           id, codice_corso, disciplina, giorni_orari,
           capienza_max, capienza_giorno1, capienza_giorno2, prove_attive,
           sedi ( nome ),
-          iscrizioni!iscrizioni_corso_id_fkey ( id, stato_pagamento, frequenza, giorno_scelto, tipo_pagamento, rinnovo_rata2_risposta, stato_pagamento_rata2 ),
+          iscrizioni!iscrizioni_corso_id_fkey ( id, stato_pagamento, frequenza, giorno_scelto, tipo_pagamento, rinnovo_rata2_risposta, stato_pagamento_rata2, posto_non_conteggiato ),
           prove ( id, stato, data_effettuata, frequenza_desiderata, giorno_preferito )
         `)
         .eq("stagione_id", stag.id)

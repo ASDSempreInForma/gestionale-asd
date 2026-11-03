@@ -9,6 +9,8 @@ function oggiRoma() {
 }
 
 export function postoLiberatoRata2(iscrizione, dataInizioStagione) {
+  // 03/11/2026: iscrizione valida ma posto non conteggiato (assenza temporanea, caso Sabaudo)
+  if (iscrizione?.posto_non_conteggiato) return true;
   if (!iscrizione || iscrizione.tipo_pagamento !== "quad1" || !dataInizioStagione) return false;
   if (["dichiarato", "confermato"].includes(iscrizione.stato_pagamento_rata2)) return false;
   const limite = `${Number(String(dataInizioStagione).slice(0, 4)) + 1}-01-25`;

@@ -114,7 +114,7 @@ export default function GestioneCorsi() {
 
       const { data: iscrizioniTutte, error: errI } = await supabase
         .from("iscrizioni")
-        .select("corso_id, frequenza, giorno_scelto, tipo_pagamento, rinnovo_rata2_risposta, stato_pagamento_rata2")
+        .select("corso_id, frequenza, giorno_scelto, tipo_pagamento, rinnovo_rata2_risposta, stato_pagamento_rata2, posto_non_conteggiato")
         .eq("stagione_id", stagione.id)
         .neq("stato_pagamento", "annullata");
       if (errI) throw errI;

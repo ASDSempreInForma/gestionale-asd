@@ -1942,7 +1942,7 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
         id, corso_id, stagione_id, tipo_pagamento, stato_pagamento, importo_dichiarato, ricevuta_url,
         stato_certificato, data_scadenza_certificato, certificato_url, certificato_ereditato,
         data_iscrizione, note, nota_socio, firma_url, firma_genitore_url, modulo_cartaceo_url,
-        frequenza, giorno_scelto, data_pagamento, verificato_il, stato_pagamento_prima_annullamento, inizio_frequenza,
+        frequenza, giorno_scelto, data_pagamento, verificato_il, stato_pagamento_prima_annullamento, inizio_frequenza, posto_non_conteggiato,
         incasso_verificato_il, incasso_importo, incasso_verificato_da, incasso_metodo,
         corso_extra_settembre_id, frequenza_extra_settembre, sovrapprezzo_extra_settembre,
         corsi!iscrizioni_corso_id_fkey ( codice_corso, disciplina, nome_visualizzato, giorni_orari, ha_variante_frequenza, sedi ( nome ) ),
@@ -1993,6 +1993,23 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
   // ricava dai dati presenti (ricevuta verificata → confermato, ricevuta caricata
   // → dichiarato, altrimenti in attesa).
   // Come tutti gli strumenti admin NON applica il limite di capienza.
+  // 03/11/2026 (caso Sabaudo): l'iscrizione resta valida ma il posto non conta
+  // per la capienza (iscrizioni.posto_non_conteggiato), così si può iscrivere
+  // qualcun altro. Si annulla con "Riconta il posto".
+  const cambiaPostoConteggiato = async (isc) => {
+    const nuovo = !isc.posto_non_conteggiato
+    const descrizione = `${isc.corsi?.disciplina} — ${isc.corsi?.giorni_orari || ''}`
+    if (!window.confirm(nuovo
+      ? `${descrizione}\n\nL'iscrizione resta valida, ma il posto non verrà più conteggiato nella capienza del corso (si libera un posto per altri). Confermi?`
+      : `${descrizione}\n\nIl posto tornerà a essere conteggiato nella capienza del corso. Confermi?`)) return
+    const oggi = new Date().toLocaleDateString('it-IT')
+    const nota = nuovo ? `${oggi}: posto non conteggiato nella capienza` : `${oggi}: posto di nuovo conteggiato`
+    const { error } = await supabase.from('iscrizioni')
+      .update({ posto_non_conteggiato: nuovo, note: isc.note ? `${isc.note} | ${nota}` : nota }).eq('id', isc.id)
+    if (error) { alert('Errore: ' + error.message); return }
+    caricaIscrizioni()
+  }
+
   const ripristinaIscrizione = async (isc) => {
     const descrizione = `${isc.corsi?.disciplina} — ${isc.corsi?.giorni_orari || ''} (${isc.corsi?.sedi?.nome || ''})`
     const doppione = (iscrizioni || []).find(x => x.id !== isc.id && x.corso_id === isc.corso_id &&
@@ -2602,12 +2619,25 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
                 📅 Frequenza dal {i.inizio_frequenza.split('-').reverse().join('/')}
               </div>
             )}
+            {i.posto_non_conteggiato && i.stato_pagamento !== 'annullata' && (
+              <div style={{ fontSize: 12, color: '#475569', background: '#E2E8F0', borderRadius: 6, padding: '3px 8px', marginTop: 6, display: 'inline-block', fontWeight: 600 }}>
+                ⏸ Posto non conteggiato nella capienza
+              </div>
+            )}
             {i.note && <div style={{ fontSize: 11.5, color: SUB, marginTop: 6, fontStyle: 'italic' }}>{i.note}</div>}
             <NotaVisibileSocio iscrizione={i} />
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <CambiaCorso iscrizione={i} socioCf={socio.cf} onAggiornato={caricaIscrizioni} />
               <ModificaPagamento iscrizione={i} onAggiornato={caricaIscrizioni} />
               <AggiungiExtraSettembre iscrizione={i} onAggiornato={caricaIscrizioni} />
+              {i.stato_pagamento !== 'annullata' && (
+                <button
+                  onClick={() => cambiaPostoConteggiato(i)}
+                  title="L'iscrizione resta valida, ma il suo posto non conta per i limiti di capienza (es. assenza temporanea)"
+                  style={{ fontSize: 12, background: '#F1F5F9', color: '#334155', border: 'none', borderRadius: 8, padding: '6px 10px', fontWeight: 600, cursor: 'pointer' }}>
+                  {i.posto_non_conteggiato ? '▶ Riconta il posto' : '⏸ Non contare il posto'}
+                </button>
+              )}
               {i.stato_pagamento === 'annullata' ? (
                 <button
                   onClick={() => ripristinaIscrizione(i)}
