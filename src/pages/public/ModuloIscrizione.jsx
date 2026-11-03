@@ -6,7 +6,7 @@ import { caricaComuni, comuneDaCodiceFiscale, capUnicoDelComune } from "../../co
 import SiteHeader from "../../SiteHeader.jsx";
 import SiteFooter from "../../SiteFooter.jsx";
 import ChatWidget from "../../ChatWidget.jsx";
-import { estraiGiorniSingoli, componiCodice, importoCorso, calcolaPrezzoTotale } from "../../motorePrezzi.js";
+import { estraiGiorniSingoli, componiCodice, importoCorso, calcolaPrezzoTotale, integrazioneStessaDisciplina, dataIntegrazionePerIntero } from "../../motorePrezzi.js";
 
 /* =====================================================================
    MODULO DI ISCRIZIONE — A.S.D. Sempre In Forma
@@ -763,7 +763,10 @@ export default function ModuloIscrizione() {
   );
   const integrazione = useMemo(() => {
     if (corsiGiaPagati.length === 0 || corsiConCodice.length === 0) return null;
-    const base = calcolaPrezzoTotale(corsiGiaPagati);
+    // 03/11/2026: 2ª lezione della stessa disciplina → differenza per intero (vedi motorePrezzi)
+    const annoStag = corsiConCodice[0]?.corso?.annoInizioStagione || new Date().getFullYear();
+    const opz = integrazioneStessaDisciplina(corsiGiaPagati, corsiConCodice) ? { alla: dataIntegrazionePerIntero(annoStag) } : {};
+    const base = calcolaPrezzoTotale(corsiGiaPagati, opz);
     // Da gennaio (regola di Solomon, 07/10/2026) il nuovo totale si calcola
     // TUTTO a tariffa quadrimestrale ("quota da gennaio"), anche per il corso
     // già pagato con l'annuale: lo sconto pacchetto/combinazione vale solo sul
@@ -773,7 +776,7 @@ export default function ModuloIscrizione() {
     const giaPerCalcolo = mostraQ2
       ? corsiGiaPagati.map((g) => (g.pagamento === "annuale" ? { ...g, pagamento: "q2" } : g))
       : corsiGiaPagati;
-    const insieme = calcolaPrezzoTotale([...giaPerCalcolo, ...corsiConCodice]);
+    const insieme = calcolaPrezzoTotale([...giaPerCalcolo, ...corsiConCodice], opz);
     const calcolabile = corsiGiaPagati.every((c) => c.corso) && base.totale !== null && insieme.totale !== null;
     return {
       calcolabile,

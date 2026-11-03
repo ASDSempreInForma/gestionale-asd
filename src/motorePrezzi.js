@@ -56,6 +56,23 @@ export function componiCodice(corso, frequenza, pagamento) {
 export const SCONTO_PER_CORSO_AGGIUNTIVO = 5; // €/mese
 export const ISCRIZIONE_STANDARD = 40;
 
+// INTEGRAZIONE PER UNA 2ª LEZIONE DELLA STESSA DISCIPLINA (regola di Solomon,
+// 03/11/2026, caso Zogno): chi passa da 1 a 2 volte a settimana nella stessa
+// disciplina (Pilates, Step, Zumba...) paga la differenza PER INTERO, senza
+// togliere i mesi già trascorsi (es. Pilates 1° quadrimestre 160€ → 180€:
+// 20€ anche a novembre, non 15€). Per i corsi di discipline diverse resta la
+// riduzione per i mesi trascorsi.
+// gia / nuovi: corsi nel formato del motore ({ corso: { corso: disciplina, ... } }).
+export function integrazioneStessaDisciplina(gia, nuovi) {
+  const discipline = new Set((gia || []).filter((c) => c?.corso?.corso).map((c) => c.corso.corso));
+  return (nuovi || []).length > 0 && nuovi.every((c) => c?.corso?.corso && discipline.has(c.corso.corso));
+}
+// Data di riferimento per calcolare l'integrazione "per intero": inizio della
+// stagione, così nessun mese risulta già trascorso (vale anche per il 2° quad.).
+export function dataIntegrazionePerIntero(annoInizioStagione) {
+  return new Date(annoInizioStagione, 8, 1);
+}
+
 export function mesiPeriodo(corso, pagamento, forzaOttobre) {
   const settembre = corso?.mese_inizio === "settembre" && !forzaOttobre;
   if (pagamento === "annuale") return settembre ? 9 : 8;

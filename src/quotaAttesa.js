@@ -15,7 +15,7 @@
 //   persona ha visto quando si è iscritta).
 // Quando qualcosa non si può calcolare con sicurezza restituisce null.
 
-import { calcolaPrezzoTotale, componiCodice, ISCRIZIONE_STANDARD } from "./motorePrezzi.js";
+import { calcolaPrezzoTotale, componiCodice, ISCRIZIONE_STANDARD, integrazioneStessaDisciplina, dataIntegrazionePerIntero } from "./motorePrezzi.js";
 
 // Due iscrizioni pagate con lo stesso versamento (13/10/2026, caso Chura): stesso
 // file, oppure la stessa ricevuta caricata due volte su corsi diversi (stesso nome
@@ -117,8 +117,10 @@ export function calcolaQuotaAttesa(row, tutte) {
       if (altri.length === 0) return null;
       const selAltri = altri.map((i) => perMotore(i, socio, annoStagione, alla));
       const selRow = perMotore(row, socio, annoStagione, alla);
-      const base = calcolaPrezzoTotale(selAltri, { alla }).totale;
-      const insieme = calcolaPrezzoTotale([...selAltri, selRow], { alla }).totale;
+      // 03/11/2026: 2ª lezione della stessa disciplina → differenza per intero
+      const allaInt = integrazioneStessaDisciplina(selAltri, [selRow]) ? dataIntegrazionePerIntero(annoStagione) : alla;
+      const base = calcolaPrezzoTotale(selAltri, { alla: allaInt }).totale;
+      const insieme = calcolaPrezzoTotale([...selAltri, selRow], { alla: allaInt }).totale;
       if (base == null || insieme == null) return null;
       return {
         importo: Math.max(0, Math.round((insieme - base) * 100) / 100),

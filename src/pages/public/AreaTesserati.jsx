@@ -7,7 +7,7 @@ import CampoDataNascita, { erroreScadenzaCertificato } from "../../CampoDataNasc
 import { campiUpload, tipoDaBytes } from "../../scansioneDocumento.js";
 import TesseraAssociativa from "../../TesseraAssociativa.jsx";
 import { statoTessera, preparaTesseraPdf, preparaTesseraImmagine, salvaFile } from "../../tesseraAssociativa.js";
-import { componiCodice, importoSecondaRata, calcolaPrezzoTotale } from "../../motorePrezzi.js";
+import { componiCodice, importoSecondaRata, calcolaPrezzoTotale, dataIntegrazionePerIntero } from "../../motorePrezzi.js";
 
 // ─── Giorno/orario effettivo mostrato all'utente ────────────────────────────
 // Se l'iscrizione e' a 1 sola volta a settimana (frequenza "1x" con giorno_scelto
@@ -515,8 +515,10 @@ function calcolaIntegrazioneSeconda(target, iscrizioniAttive) {
     const s = sel(i, i.id === target.id);
     return daGennaio && s.pagamento === "annuale" ? { ...s, pagamento: "q2" } : s;
   });
-  const a = calcolaPrezzoTotale(prima).totale;
-  const b = calcolaPrezzoTotale(dopo).totale;
+  // 03/11/2026 (regola di Solomon): stessa disciplina → differenza per intero, senza mesi trascorsi
+  const opz = { alla: dataIntegrazionePerIntero(anno) };
+  const a = calcolaPrezzoTotale(prima, opz).totale;
+  const b = calcolaPrezzoTotale(dopo, opz).totale;
   if (a === null || a === undefined || b === null || b === undefined) return null;
   return Math.max(0, Math.round((b - a) * 100) / 100);
 }
