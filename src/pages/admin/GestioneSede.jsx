@@ -130,7 +130,21 @@ export default function GestioneSede() {
 
   const caricaConteggio = useCallback(async () => {
     setCaricandoConteggio(true);
-    try { setConteggio(await chiamaAreaSede("conteggio_tesseramento", {})); }
+    // 04/11/2026 (Solomon, caso Rocca Annamaria): chi non è in nessun turno attivo
+    // non frequenta (per ora) e non va tesserato, quindi non conta nel riquadro.
+    try {
+      const base = await chiamaAreaSede("conteggio_tesseramento", {});
+      const [{ data: persone }, { data: join }] = await Promise.all([
+        supabase.from("sede_persone").select("id, tessera_stagione, numero_tessera"),
+        supabase.from("sede_turno_iscritti").select("persona_id, turno:sede_turni(attivo)"),
+      ]);
+      if (persone && join) {
+        const inTurno = new Set(join.filter((j) => j.turno && j.turno.attivo !== false).map((j) => j.persona_id));
+        const attive = persone.filter((p) => inTurno.has(p.id));
+        const aggiornati = attive.filter((p) => p.tessera_stagione === base.stagione).length;
+        setConteggio({ ...base, totale: attive.length, aggiornati, non_aggiornati: attive.length - aggiornati });
+      } else setConteggio(base);
+    }
     catch { /* silenzioso: non è critico per l'uso della pagina */ }
     finally { setCaricandoConteggio(false); }
   }, []);
@@ -307,7 +321,7 @@ function ElencoSenzaTessera({ stagione, onApri, onChiudi }) {
           const corsi = (isc || []).filter((i) => i.socio_cf === cf)
             .map((i) => `${i.corsi?.codice_corso || "?"}${i.stato_pagamento === "confermato" ? " (pagato)" : i.stato_pagamento === "dichiarato" ? " (ricevuta in verifica)" : " (da pagare)"}`);
           return { ...p, cf, turni, tesseraPalestra, corsi };
-        }));
+        }).filter((r) => r.turni.length > 0)); // 04/11/2026: chi non è in nessun turno non va tesserato
       } catch (e) { setErrore(e.message || String(e)); }
     })();
   }, [stagione]);
@@ -337,7 +351,7 @@ function ElencoSenzaTessera({ stagione, onApri, onChiudi }) {
       ))}
       {righe && (
         <div style={{ fontSize: 12, color: "#777", marginTop: 8 }}>
-          Chi frequenta anche le palestre si tessera <b>una volta sola</b>. Chi è "in nessun turno" e non frequenta più si può togliere dall'elenco della SEDE.
+          Chi frequenta anche le palestre si tessera <b>una volta sola</b>. Chi non è in nessun turno (es. vecchi iscritti che torneranno) non compare qui: va tesserato quando lo aggiungi a un turno.
         </div>
       )}
     </div>
