@@ -927,6 +927,7 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
   const [salvando, setSalvando] = useState(false);
   const [ricercaEsistente, setRicercaEsistente] = useState("");
   const [sociPalestre, setSociPalestre] = useState([]);
+  const [sedeSenzaTurno, setSedeSenzaTurno] = useState([]); // 04/11/2026: persone SEDE in nessun turno (es. Rocca)
   const [comuni, setComuni] = useState([]);
   const [confermaComunque, setConfermaComunque] = useState(false);
 
@@ -968,9 +969,15 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
         .select("cf, nome, cognome, soprannome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email")
         .or(`cognome.ilike.%${parole[0]}%,nome.ilike.%${parole[0]}%`)
         .limit(40);
+      // 04/11/2026: anche le persone SEDE che non sono in nessun turno (vecchi iscritti che tornano)
+      const { data: sede } = await supabase.from("sede_persone")
+        .select("id, cf, nome, cognome, soprannome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera")
+        .or(`cognome.ilike.%${parole[0]}%,nome.ilike.%${parole[0]}%`)
+        .limit(40);
       if (annullato) return;
       const filtrati = (data || []).filter((p) => parole.every((w) => `${p.cognome} ${p.nome}`.toLowerCase().includes(w)));
       setSociPalestre(filtrati.slice(0, 8));
+      setSedeSenzaTurno((sede || []).filter((p) => parole.every((w) => `${p.cognome} ${p.nome}`.toLowerCase().includes(w))).slice(0, 8));
     }, 250);
     return () => { annullato = true; clearTimeout(t); };
   }, [ricercaEsistente, persona]);
@@ -993,6 +1000,13 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
       viste.add(chiave);
       risultato.push(p);
       if (risultato.length >= 8) break;
+    }
+    // Persone SEDE non presenti in nessun turno
+    for (const p of sedeSenzaTurno) {
+      const chiave = (p.cf || `${p.cognome}|${p.nome}`).toUpperCase();
+      if (viste.has(chiave)) continue;
+      viste.add(chiave);
+      risultato.push({ ...p, id: `sede-${p.id}` });
     }
     // Iscritti delle palestre non ancora presenti nella SEDE
     for (const p of sociPalestre) {
@@ -1081,7 +1095,7 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
                     {p.daPalestre ? (
                       <span style={{ fontSize: 11, fontWeight: 700, color: "#065F46", background: "#D1FAE5", padding: "1px 6px", borderRadius: 5 }}>PALESTRE</span>
                     ) : (
-                      <span style={{ color: "#999" }}>{p.turno ? `${GIORNI_LABEL[p.turno.giorno_settimana].slice(0, 3)} ${p.turno.orario?.slice(0, 5) || ""}` : "SEDE"}</span>
+                      <span style={{ color: "#999" }}>{p.turno ? `${GIORNI_LABEL[p.turno.giorno_settimana].slice(0, 3)} ${p.turno.orario?.slice(0, 5) || ""}` : "SEDE · nessun turno"}</span>
                     )}
                   </div>
                 ))}
