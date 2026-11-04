@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { dataInizioCorso, dataFineCorso, dateAttese } from "./lezioniPreviste.js";
 import SettimanaIstruttori from "./SettimanaIstruttori.jsx";
 import TesseramentoIstruttori from "./TesseramentoIstruttori.jsx";
+import RecuperiLezioni from "./RecuperiLezioni.jsx";
 import { calcolaSedePeriodo, testoCalcoloOre } from "./calcoloSede.js";
 
 /* =====================================================================
@@ -655,7 +656,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
     const assenti=lz.filter(l=>l.istruttoreId===istrId&&l.stato==="assente").length;
     const recuperi=lz.filter(l=>l.istruttoreId===istrId&&l.isRecupero).length;
     const sostituto=lz.filter(l=>l.sostitutoId===istrId&&l.istruttoreId!==istrId).length;
-    const totLez=fatte+recuperi;
+    const totLez=fatte; // 04/11/2026: "fatte" comprende già i recuperi (prima contati due volte)
     const t=istruttori.find(x=>x.id===istrId);
     const sede=sedePerIstr[istrId]||{righeSede:[],oreSedeTotali:0,importoSede:0};
     const totalePalestra=totLez*(t?.compenso||0);
@@ -676,7 +677,8 @@ export default function GestioneIstruttori({ onVaiAContratto }){
   // Recupero stagionale
   const lezTutte=lezioni.filter(l=>!l.isRecupero);
   const rec={
-    sospese:lezTutte.filter(l=>l.stato==="sospesa"||isDateSospesa(l.data,sospensioni)).length,
+    // 04/11/2026 (Solomon): si recuperano solo le lezioni ANNULLATE (assente senza sostituto)
+    sospese:lezTutte.filter(l=>l.stato==="assente").length,
     recuperate:lezioni.filter(l=>l.isRecupero).length,
     daRecuperare:0,
   };
@@ -1265,7 +1267,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
           <div style={{background:C.purpleL,border:`1px solid ${C.purple}33`,borderRadius:10,padding:"10px 14px",marginBottom:12,
             display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
             <div style={{fontSize:12,color:C.purple}}>
-              ↩ <strong>Recupero stagione:</strong> {rec.sospese} sospese · {rec.recuperate} recuperate · <strong>{rec.daRecuperare} da recuperare</strong>
+              ↩ <strong>Recuperi:</strong> {rec.sospese} annullate · {rec.recuperate} recuperate · <strong>{rec.daRecuperare} da recuperare</strong> — dettagli nella scheda "↩ Recuperi"
             </div>
           </div>
         )}
@@ -1450,7 +1452,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
       )}
 
       <div style={{background:"white",borderBottom:`1px solid ${C.border}`,padding:"0 17px",display:"flex",gap:0}}>
-        {[["istruttori","👥 Istruttori"],["settimana","🗓 Settimana"],["calendario","📅 Calendario"],["pagamenti","💳 Pagamenti"]].map(([k,l])=>(
+        {[["istruttori","👥 Istruttori"],["settimana","🗓 Settimana"],["calendario","📅 Calendario"],["recuperi","↩ Recuperi"],["pagamenti","💳 Pagamenti"]].map(([k,l])=>(
           <button key={k} onClick={()=>setTab(k)}
             style={{padding:"11px 15px",border:"none",borderBottom:`2.5px solid ${tab===k?C.green:"transparent"}`,
               background:"transparent",fontSize:12,fontWeight:tab===k?600:400,
@@ -1463,6 +1465,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
         {tab==="istruttori"&&renderIstruttori()}
         {tab==="settimana"&&<SettimanaIstruttori istruttori={istruttori} corsiDisponibili={corsiDisponibili}/>}
         {tab==="calendario"&&renderCalendario()}
+        {tab==="recuperi"&&<RecuperiLezioni/>}
         {tab==="pagamenti"&&renderPagamenti()}
       </div>
     </div>
