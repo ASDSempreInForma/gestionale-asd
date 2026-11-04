@@ -995,7 +995,7 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
         .limit(40);
       // 04/11/2026: anche le persone SEDE che non sono in nessun turno (vecchi iscritti che tornano)
       const { data: sede } = await supabase.from("sede_persone")
-        .select("id, cf, nome, cognome, soprannome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera")
+        .select("id, cf, nome, cognome, soprannome, data_nascita, comune_nascita, provincia_nascita, comune_residenza, provincia_residenza, cap, indirizzo, sesso, telefono, email, numero_tessera, ente_tessera")
         .or(`cognome.ilike.%${parole[0]}%,nome.ilike.%${parole[0]}%`)
         .limit(40);
       if (annullato) return;
@@ -1049,7 +1049,10 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
       comune_nascita: p.comune_nascita || "", provincia_nascita: p.provincia_nascita || "",
       comune_residenza: p.comune_residenza || "", provincia_residenza: p.provincia_residenza || "",
       cap: p.cap || "", indirizzo: p.indirizzo || "", sesso: p.sesso || "",
-      telefono: p.telefono || "", email: p.email || "", numero_tessera: "", // il numero tessera resta legato alla stagione/turno, non lo riportiamo automaticamente
+      // 04/11/2026 (caso Ramos): per chi è già nella SEDE la tessera va riportata, altrimenti
+      // aggiungendola a un secondo turno il salvataggio la cancellava.
+      telefono: p.telefono || "", email: p.email || "", numero_tessera: p.daPalestre ? "" : (p.numero_tessera || ""),
+      ente_tessera: p.daPalestre ? "" : (p.ente_tessera || ""),
       soprannome: p.soprannome || "",
     });
     setRicercaEsistente("");
@@ -1070,6 +1073,10 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
       // senza bisogno di conferme (archivio persone unico, come soci/
       // iscrizioni nel resto del gestionale — 18/09/2026).
       const { soprannome, ente_tessera, ...datiForm } = form;
+      // 04/11/2026 (caso Ramos): aggiungendo una persona già esistente senza scrivere la tessera,
+      // non si manda il campo — il backend altrimenti cancellava la tessera già salvata.
+      const tesseraScritta = !!(form.numero_tessera || "").trim();
+      if (!persona && !tesseraScritta) delete datiForm.numero_tessera;
       const esito = await chiamaAreaSede("salva_iscritto_turno", {
         id: persona?.id, turno_id: turnoId, ...datiForm,
         cf: pulisciCF(form.cf),
@@ -1080,10 +1087,12 @@ function ModalePersona({ turnoId, persona, personeEsistenti, onChiudi, onSalvato
       const personaId = esito?.persona_id || persona?.persona_id;
       if (personaId) {
         // Ente della tessera (13/10/2026): salvato insieme al soprannome; senza numero non ha senso
-        const { error: errSop } = await supabase.from("sede_persone").update({
-          soprannome: (soprannome || "").trim() || null,
-          ente_tessera: (form.numero_tessera || "").trim() ? (ente_tessera || null) : null,
-        }).eq("id", personaId);
+        const agg = {};
+        if (persona || (soprannome || "").trim()) agg.soprannome = (soprannome || "").trim() || null;
+        if (persona || tesseraScritta) agg.ente_tessera = tesseraScritta ? (ente_tessera || null) : null;
+        const { error: errSop } = Object.keys(agg).length
+          ? await supabase.from("sede_persone").update(agg).eq("id", personaId)
+          : { error: null };
         if (errSop) console.error("Soprannome non salvato:", errSop.message);
       }
       onSalvato();
