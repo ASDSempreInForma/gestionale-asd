@@ -2056,7 +2056,8 @@ function ProfiloSocio({ socio, onChiudi, onAggiornato, onEliminato }) {
         id, corso_id, stagione_id, tipo_pagamento, stato_pagamento, importo_dichiarato, ricevuta_url,
         stato_certificato, data_scadenza_certificato, certificato_url, certificato_ereditato,
         data_iscrizione, note, nota_socio, firma_url, firma_genitore_url, modulo_cartaceo_url,
-        frequenza, giorno_scelto, data_pagamento, verificato_il, stato_pagamento_prima_annullamento, inizio_frequenza, posto_non_conteggiato, integrazione_stato,
+        frequenza, giorno_scelto, data_pagamento, verificato_il, stato_pagamento_prima_annullamento, inizio_frequenza, posto_non_conteggiato, integrazione_stato, integrazione_importo, integrazione_ricevuta_url, integrazione_data_pagamento,
+        stato_pagamento_rata2, importo_rata2, ricevuta_rata2_url, data_pagamento_rata2,
         incasso_verificato_il, incasso_importo, incasso_verificato_da, incasso_metodo,
         corso_extra_settembre_id, frequenza_extra_settembre, sovrapprezzo_extra_settembre,
         corsi!iscrizioni_corso_id_fkey ( codice_corso, disciplina, nome_visualizzato, giorni_orari, ha_variante_frequenza, sedi ( nome ) ),
@@ -2690,6 +2691,8 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
             <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
               {i.ricevuta_url && <button onClick={() => apriDocumento(i.ricevuta_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Ricevuta</button>}
               {i.ricevuta_url && <button onClick={() => apriOriginale(i.ricevuta_url)} title="Foto originale, prima del ritaglio" style={{ fontSize: 11.5, background: 'none', color: SUB, border: 'none', padding: '5px 2px', cursor: 'pointer', textDecoration: 'underline' }}>originale</button>}
+              {i.ricevuta_rata2_url && <button onClick={() => apriDocumento(i.ricevuta_rata2_url)} title={`2ª rata${i.importo_rata2 ? ' — ' + Number(i.importo_rata2).toFixed(2).replace('.', ',') + ' €' : ''}${i.stato_pagamento_rata2 ? ' (' + i.stato_pagamento_rata2 + ')' : ''}`} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Ricevuta 2ª rata</button>}
+              {i.integrazione_ricevuta_url && <button onClick={() => apriDocumento(i.integrazione_ricevuta_url)} title={`Integrazione${i.integrazione_importo ? ' — ' + Number(i.integrazione_importo).toFixed(2).replace('.', ',') + ' €' : ''}${i.integrazione_data_pagamento ? ', pagata il ' + i.integrazione_data_pagamento.split('-').reverse().join('/') : ''}`} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Ricevuta integrazione{i.integrazione_importo ? ` (${Number(i.integrazione_importo).toFixed(2).replace('.', ',')} €${i.integrazione_stato === 'confermato' ? ' ✓' : ''})` : ''}</button>}
               {i.ricevuta_url && <button onClick={() => rimuoviRicevuta(i)} title="Togli la ricevuta (caricata per sbaglio)" style={{ fontSize: 12, background: '#FEF2F2', color: '#B91C1C', border: 'none', borderRadius: 6, padding: '5px 9px', cursor: 'pointer' }}>🗑️ Togli ricevuta</button>}
               {/* 16/10/2026: anche un pagamento già confermato SENZA ricevuta (es. iscrizioni
                   da modulo cartaceo inserite come "Confermato") può ricevere la ricevuta cartacea
