@@ -7,6 +7,7 @@ import CampoDettatura from './CampoDettatura.jsx';
 import ElencoSenzaCertificato from './ElencoSenzaCertificato.jsx';
 import CercaPersonaArea from './CercaPersonaArea.jsx';
 import { tokenSede, sessioneSedeScaduta } from './sessioneSede.js';
+import { caricaFestivitaSede, lezioniInFestivita } from '../../festivitaSede.js';
 
 // Area SEDE — accesso separato (email+telefono) per chi gestisce i compensi
 // istruttori della sede Via del Brolo. NON sostituisce il sistema esistente di
@@ -627,6 +628,7 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
   const [giornoSelezionato, setGiornoSelezionato] = useState(() => new Date().getDay());
   const [turni, setTurni] = useState([]);
   const [lezioni, setLezioni] = useState([]);
+  const [festivitaSede, setFestivitaSede] = useState([]);
   const [caricando, setCaricando] = useState(true);
   const [errore, setErrore] = useState('');
   const [modaleLezione, setModaleLezione] = useState(null);
@@ -655,6 +657,7 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
       const dataInizioFetch = minDataInizio && minDataInizio < settimanaBase ? minDataInizio : settimanaBase;
       const datiLezioni = await chiamaAreaSede('lista_lezioni_intervallo', { data_inizio: dataInizioFetch, data_fine: fineSettimanaIso });
       setLezioni(datiLezioni.lezioni || []);
+      try { setFestivitaSede(await caricaFestivitaSede(supabase)); } catch { /* non bloccante */ }
     } catch (err) { setErrore(err.message); }
     finally { setCaricando(false); }
   }, [settimanaBase, fineSettimanaIso]);
@@ -689,8 +692,10 @@ function PianificazioneSettimanale({ sessione, istruttoriSede, onCambiamenti }) 
     const inizio = new Date(turno.data_inizio + 'T00:00:00');
     const corrente = new Date(dataGiornoIso + 'T00:00:00');
     const settimaneTrascorse = Math.round((corrente - inizio) / (7 * 24 * 3600 * 1000)) + 1;
-    const sospensioniPrima = lezioni.filter((l) => l.istruttore_id === turno.istruttore_id && (l.orario || '') === (turno.orario || '') && l.stato === 'sospesa' && l.data < dataGiornoIso).length;
-    return Math.max(1, settimaneTrascorse - sospensioniPrima);
+    const sospPrima = lezioni.filter((l) => l.istruttore_id === turno.istruttore_id && (l.orario || '') === (turno.orario || '') && l.stato === 'sospesa' && l.data < dataGiornoIso);
+    // 04/11/2026: le chiusure della SEDE (festivita) non contano come lezioni del pacchetto
+    const festePrima = lezioniInFestivita(turno, dataGiornoIso, festivitaSede, new Set(sospPrima.map((l) => l.data)));
+    return Math.max(1, settimaneTrascorse - sospPrima.length - festePrima);
   }
 
   function apriCella(turno, dataGiornoIso) {

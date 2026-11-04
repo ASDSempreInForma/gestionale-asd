@@ -12,6 +12,7 @@ import ComboComune from "../../ComboComune.jsx";
 import { caricaComuni, capUnicoDelComune } from "../../comuniItaliani.js";
 import { pulisciCF, datiDaCF, problemiCF } from "../../codiceFiscale.js";
 import { scaricaTesseraPdf, ENTI_TESSERA } from "../../tesseraAssociativa.js";
+import { caricaFestivitaSede, lezioniInFestivita } from "../../festivitaSede.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -362,6 +363,7 @@ function TurniEGruppi({ vai }) {
   const [turni, setTurni] = useState([]);
   const [istruttori, setIstruttori] = useState([]);
   const [sospensioni, setSospensioni] = useState([]);
+  const [festivitaSede, setFestivitaSede] = useState([]);
   const [caricando, setCaricando] = useState(true);
   const [errore, setErrore] = useState("");
   const [giornoAttivo, setGiornoAttivo] = useState(1);
@@ -391,6 +393,7 @@ function TurniEGruppi({ vai }) {
         const oggiIso = new Date().toISOString().slice(0, 10);
         const datiLezioni = await chiamaAreaSede("lista_lezioni_intervallo", { data_inizio: minDataInizio, data_fine: oggiIso });
         setSospensioni((datiLezioni.lezioni || []).filter((l) => l.stato === "sospesa"));
+        setFestivitaSede(await caricaFestivitaSede(supabase));
       } else {
         setSospensioni([]);
       }
@@ -411,8 +414,11 @@ function TurniEGruppi({ vai }) {
     const oggi = new Date();
     const settimane = Math.floor((oggi - inizio) / (7 * 24 * 3600 * 1000)) + 1;
     if (settimane <= 0) return 0;
-    const nSospensioni = sospensioni.filter((s) => s.istruttore_id === turno.istruttore_id && (s.orario || "") === (turno.orario || "")).length;
-    return Math.max(0, settimane - nSospensioni);
+    const sosp = sospensioni.filter((s) => s.istruttore_id === turno.istruttore_id && (s.orario || "") === (turno.orario || ""));
+    // 04/11/2026: anche le chiusure della SEDE (Natale, Pasqua, festività) non contano
+    const domani = new Date(oggi); domani.setDate(domani.getDate() + 1);
+    const nFeste = lezioniInFestivita(turno, domani, festivitaSede, new Set(sosp.map((x) => x.data)));
+    return Math.max(0, settimane - sosp.length - nFeste);
   }
 
   function toggleEspanso(id) {
