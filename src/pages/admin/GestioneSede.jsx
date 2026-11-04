@@ -619,11 +619,14 @@ function TurniEGruppi({ vai }) {
                         const svolte = svolteAttuali(t);
                         if (!nTot) return null;
                         const completato = svolte >= nTot;
+                        // 04/11/2026 (Solomon): si può rinnovare in qualsiasi momento; dalla
+                        // penultima lezione in poi il pulsante "Rinnova" si vede in arancione.
+                        const quasiFinito = !completato && svolte >= nTot - 2;
                         return (
-                          <span onClick={(e) => { if (completato) { e.stopPropagation(); rinnovaTurno(t); } }}
-                            style={{ background: completato ? "#fdecea" : "#f0f0f0", color: completato ? "#c0392b" : "#777", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600, cursor: completato ? "pointer" : "default" }}
-                            title={completato ? "Clicca per rinnovare (aggiungere altre lezioni)" : ""}>
-                            {completato ? `🔁 ${svolte}/${nTot} — Rinnova` : `${svolte}/${nTot} svolte`}
+                          <span onClick={(e) => { e.stopPropagation(); rinnovaTurno(t); }}
+                            style={{ background: completato ? "#fdecea" : quasiFinito ? "#FEF3C7" : "#f0f0f0", color: completato ? "#c0392b" : quasiFinito ? "#92400E" : "#777", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+                            title="Clicca per rinnovare (aggiungere altre lezioni)">
+                            {completato ? `🔁 ${svolte}/${nTot} — Rinnova` : quasiFinito ? `${svolte}/${nTot} — 🔁 Rinnova` : `${svolte}/${nTot} svolte · 🔁`}
                           </span>
                         );
                       })()}
