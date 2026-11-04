@@ -723,7 +723,7 @@ function TurniEGruppi({ vai }) {
           onSalvato={() => { setModaleCertificato(null); carica(); }} />
       )}
       {modaleFoglio && (
-        <ModaleFoglioPresenze turno={modaleFoglio} onChiudi={() => setModaleFoglio(null)} />
+        <ModaleFoglioPresenze turno={modaleFoglio} prossimaLezione={svolteAttuali(modaleFoglio) + 1} festivitaSede={festivitaSede} onChiudi={() => setModaleFoglio(null)} />
       )}
       {modaleSelezione && (
         <ModaleSelezionaPersone titolo={modaleSelezione.titolo} persone={modaleSelezione.persone}
@@ -789,9 +789,18 @@ function ModaleSelezionaPersone({ titolo, persone, onChiudi, onConferma }) {
   );
 }
 
-function ModaleFoglioPresenze({ turno, onChiudi }) {
-  const [dataInizio, setDataInizio] = useState(new Date().toISOString().slice(0, 10));
-  const [esclusioni, setEsclusioni] = useState([]);
+function ModaleFoglioPresenze({ turno, prossimaLezione = 1, festivitaSede = [], onChiudi }) {
+  // 04/11/2026: il foglio parte dalla prossima lezione del turno (es. la 9ª dopo un
+  // rinnovo), con le chiusure della SEDE già inserite tra i periodi da saltare.
+  const nTotTurno = nLezioniDaNota(turno.note) || 8;
+  const [primoNumero, setPrimoNumero] = useState(Math.max(1, prossimaLezione));
+  const [quante, setQuante] = useState(() => { const r = nTotTurno - Math.max(1, prossimaLezione) + 1; return r > 0 ? r : 8; });
+  const [dataInizio, setDataInizio] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() + ((turno.giorno_settimana - d.getDay() + 7) % 7));
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  });
+  const oggiIso = new Date().toLocaleDateString("sv-SE");
+  const [esclusioni, setEsclusioni] = useState(() => festivitaSede.filter((f) => f.al >= oggiIso).map((f) => ({ dal: f.dal, al: f.al })));
   // Colonna vuota in fondo per un futuro iscritto da aggiungere a penna
   // (30/09/2026). Proposta attiva se il gruppo non e' ancora pieno (max 5).
   const [colonneVuote, setColonneVuote] = useState((turno.iscritti || []).length < 5 ? 1 : 0);
@@ -807,7 +816,7 @@ function ModaleFoglioPresenze({ turno, onChiudi }) {
   async function genera() {
     setErrore(""); setGenerando(true);
     try {
-      await generaFoglioPresenzeSede(turno, personeFoglio, dataInizio, esclusioni.filter((e) => e.dal && e.al));
+      await generaFoglioPresenzeSede(turno, personeFoglio, dataInizio, esclusioni.filter((e) => e.dal && e.al), { primoNumero, quante });
       onChiudi();
     } catch (err) { setErrore(err.message); }
     finally { setGenerando(false); }
@@ -816,7 +825,7 @@ function ModaleFoglioPresenze({ turno, onChiudi }) {
   function generaExcel() {
     setErrore(""); setGenerandoExcel(true);
     try {
-      generaFoglioPresenzeExcelSede(turno, personeFoglio, dataInizio, esclusioni.filter((e) => e.dal && e.al));
+      generaFoglioPresenzeExcelSede(turno, personeFoglio, dataInizio, esclusioni.filter((e) => e.dal && e.al), { primoNumero, quante });
     } catch (err) { setErrore(err.message); }
     finally { setGenerandoExcel(false); }
   }
@@ -829,6 +838,15 @@ function ModaleFoglioPresenze({ turno, onChiudi }) {
 
         <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 4 }}>Data della prima lezione</label>
         <input type="date" value={dataInizio} onChange={(e) => setDataInizio(e.target.value)} style={{ width: "100%", padding: 8, marginBottom: 14, border: "1px solid #ddd", borderRadius: 8 }} />
+
+        <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+          <label style={{ flex: 1, fontSize: 12, color: "#555" }}>Parte dalla lezione n°
+            <input type="number" min="1" value={primoNumero} onChange={(e) => setPrimoNumero(Number(e.target.value) || 1)} style={{ width: "100%", padding: 8, marginTop: 4, border: "1px solid #ddd", borderRadius: 8 }} />
+          </label>
+          <label style={{ flex: 1, fontSize: 12, color: "#555" }}>Quante lezioni stampare
+            <input type="number" min="1" value={quante} onChange={(e) => setQuante(Number(e.target.value) || 1)} style={{ width: "100%", padding: 8, marginTop: 4, border: "1px solid #ddd", borderRadius: 8 }} />
+          </label>
+        </div>
 
         <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 4 }}>Colonne vuote per nuovi iscritti (da scrivere a mano)</label>
         <select value={colonneVuote} onChange={(e) => setColonneVuote(Number(e.target.value))} style={{ width: "100%", padding: 8, marginBottom: 14, border: "1px solid #ddd", borderRadius: 8 }}>

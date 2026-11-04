@@ -23,7 +23,7 @@ function calcolaDateLezioni(dataInizioISO, giornoSettimana, nLezioni, esclusioni
   let guardia = 0;
   while (date.length < nLezioni && guardia < 300) {
     guardia++;
-    const d = cursor.toISOString().slice(0, 10);
+    const d = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`; // data locale (toISOString sbaglia di un giorno in Italia)
     const esclusa = (esclusioni || []).some((e) => e.dal && e.al && d >= e.dal && d <= e.al);
     if (!esclusa) date.push(new Date(cursor));
     cursor.setDate(cursor.getDate() + 7);
@@ -41,9 +41,12 @@ function stagioneDa(dataISO) {
   return `${anno}/${String(anno + 1).slice(2)}`;
 }
 
-export function generaFoglioPresenzeExcelSede(turno, iscritti, dataInizioISO, esclusioni) {
+export function generaFoglioPresenzeExcelSede(turno, iscritti, dataInizioISO, esclusioni, opzioni = {}) {
   const matchLezioni = String(turno.note || "").match(/N\.Lezioni:(\d+)/);
-  const nLezioni = matchLezioni ? Number(matchLezioni[1]) : 8;
+  const nTotale = matchLezioni ? Number(matchLezioni[1]) : 8;
+  const primoNumero = Math.max(1, Number(opzioni.primoNumero) || 1);
+  const nLezioni = Math.max(1, Number(opzioni.quante) || (nTotale - primoNumero + 1) || 8);
+  const etichettaLezioni = primoNumero > 1 ? `${nLezioni} (dalla ${primoNumero}ª alla ${primoNumero + nLezioni - 1}ª)` : nLezioni;
   const dateLezioni = calcolaDateLezioni(dataInizioISO, turno.giorno_settimana, nLezioni, esclusioni);
   const persone = iscritti || [];
   const nomeCol = (p) => `${p.cognome || ""} ${p.nome || ""}${p.soprannome ? ` (${p.soprannome})` : ""}`.trim().toUpperCase();
@@ -62,7 +65,7 @@ export function generaFoglioPresenzeExcelSede(turno, iscritti, dataInizioISO, es
   righe.push(["TESSERATI corsi SEDE"]);
   merges.push({ s: { r: righe.length - 1, c: 0 }, e: { r: righe.length - 1, c: nCol - 1 } });
   rigaVuota();
-  righe.push([`Anno: ${stagioneDa(dataInizioISO)}`, "", "Corso: PILATES", "", "Orario:", `${GIORNI_LABEL_MAIUSC[turno.giorno_settimana]} ${String(turno.orario || "").slice(0, 5)}`, "", "N. Lezioni:", nLezioni]);
+  righe.push([`Anno: ${stagioneDa(dataInizioISO)}`, "", "Corso: PILATES", "", "Orario:", `${GIORNI_LABEL_MAIUSC[turno.giorno_settimana]} ${String(turno.orario || "").slice(0, 5)}`, "", "N. Lezioni:", etichettaLezioni]);
   rigaVuota();
 
   function aggiungiBlocco(dateBlocco, numeroIniziale) {
@@ -90,7 +93,7 @@ export function generaFoglioPresenzeExcelSede(turno, iscritti, dataInizioISO, es
   if (blocchi.length === 0) blocchi.push([]);
 
   blocchi.forEach((blocco, indice) => {
-    aggiungiBlocco(blocco, indice * LEZIONI_PER_BLOCCO + 1);
+    aggiungiBlocco(blocco, primoNumero + indice * LEZIONI_PER_BLOCCO);
     rigaVuota();
   });
 

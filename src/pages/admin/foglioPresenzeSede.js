@@ -27,7 +27,7 @@ function calcolaDateLezioni(dataInizioISO, giornoSettimana, nLezioni, esclusioni
   let guardia = 0;
   while (date.length < nLezioni && guardia < 300) {
     guardia++;
-    const d = cursor.toISOString().slice(0, 10);
+    const d = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`; // data locale (toISOString sbaglia di un giorno in Italia)
     const esclusa = (esclusioni || []).some((e) => e.dal && e.al && d >= e.dal && d <= e.al);
     if (!esclusa) date.push(new Date(cursor));
     cursor.setDate(cursor.getDate() + 7);
@@ -45,9 +45,15 @@ function stagioneDa(dataISO) {
   return `${anno}/${String(anno + 1).slice(2)}`;
 }
 
-export async function generaFoglioPresenzeSede(turno, iscritti, dataInizioISO, esclusioni) {
+// 04/11/2026: dopo un rinnovo (N.Lezioni 8 → 16) il foglio va stampato solo per
+// le lezioni nuove: opzioni.primoNumero (es. 9) e opzioni.quante (es. 8).
+export async function generaFoglioPresenzeSede(turno, iscritti, dataInizioISO, esclusioni, opzioni = {}) {
   const matchLezioni = String(turno.note || "").match(/N\.Lezioni:(\d+)/);
-  const nLezioni = matchLezioni ? Number(matchLezioni[1]) : 8;
+  const nTotale = matchLezioni ? Number(matchLezioni[1]) : 8;
+  const primoNumero = Math.max(1, Number(opzioni.primoNumero) || 1);
+  const quante = Math.max(1, Number(opzioni.quante) || (nTotale - primoNumero + 1) || 8);
+  const nLezioni = quante;
+  const etichettaLezioni = primoNumero > 1 ? `${quante} (dalla ${primoNumero}ª alla ${primoNumero + quante - 1}ª)` : `${quante}`;
   const dateLezioni = calcolaDateLezioni(dataInizioISO, turno.giorno_settimana, nLezioni, esclusioni);
 
   const pdfDoc = await PDFDocument.create();
@@ -94,7 +100,7 @@ export async function generaFoglioPresenzeSede(turno, iscritti, dataInizioISO, e
     p.drawImage(logoImage, { x: MARGINE, y: H - MARGINE - logoDims.height, width: logoDims.width, height: logoDims.height });
     const testoX = MARGINE + logoDims.width + 20;
     testoCentrato(p, "TESSERATI corsi SEDE", testoX, W - MARGINE - testoX, H - MARGINE - 20, fontBold, 20);
-    const riga2 = `Anno: ${stagioneDa(dataInizioISO)}     Corso: PILATES     Orario: ${GIORNI_LABEL_MAIUSC[turno.giorno_settimana]} ${String(turno.orario || "").slice(0, 5)}     N. Lezioni: ${nLezioni}`;
+    const riga2 = `Anno: ${stagioneDa(dataInizioISO)}     Corso: PILATES     Orario: ${GIORNI_LABEL_MAIUSC[turno.giorno_settimana]} ${String(turno.orario || "").slice(0, 5)}     N. Lezioni: ${etichettaLezioni}`;
     testoCentrato(p, riga2, testoX, W - MARGINE - testoX, H - MARGINE - 42, fontRegular, 12);
 
     const yTop = H - MARGINE - Math.max(logoDims.height, 50) - 16;
@@ -153,7 +159,7 @@ export async function generaFoglioPresenzeSede(turno, iscritti, dataInizioISO, e
     const page = pdfDoc.addPage([W, H]);
     let y = disegnaIntestazionePagina(page);
     blocco.forEach((data, i) => {
-      disegnaRiga(page, y, `${indiceBlocco * LEZIONI_PER_PAGINA + i + 1}.`, formattaDataEstesa(data));
+      disegnaRiga(page, y, `${primoNumero + indiceBlocco * LEZIONI_PER_PAGINA + i}.`, formattaDataEstesa(data));
       y -= RIGA_DATI_H;
     });
     const ultimoBlocco = indiceBlocco === blocchi.length - 1;
