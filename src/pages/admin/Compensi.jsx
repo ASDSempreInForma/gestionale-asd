@@ -317,6 +317,19 @@ export default function Compensi({ istruttoreIniziale } = {}) {
   }, [istruttoreId, dataFine]);
   useEffect(() => { caricaStorico(); }, [caricaStorico]);
 
+  // 05/11/2026 (caso Cordovani): importi da scalare (o aggiungere) al PROSSIMO
+  // pagamento dell'istruttore, registrati quando un periodo già pagato risulta
+  // sbagliato. Vengono proposti nell'aggiustamento e segnati come usati al pagamento.
+  const [daScalare, setDaScalare] = useState([]);
+  const caricaDaScalare = useCallback(async () => {
+    if (!istruttoreId) { setDaScalare([]); return; }
+    const { data } = await supabase.from("compensi_da_scalare").select("*").eq("istruttore_id", istruttoreId).is("usato_in_pagamento_id", null).order("creato_il");
+    setDaScalare(data || []);
+  }, [istruttoreId]);
+  useEffect(() => { caricaDaScalare(); }, [caricaDaScalare]);
+  const totaleDaScalare = daScalare.reduce((t, r) => t + Number(r.importo || 0), 0);
+  const notaDaScalare = daScalare.map((r) => `${r.nota || "correzione"} (${euro(Number(r.importo))})`).join("; ");
+
   const [salvandoSaldo, setSalvandoSaldo] = useState(false);
   async function salvaSaldoIniziale() {
     if (!istruttoreId) return;
@@ -481,6 +494,10 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         soloSegreteria: istruttore.tipo === "collaboratore" && oreSedeTotali === 0 && orePalestraTotali === 0,
       });
 
+      if (daScalare.length > 0) {
+        setAggiustamentoImporto(String(Math.round(totaleDaScalare * 100) / 100));
+        setAggiustamentoNota(notaDaScalare);
+      }
       setRisultato({
         righeSede, righePalestra, oreSedeTotali, orePalestraTotali, importoSede, importoPalestra, importoTotale, lezioniFuture,
         righeSegreteria, oreSegreteriaTotali, importoSegreteria,
@@ -501,7 +518,7 @@ export default function Compensi({ istruttoreIniziale } = {}) {
     if (!risultato || !istruttoreId) return;
     setSalvando(true); setErrore(""); setMessaggio("");
     try {
-      const { error } = await supabase.from("compensi_pagamenti").insert({
+      const { data: nuovoPag, error } = await supabase.from("compensi_pagamenti").insert({
         istruttore_id: istruttoreId, anno: Number(dataFine.slice(0, 4)), data_inizio: dataInizio, data_fine: dataFine,
         periodo_label: periodoLabel, ore_sede: risultato.oreSedeTotali, ore_palestra: risultato.orePalestraTotali,
         importo_sede: risultato.importoSede, importo_palestra: risultato.importoPalestra, importo_totale: importoFinale,
@@ -509,8 +526,13 @@ export default function Compensi({ istruttoreIniziale } = {}) {
         cumulativo_annuo_dopo: cumulativoDopoFinale, data_pagamento: isoData(new Date()), pagato: true,
         altri_enti_prima: altriEntiNum,
         dettaglio: { righeSede: risultato.righeSede, righePalestra: risultato.righePalestra, righeSegreteria: risultato.righeSegreteria || [] },
-      });
+      }).select("id").single();
       if (error) throw new Error(error.message);
+      // Segna come usati gli importi da scalare solo se l'aggiustamento li comprende ancora
+      if (daScalare.length > 0 && nuovoPag?.id && Math.abs(aggiustamentoNum - totaleDaScalare) < 0.005) {
+        await supabase.from("compensi_da_scalare").update({ usato_in_pagamento_id: nuovoPag.id, usato_il: new Date().toISOString() }).in("id", daScalare.map((r) => r.id));
+        await caricaDaScalare();
+      }
       setMessaggio("Pagamento registrato.");
       await caricaStorico();
     } catch (err) { setErrore(err.message); }
@@ -840,6 +862,11 @@ export default function Compensi({ istruttoreIniziale } = {}) {
 
           <div style={{ background: "#fff", borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
             <h3 style={{ margin: "0 0 12px", fontSize: 15, color: "#333" }}>Calcolo compenso</h3>
+            {daScalare.length > 0 && (
+              <div style={{ background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 8, padding: "8px 12px", fontSize: 12.5, color: "#92400E", marginBottom: 12 }}>
+                📌 <b>Da {totaleDaScalare < 0 ? "scalare" : "aggiungere"} a questo pagamento: {euro(Math.abs(totaleDaScalare))}</b> — {notaDaScalare}. Già inserito nell'aggiustamento qui sotto.
+              </div>
+            )}
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 14 }}>
               <tbody>
                 <tr style={{ borderBottom: "1px solid #f2f2f2" }}><td style={{ padding: "6px 8px" }}>Studio (SEDE) — {risultato.oreSedeTotali} ore</td><td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{euro(risultato.importoSede)}</td></tr>
