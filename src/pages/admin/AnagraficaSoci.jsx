@@ -2704,11 +2704,14 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
               )}
               {i.certificato_url && <button onClick={() => apriDocumento(i.certificato_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Certificato</button>}
               {i.certificato_url && <button onClick={() => apriOriginale(i.certificato_url)} title="Foto originale, prima del ritaglio" style={{ fontSize: 11.5, background: 'none', color: SUB, border: 'none', padding: '5px 2px', cursor: 'pointer', textDecoration: 'underline' }}>originale</button>}
-              {certificatoStatoEffettivo(i.stato_certificato, i.data_scadenza_certificato) !== 'valido' && (
+              {/* 09/11/2026 (caso Braga): come per la ricevuta, anche un certificato già
+                  segnato valido ma SENZA file (es. consegnato a mano e registrato prima della
+                  foto) deve poter ricevere la foto — prima il pulsante non compariva. */}
+              {(certificatoStatoEffettivo(i.stato_certificato, i.data_scadenza_certificato) !== 'valido' || !i.certificato_url) && (
                 <CaricaDocumentoManuale iscrizione={i} socio={socio} tipo="certificato" onAggiornato={caricaIscrizioni}
                   altre={(iscrizioni || []).filter(x => x.id !== i.id && x.stagione_id === i.stagione_id
                     && x.stato_pagamento !== 'annullata'
-                    && certificatoStatoEffettivo(x.stato_certificato, x.data_scadenza_certificato) !== 'valido')} />
+                    && (certificatoStatoEffettivo(x.stato_certificato, x.data_scadenza_certificato) !== 'valido' || !x.certificato_url))} />
               )}
               {(i.firma_url || i.firma_genitore_url) ? (
                 <button onClick={() => generaPdfDomandaAdesione({ socio, iscrizione: i, corso: i.corsi }).catch(err => alert("Impossibile generare il PDF: " + err.message))}
