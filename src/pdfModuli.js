@@ -259,7 +259,12 @@ export async function comprimiTesseraPdf(file, scalaResa = 2, qualita = 0.72) {
 // privacy GDPR, consenso immagini, firma trattamento, eventuale genitore)
 // socio: riga soci · iscrizione: riga iscrizioni · corso: { disciplina, giorni_orari, sedi:{nome} }
 // ─────────────────────────────────────────────────────────────────────────
-export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }) {
+// opts.perFirmaInPresenza (10/11/2026, richiesta di Solomon per la SEDE): modulo
+// già compilato con i dati, ma SENZA firma, luogo, data e scelta sul consenso
+// immagini — la persona sceglie e firma a mano in presenza.
+// opts.scarica = false → restituisce i byte invece di scaricare il file.
+export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }, opts = {}) {
+  const { perFirmaInPresenza = false, scarica = true } = opts;
   const templateBytes = await caricaTemplate(URL_TEMPLATE_ADESIONE);
   const pdfDoc = await PDFDocument.load(templateBytes);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -267,9 +272,9 @@ export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }) {
   const H = 792; // altezza di entrambe le pagine
 
   const minorenne = !!iscrizione.firma_genitore_url;
-  const firmaImg = await embedFirma(pdfDoc, minorenne ? iscrizione.firma_genitore_url : iscrizione.firma_url);
-  const luogo = (iscrizione.note || "").match(/Luogo firma:\s*([^|]+)/)?.[1]?.trim() || "";
-  const dataFirma = iscrizione.data_iscrizione ? iscrizione.data_iscrizione.slice(0, 10) : null;
+  const firmaImg = perFirmaInPresenza ? null : await embedFirma(pdfDoc, minorenne ? iscrizione.firma_genitore_url : iscrizione.firma_url);
+  const luogo = perFirmaInPresenza ? "" : (iscrizione.note || "").match(/Luogo firma:\s*([^|]+)/)?.[1]?.trim() || "";
+  const dataFirma = perFirmaInPresenza ? null : (iscrizione.data_iscrizione ? iscrizione.data_iscrizione.slice(0, 10) : null);
   const consensoImmagini = /Consenso immagini:\s*sì/i.test(iscrizione.note || "");
   const { via, civico } = separaIndirizzo(socio.indirizzo);
 
@@ -331,8 +336,10 @@ export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }) {
   scrivi2(`${socio.cognome} ${socio.nome}`, 155, 564.0, 245, { size: 9 });
 
   // Consenso immagini — coordinate vere dei quadratini (139.2-148.2 e 251.8-260.9, top~609-618)
-  if (consensoImmagini) segnaCasella(p2, fontBold, { x0: 139.2, x1: 148.2, top: 608.8, bottom: 617.8 }, H);
-  else segnaCasella(p2, fontBold, { x0: 251.8, x1: 260.9, top: 609.4, bottom: 618.4 }, H);
+  if (!perFirmaInPresenza) {
+    if (consensoImmagini) segnaCasella(p2, fontBold, { x0: 139.2, x1: 148.2, top: 608.8, bottom: 617.8 }, H);
+    else segnaCasella(p2, fontBold, { x0: 251.8, x1: 260.9, top: 609.4, bottom: 618.4 }, H);
+  }
 
   scrivi2(luogo, 75, 654.9, 92);
   scrivi2(fmtData(dataFirma), 200, 654.9, 108);
@@ -348,7 +355,21 @@ export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }) {
   }
 
   const bytes = await pdfDoc.save();
+  if (!scarica) return bytes;
   scaricaPdf(bytes, `Domanda_Adesione_${socio.cognome}_${socio.nome}.pdf`.replace(/\s+/g, "_"));
+}
+
+// Più domande di adesione da firmare in presenza in un unico PDF (2 pagine a
+// persona, in ordine), es. tutto un turno della SEDE. voci: [{ socio, corso }]
+export async function generaDomandeAdesionePresenza(voci, nomeFile) {
+  const finale = await PDFDocument.create();
+  for (const v of voci) {
+    const bytes = await generaPdfDomandaAdesione({ socio: v.socio, iscrizione: {}, corso: v.corso }, { perFirmaInPresenza: true, scarica: false });
+    const doc = await PDFDocument.load(bytes);
+    const pagine = await finale.copyPages(doc, doc.getPageIndices());
+    pagine.forEach((pg) => finale.addPage(pg));
+  }
+  scaricaPdf(await finale.save(), (nomeFile || "Domande_Adesione.pdf").replace(/\s+/g, "_"));
 }
 
 // ─────────────────────────────────────────────────────────────────────────

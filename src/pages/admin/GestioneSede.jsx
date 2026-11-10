@@ -13,6 +13,7 @@ import { caricaComuni, capUnicoDelComune } from "../../comuniItaliani.js";
 import { pulisciCF, datiDaCF, problemiCF } from "../../codiceFiscale.js";
 import { scaricaTesseraPdf, ENTI_TESSERA } from "../../tesseraAssociativa.js";
 import { caricaFestivitaSede, lezioniInFestivita } from "../../festivitaSede.js";
+import { generaDomandeAdesionePresenza } from "../../pdfModuli.js";
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -228,6 +229,21 @@ function tesseraSedeValida(p) {
   const oggi = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   return sc >= oggi;
 }
+// Domanda di adesione già compilata, da firmare in presenza (10/11/2026,
+// richiesta di Solomon): così in SEDE la persona deve solo firmare e pagare.
+function corsoSedePerModulo(turno) {
+  return {
+    disciplina: "Corso in SEDE",
+    sedi: { nome: "SEDE – Via del Brolo" },
+    giorni_orari: turno ? `${GIORNI_LABEL[turno.giorno_settimana]} ${String(turno.orario || "").slice(0, 5)}` : "",
+  };
+}
+async function scaricaSchedeAdesione(persone, turno, nomeFile) {
+  try {
+    await generaDomandeAdesionePresenza(persone.map((p) => ({ socio: p, corso: corsoSedePerModulo(turno) })), nomeFile);
+  } catch (err) { alert("Non è stato possibile creare il modulo: " + err.message); }
+}
+
 async function stampaTesseraSede(p) {
   try {
     await scaricaTesseraPdf({ ...p, scadenza_tessera: scadenzaTesseraSede(p), ente_tessera: p.ente_tessera || null });
@@ -676,6 +692,7 @@ function TurniEGruppi({ vai }) {
                               {tesseraSedeValida(i) && (
                                 <button onClick={() => stampaTesseraSede(i)} title="Stampa tessera associativa (PDF)" style={{ background: "none", border: "none", cursor: "pointer" }}>🪪</button>
                               )}
+                              <button onClick={() => scaricaSchedeAdesione([i], t, `Domanda_Adesione_${i.cognome}_${i.nome}.pdf`)} title="Domanda di adesione compilata, da firmare in presenza (PDF)" style={{ background: "none", border: "none", cursor: "pointer" }}>📝</button>
                               {i.certificato_url && (
                                 <button onClick={() => apriCertificatoSede(i.certificato_url)} title="Apri certificato" style={{ background: "none", border: "none", cursor: "pointer" }}>📄</button>
                               )}
@@ -696,6 +713,8 @@ function TurniEGruppi({ vai }) {
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <button onClick={() => setModalePersona({ turnoId: t.id, persona: null })} style={{ background: C, color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>+ Aggiungi persona</button>
                         <button onClick={() => setModaleFoglio(t)} style={{ background: "#fff", color: "#8e44ad", border: "1px solid #8e44ad", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>🗓️ Foglio presenze (PDF)</button>
+                        <button onClick={() => apriSelezione(`Domande di adesione — ${GIORNI_LABEL[t.giorno_settimana]} ${t.orario?.slice(0, 5)}`, t.iscritti || [], (sel) => scaricaSchedeAdesione(sel, t, `Domande_Adesione_SEDE_${GIORNI_LABEL[t.giorno_settimana]}_${String(t.orario || "").slice(0, 5).replace(":", "")}.pdf`))}
+                          title="Moduli già compilati, senza firma: la persona firma in presenza" style={{ background: "#fff", color: "#B45309", border: "1px solid #B45309", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>📝 Domande di adesione (PDF)</button>
                         <button onClick={() => stampa(t, "Libertas")} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>📄 Registro Libertas</button>
                         <button onClick={() => stampa(t, "ASI")} style={{ background: "#fff", color: C, border: `1px solid ${C}`, borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>📄 Registro ASI</button>
                         <button onClick={() => esportaDati(t, "Libertas")} style={{ background: "#fff", color: "#1f8a52", border: "1px solid #1f8a52", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>⬇️ Libertas (.xls)</button>
