@@ -290,29 +290,51 @@ export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }, opt
   };
 
   // Nome: deve fermarsi prima di "nato" (che inizia a x=351.3) — dimensione adattiva
-  // Posizioni riviste il 10/11/2026 misurando il modulo reale (restavano puntini visibili)
-  scriviAdattivo(p1, fontBold, `${socio.cognome} ${socio.nome}`, 124, H - 111.0, 225, 9);
-  scriviAdattivo(p1, font, socio.comune_nascita || "", 392, H - 111.0, 128, 9, { padSx: 1 });
-  scrivi1(socio.provincia_nascita || "", 523, 111.0, 40, { size: 9 });
+  // Campi pag.1 — coordinate ESATTE dei puntini lette carattere per carattere dal
+  // PDF reale (10/11/2026). Ogni campo sbianca solo i puntini [x0,x1] (mai le
+  // lettere delle etichette) e scrive il valore dentro, adattando la dimensione.
+  // Il testo sta 1,5pt più in alto per stare sulla stessa linea delle etichette.
+  const campo = (str, x0, x1, bottomOriginale, { f = font, size = 9, dx = 2.5, dueRighe = false } = {}) => {
+    if (!str) return;
+    const color = rgb(0.05, 0.05, 0.35);
+    const yTop = H - bottomOriginale;
+    const xt = x0 + dx;
+    const disp = x1 - xt - 1;
+    const ciSta = (t, s) => f.widthOfTextAtSize(t, s) <= disp;
+    let righe = [str];
+    let s = size;
+    if (dueRighe && !ciSta(str, size)) {
+      const metà = Math.ceil(str.length / 2);
+      let idx = str.lastIndexOf(" ", metà);
+      if (idx === -1) idx = str.indexOf(" ", metà);
+      if (idx !== -1) righe = [str.slice(0, idx).trim(), str.slice(idx + 1).trim()];
+    }
+    while (s > 5.5 && righe.some(r => !ciSta(r, s))) s -= 0.5;
+    const altezzaExtra = (righe.length - 1) * (s + 3);
+    p1.drawRectangle({ x: x0, y: yTop - 2 - altezzaExtra, width: x1 - x0, height: size + 4 + altezzaExtra, color: rgb(1, 1, 1) });
+    righe.forEach((r, i) => p1.drawText(r, { x: xt, y: yTop + 2.5 - i * (s + 3), size: s, font: f, color }));
+  };
 
-  scrivi1(fmtData(socio.data_nascita), 52, 137.4, 73);
-  scriviAdattivo(p1, font, socio.comune_residenza || "", 182, H - 137.4, 116, 9);
-  scrivi1(socio.provincia_residenza || "", 300, 137.4, 39, { size: 9, padSx: 1 });
-  scriviAdattivo(p1, font, via, 348, H - 137.4, 132, 9);           // via, senza civico — la label "via" finisce a x=344.9
-  scrivi1(civico, 494, 137.4, 22, { size: 9, padSx: 3 });                     // civico, dopo la fine vera dell'etichetta "n°" (x=490.3)
-  scrivi1(socio.cap || "", 540, 137.4, 30, { size: 9, padSx: 3 });            // dopo la fine dell'etichetta "cap" (x=534.3)
-
-  scrivi1(socio.telefono || "", 120, 162.7, 190);
-  scriviAdattivo(p1, font, socio.email || "", 362, H - 162.7, 200, 9);
-
-  scrivi1(socio.cf, 120, 187.9, 280, { bold: true });
-
-  // Corso/sede/orario: c'è ~24pt di spazio libero sotto questa riga prima della
-  // successiva (verificato nel PDF originale), quindi se il testo non ci sta
-  // nemmeno riducendo il carattere va su due righe invece di rimpicciolire troppo
-  scriviDueRighe(p1, fontBold, corso?.disciplina || "", 189, H - 213.2, 89, 9, { padSx: 5 });
-  scriviDueRighe(p1, fontBold, corso?.sedi?.nome || "", 315, H - 213.2, 100, 9, { padSx: 5 });
-  scriviDueRighe(p1, fontBold, corso?.giorni_orari || "", 490, H - 213.2, 76, 8, { padSx: 5 });
+  // Riga 1: Il sottoscritto/a …… nato a …… ( … )
+  campo(`${socio.cognome} ${socio.nome}`, 120.4, 351.0, 111.0, { f: fontBold });
+  campo(socio.comune_nascita || "", 389.3, 520.8, 111.0);
+  campo(socio.provincia_nascita || "", 525.3, 563.8, 111.0, { dx: 8 });
+  // Riga 2: il …… residente a …… ( … ) in via …… n° …… cap ……
+  campo(fmtData(socio.data_nascita), 51.8, 125.6, 137.4);
+  campo(socio.comune_residenza || "", 179.8, 267.3, 137.4);
+  campo(socio.provincia_residenza || "", 271.4, 309.6, 137.4, { dx: 10 });
+  campo(via, 345.1, 479.7, 137.4);
+  campo(civico, 490.5, 512.3, 137.4, { dx: 3 });
+  campo(socio.cap || "", 534.5, 567.4, 137.4, { dx: 3 });
+  // Riga 3-4: telefono, email, codice fiscale
+  campo(socio.telefono || "", 117.2, 251.8, 162.7);
+  campo(socio.email || "", 361.7, 540.2, 162.7);
+  campo(socio.cf, 116.9, 306.4, 187.9, { f: fontBold });
+  // Riga 5: corso di: …… Luogo …… Giorni e Orari …… — se non ci sta va su due
+  // righe (sotto c'è ~24pt liberi prima del paragrafo successivo)
+  campo(corso?.disciplina || "", 188.0, 275.7, 213.2, { f: fontBold, dueRighe: true });
+  campo(corso?.sedi?.nome || "", 308.8, 413.0, 213.2, { f: fontBold, dueRighe: true });
+  campo(corso?.giorni_orari || "", 484.5, 558.7, 213.2, { f: fontBold, size: 8, dueRighe: true });
 
   // Le due spunte "Presto il consenso" (statuto + certificato medico) — coordinate
   // vere dei quadratini prese dal PDF (132.6-141.6 x 623.6-632.6 e x 714.5-723.5)
