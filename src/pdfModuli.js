@@ -88,13 +88,14 @@ function separaIndirizzo(indirizzo) {
 // Come scriviAdattivo, ma se il testo non ci sta nemmeno riducendo il carattere
 // lo spezza su due righe (c'è spazio verticale reale sotto queste righe, verificato
 // nel PDF originale) invece di continuare a rimpicciolire all'infinito.
-function scriviDueRighe(page, font, str, x, yTop, larghezzaDisponibile, sizeMax) {
+function scriviDueRighe(page, font, str, x, yTop, larghezzaDisponibile, sizeMax, opts = {}) {
   if (!str) return;
   const color = rgb(0.05, 0.05, 0.35);
+  const padSx = opts.padSx || 0; // bianco extra a sinistra per coprire i puntini rimasti dopo l'etichetta
   const ciSta = (testo, size) => font.widthOfTextAtSize(testo, size) <= larghezzaDisponibile - 4;
 
   if (ciSta(str, sizeMax)) {
-    page.drawRectangle({ x: x - 2, y: yTop - 2, width: larghezzaDisponibile, height: sizeMax + 4, color: rgb(1, 1, 1) });
+    page.drawRectangle({ x: x - 2 - padSx, y: yTop - 2, width: larghezzaDisponibile + padSx, height: sizeMax + 4, color: rgb(1, 1, 1) });
     page.drawText(str, { x, y: yTop + 1, size: sizeMax, font, color });
     return;
   }
@@ -109,7 +110,7 @@ function scriviDueRighe(page, font, str, x, yTop, larghezzaDisponibile, sizeMax)
   let size = sizeMax;
   while (size > 6.5 && (!ciSta(riga1, size) || !ciSta(riga2, size))) size -= 0.5;
 
-  page.drawRectangle({ x: x - 2, y: yTop - 2 - (size + 3), width: larghezzaDisponibile, height: (size + 3) * 2 + 2, color: rgb(1, 1, 1) });
+  page.drawRectangle({ x: x - 2 - padSx, y: yTop - 2 - (size + 3), width: larghezzaDisponibile + padSx, height: (size + 3) * 2 + 2, color: rgb(1, 1, 1) });
   page.drawText(riga1, { x, y: yTop + 1, size, font, color });
   if (riga2) page.drawText(riga2, { x, y: yTop + 1 - (size + 3), size, font, color });
 }
@@ -119,12 +120,12 @@ function scriviDueRighe(page, font, str, x, yTop, larghezzaDisponibile, sizeMax)
 // carattere finché non ci sta, così non finisce mai sopra il campo successivo.
 function scriviAdattivo(page, font, str, x, yTop, larghezzaDisponibile, sizeMax, opts = {}) {
   if (!str) return;
-  const { color = rgb(0.05, 0.05, 0.35) } = opts;
+  const { color = rgb(0.05, 0.05, 0.35), padSx = 0 } = opts;
   let size = sizeMax;
   while (size > 5.5 && font.widthOfTextAtSize(str, size) > larghezzaDisponibile - 4) {
     size -= 0.5;
   }
-  page.drawRectangle({ x: x - 2, y: yTop - 2, width: larghezzaDisponibile, height: sizeMax + 4, color: rgb(1, 1, 1) });
+  page.drawRectangle({ x: x - 2 - padSx, y: yTop - 2, width: larghezzaDisponibile + padSx, height: sizeMax + 4, color: rgb(1, 1, 1) });
   page.drawText(str, { x, y: yTop + 1, size, font, color });
 }
 
@@ -282,23 +283,24 @@ export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }, opt
   const p1 = pdfDoc.getPage(0);
   const scrivi1 = (str, x, bottomOriginale, larghezzaBianco, opts = {}) => {
     if (!str) return;
-    const { size = 9, bold = false, color = rgb(0.05, 0.05, 0.35) } = opts;
+    const { size = 9, bold = false, color = rgb(0.05, 0.05, 0.35), padSx = 0 } = opts;
     const yTop = H - bottomOriginale;
-    p1.drawRectangle({ x: x - 2, y: yTop - 2, width: larghezzaBianco, height: size + 4, color: rgb(1, 1, 1) });
+    p1.drawRectangle({ x: x - 2 - padSx, y: yTop - 2, width: larghezzaBianco + padSx, height: size + 4, color: rgb(1, 1, 1) });
     p1.drawText(str, { x, y: yTop + 1, size, font: bold ? fontBold : font, color });
   };
 
   // Nome: deve fermarsi prima di "nato" (che inizia a x=351.3) — dimensione adattiva
-  scriviAdattivo(p1, fontBold, `${socio.cognome} ${socio.nome}`, 140, H - 111.0, 205, 9);
-  scriviAdattivo(p1, font, socio.comune_nascita || "", 395, H - 111.0, 122, 9);
+  // Posizioni riviste il 10/11/2026 misurando il modulo reale (restavano puntini visibili)
+  scriviAdattivo(p1, fontBold, `${socio.cognome} ${socio.nome}`, 124, H - 111.0, 225, 9);
+  scriviAdattivo(p1, font, socio.comune_nascita || "", 392, H - 111.0, 128, 9, { padSx: 1 });
   scrivi1(socio.provincia_nascita || "", 523, 111.0, 40, { size: 9 });
 
-  scrivi1(fmtData(socio.data_nascita), 52, 137.4, 68);
-  scriviAdattivo(p1, font, socio.comune_residenza || "", 182, H - 137.4, 115, 9);
-  scrivi1(socio.provincia_residenza || "", 302, 137.4, 40, { size: 9 });
-  scriviAdattivo(p1, font, via, 348, H - 137.4, 122, 9);           // via, senza civico — la label "via" finisce a x=344.9
-  scrivi1(civico, 494, 137.4, 22, { size: 9 });                     // civico, dopo la fine vera dell'etichetta "n°" (x=490.3)
-  scrivi1(socio.cap || "", 540, 137.4, 30, { size: 9 });            // dopo la fine dell'etichetta "cap" (x=534.3)
+  scrivi1(fmtData(socio.data_nascita), 52, 137.4, 73);
+  scriviAdattivo(p1, font, socio.comune_residenza || "", 182, H - 137.4, 116, 9);
+  scrivi1(socio.provincia_residenza || "", 300, 137.4, 39, { size: 9, padSx: 1 });
+  scriviAdattivo(p1, font, via, 348, H - 137.4, 132, 9);           // via, senza civico — la label "via" finisce a x=344.9
+  scrivi1(civico, 494, 137.4, 22, { size: 9, padSx: 3 });                     // civico, dopo la fine vera dell'etichetta "n°" (x=490.3)
+  scrivi1(socio.cap || "", 540, 137.4, 30, { size: 9, padSx: 3 });            // dopo la fine dell'etichetta "cap" (x=534.3)
 
   scrivi1(socio.telefono || "", 120, 162.7, 190);
   scriviAdattivo(p1, font, socio.email || "", 362, H - 162.7, 200, 9);
@@ -308,9 +310,9 @@ export async function generaPdfDomandaAdesione({ socio, iscrizione, corso }, opt
   // Corso/sede/orario: c'è ~24pt di spazio libero sotto questa riga prima della
   // successiva (verificato nel PDF originale), quindi se il testo non ci sta
   // nemmeno riducendo il carattere va su due righe invece di rimpicciolire troppo
-  scriviDueRighe(p1, fontBold, corso?.disciplina || "", 185, H - 213.2, 90, 9);
-  scriviDueRighe(p1, fontBold, corso?.sedi?.nome || "", 315, H - 213.2, 96, 9);
-  scriviDueRighe(p1, fontBold, corso?.giorni_orari || "", 490, H - 213.2, 76, 8);
+  scriviDueRighe(p1, fontBold, corso?.disciplina || "", 189, H - 213.2, 89, 9, { padSx: 5 });
+  scriviDueRighe(p1, fontBold, corso?.sedi?.nome || "", 315, H - 213.2, 100, 9, { padSx: 5 });
+  scriviDueRighe(p1, fontBold, corso?.giorni_orari || "", 490, H - 213.2, 76, 8, { padSx: 5 });
 
   // Le due spunte "Presto il consenso" (statuto + certificato medico) — coordinate
   // vere dei quadratini prese dal PDF (132.6-141.6 x 623.6-632.6 e x 714.5-723.5)
