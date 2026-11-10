@@ -1783,6 +1783,40 @@ function CambiaCorso({ iscrizione, socioCf, onAggiornato }) {
       setAperto(false); onAggiornato(); return
     }
 
+    // 10/11/2026 (caso Contenti Marzia): la persona ha GIÀ un'iscrizione al corso di
+    // destinazione (es. CrossTraining solo martedì) e questa (es. Step giovedì) va
+    // spostata sull'altro giorno dello stesso corso. Non si può avere due righe sullo
+    // stesso corso (vincolo unico): l'iscrizione esistente passa a 2 volte/sett. e
+    // questa viene annullata.
+    if (!aggiungiSecondo && corsoId !== iscrizione.corso_id) {
+      const { data: esistente } = await supabase.from('iscrizioni')
+        .select('id, frequenza, giorno_scelto, stato_pagamento, note')
+        .eq('socio_cf', socioCf).eq('corso_id', corsoId).eq('stagione_id', corso.stagione_id)
+        .neq('id', iscrizione.id).maybeSingle()
+      if (esistente && esistente.stato_pagamento !== 'annullata') {
+        if (!bisettimanale || esistente.frequenza !== '1x' || (frequenza === '1x' && giornoScelto === esistente.giorno_scelto)) {
+          setErrore(`Questa persona è già iscritta a "${corso.disciplina} — ${corso.giorni_orari}"${esistente.giorno_scelto ? ` (${esistente.giorno_scelto})` : ''}: scegli un altro corso o modifica quell'iscrizione.`)
+          return
+        }
+        const oggiIt = new Date().toLocaleDateString('it-IT')
+        if (!window.confirm(`È già iscritta a "${corso.disciplina} — ${corso.giorni_orari}" il ${esistente.giorno_scelto}.\n\nQuell'iscrizione passa a 2 volte a settimana (tutti e due i giorni) e questa iscrizione viene ANNULLATA.\nPagamento e documenti dell'iscrizione esistente restano com'erano: se serve un'integrazione o un rimborso, gestiscilo tu.\n\nProcedo?`)) return
+        setSalvando(true)
+        const { error: e1 } = await supabase.from('iscrizioni').update({
+          frequenza: '2x', giorno_scelto: null,
+          note: `${esistente.note ? esistente.note + ' | ' : ''}Passata a 2 volte/settimana il ${oggiIt}: aggiunto il giorno che prima era su "${iscrizione.corsi?.disciplina} — ${iscrizione.corsi?.giorni_orari}" (annullata).`,
+        }).eq('id', esistente.id)
+        if (e1) { setErrore('Errore: ' + e1.message); setSalvando(false); return }
+        const { error: e2 } = await supabase.from('iscrizioni').update({
+          stato_pagamento: 'annullata', stato_pagamento_prima_annullamento: iscrizione.stato_pagamento,
+          data_annullamento: new Date().toISOString(), motivo_annullamento: `Spostata sull'altro giorno di ${corso.disciplina}`,
+          note: `${iscrizione.note ? iscrizione.note + ' | ' : ''}Annullata il ${oggiIt}: spostata sull'altro giorno di "${corso.disciplina} — ${corso.giorni_orari}" (iscrizione esistente passata a 2x).`,
+        }).eq('id', iscrizione.id)
+        setSalvando(false)
+        if (e2) { setErrore('Errore: ' + e2.message); return }
+        setAperto(false); onAggiornato(); return
+      }
+    }
+
     const vecchio = iscrizione.corsi
     const nuovaEtichetta = `${corso.disciplina} — ${corso.giorni_orari}${bisettimanale && frequenza === '1x' ? ` (${giornoScelto})` : ''}`
     const vecchiaEtichetta = `${vecchio?.disciplina} — ${vecchio?.giorni_orari}`
