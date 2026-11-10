@@ -6,6 +6,54 @@ import ChatWidget from "../../ChatWidget.jsx";
 import CampoDocumento from "../../CampoDocumento.jsx";
 import CampoDataNascita, { erroreScadenzaCertificato } from "../../CampoDataNascita.jsx";
 import { campiUpload } from "../../scansioneDocumento.js";
+import TesseraAssociativa from "../../TesseraAssociativa.jsx";
+import { preparaTesseraPdf, preparaTesseraImmagine, salvaFile } from "../../tesseraAssociativa.js";
+
+// 🪪 Tessera dell'istruttore (10/11/2026, richiesta di Solomon): anche gli
+// insegnanti sono tesserati (ASI/Libertas) e la tessera serve per la visita
+// medica nei centri convenzionati. Chiusa di base, per non spingere giù i corsi.
+function TesseraIstruttore({ tessera }) {
+  const [aperta, setAperta] = useState(false);
+  const [file, setFile] = useState({ pdf: null, png: null, errore: null });
+  useEffect(() => {
+    if (!aperta || file.pdf) return;
+    let attivo = true;
+    (async () => {
+      try {
+        const pdf = await preparaTesseraPdf(tessera);
+        if (attivo) setFile((f) => ({ ...f, pdf }));
+        const png = await preparaTesseraImmagine(tessera, pdf);
+        if (attivo) setFile((f) => ({ ...f, png }));
+      } catch (e) { if (attivo) setFile((f) => ({ ...f, errore: e.message })); }
+    })();
+    return () => { attivo = false; };
+  }, [aperta]);
+  const btn = { width: "100%", maxWidth: 380, display: "block", margin: "8px auto 0", padding: "11px 14px", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer" };
+  return (
+    <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14, marginBottom: 14 }}>
+      <button onClick={() => setAperta(!aperta)} style={{ width: "100%", background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer", fontSize: 15, fontWeight: 700, color: "#1e293b", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>🪪 La mia tessera associativa</span><span style={{ fontSize: 12, color: "#64748b" }}>{aperta ? "▲ chiudi" : "▼ apri"}</span>
+      </button>
+      {aperta && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>
+            Mostrala dal telefono ai centri medici convenzionati per la visita. Se preferisci averla su carta, scarica la versione da stampare.
+          </div>
+          <TesseraAssociativa socio={tessera} />
+          <button onClick={() => file.png && salvaFile(file.png)} disabled={!file.png}
+            style={{ ...btn, marginTop: 16, background: "#2A6F86", color: "#fff", border: "none", opacity: file.png ? 1 : 0.6 }}>
+            {file.png ? "📲 Salva la tessera sul telefono (immagine)" : "Preparo la tessera..."}
+          </button>
+          <button onClick={() => file.pdf && salvaFile(file.pdf)} disabled={!file.pdf}
+            style={{ ...btn, background: "#fff", color: "#2A6F86", border: "1px solid #2A6F86", opacity: file.pdf ? 1 : 0.6 }}>
+            🖨️ Scarica la versione da stampare (PDF)
+          </button>
+          {file.errore && <div style={{ fontSize: 12, color: "#991B1B", textAlign: "center", marginTop: 6 }}>Non è stato possibile preparare il file: {file.errore}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const SUPABASE_URL = "https://ebsuqdxflygxhuptnnun.supabase.co";
 const ANON_KEY =
@@ -815,6 +863,8 @@ export default function AreaIstruttori() {
           </div>
           <button onClick={logout} style={styles.btnSecondary}>Esci</button>
         </div>
+
+        {istruttore.tessera && <TesseraIstruttore tessera={istruttore.tessera} />}
 
         {corsi.length === 0 && (
           <p style={{ color: "#64748b", fontSize: 14 }}>
