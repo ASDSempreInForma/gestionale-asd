@@ -4,6 +4,7 @@ import { dataInizioCorso, dataFineCorso, dateAttese } from "./lezioniPreviste.js
 import SettimanaIstruttori from "./SettimanaIstruttori.jsx";
 import TesseramentoIstruttori from "./TesseramentoIstruttori.jsx";
 import RecuperiLezioni from "./RecuperiLezioni.jsx";
+import CertificatoIstruttore from "./CertificatoIstruttore.jsx";
 import { calcolaSedePeriodo, testoCalcoloOre } from "./calcoloSede.js";
 
 /* =====================================================================
@@ -225,7 +226,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
         .select(`
           id,nome,cognome,telefono,email,compenso_lezione_default,attivo,tipo,tariffa_oraria,modalita_pagamento,fa_segreteria,
           sede_attivo,accesso_sede,tariffa_sede_1,tariffa_sede_2_3,tariffa_sede_4_5,
-          indirizzo_residenza,cap,comune_residenza,provincia_residenza,
+          indirizzo_residenza,cap,comune_residenza,provincia_residenza,cf,
           istruttori_corsi(
             id, giorno_settimana,
             corsi(id,disciplina,giorni_orari,sedi(nome))
@@ -255,7 +256,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
           compenso:t.compenso_lezione_default||0,
           sedeAttivo:t.sede_attivo||false, accessoSede:t.accesso_sede||false,
           tariffaSede1:t.tariffa_sede_1, tariffaSede23:t.tariffa_sede_2_3, tariffaSede45:t.tariffa_sede_4_5,
-          indirizzo_residenza:t.indirizzo_residenza, cap:t.cap, comune_residenza:t.comune_residenza, provincia_residenza:t.provincia_residenza,
+          cf:t.cf, indirizzo_residenza:t.indirizzo_residenza, cap:t.cap, comune_residenza:t.comune_residenza, provincia_residenza:t.provincia_residenza,
           colore:COLORI_DISPONIBILI[idx%COLORI_DISPONIBILI.length],
           corsi_nomi:corsiNomi,
           corsi_ids:corsiAssegnati.map(c=>c.id),
@@ -853,6 +854,7 @@ export default function GestioneIstruttori({ onVaiAContratto }){
 
             {focusedInstr===t.id&&(
               <div style={{padding:"12px 15px"}}>
+                <CertificatoIstruttore istruttoreId={t.id} cf={t.cf} nome={`${t.cognome} ${t.nome}`}/>
                 <div style={{fontSize:11,fontWeight:700,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>
                   Contatti (usati anche per l'accesso all'Area Istruttori)
                 </div>

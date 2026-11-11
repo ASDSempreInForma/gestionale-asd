@@ -157,6 +157,65 @@ function fmtData(d) {
   return `${day}/${m}/${y}`;
 }
 
+// 11/11/2026 (Solomon): certificato medico dell'istruttore — stato + caricamento
+// dal telefono (foto/PDF + scadenza). Nessuna verifica e nessun avviso di scadenza:
+// la segreteria lo vede nella scheda istruttore. Si sincronizza con scheda socio/SEDE.
+function CertificatoMioIstruttore({ certificato, callFnWithAuth, onAggiornato }) {
+  const [aperto, setAperto] = useState(false);
+  const [documento, setDocumento] = useState(null);
+  const [scadenza, setScadenza] = useState("");
+  const [caricando, setCaricando] = useState(false);
+  const [errore, setErrore] = useState("");
+  const [fatto, setFatto] = useState(false);
+  const oggiIso = new Date().toISOString().slice(0, 10);
+  const presente = certificato?.scadenza;
+  const scaduto = presente && certificato.scadenza < oggiIso;
+
+  const invia = async () => {
+    if (!documento) { setErrore("Allega una foto o un PDF del certificato."); return; }
+    if (erroreScadenzaCertificato(scadenza)) { setErrore(erroreScadenzaCertificato(scadenza)); return; }
+    setCaricando(true); setErrore("");
+    const r = await callFnWithAuth({ action: "carica_certificato_istruttore", data_scadenza: scadenza, ...(await campiUpload(documento)) });
+    setCaricando(false);
+    if (!r.ok) { setErrore(r.error || "Errore durante il caricamento."); return; }
+    setFatto(true); setAperto(false); setDocumento(null); setScadenza("");
+    onAggiornato();
+  };
+
+  return (
+    <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14, marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 15, fontWeight: 700, color: "#1e293b" }}>🩺 Il mio certificato medico</span>
+        <span style={{ fontSize: 12, borderRadius: 6, padding: "3px 8px", color: !presente || scaduto ? "#991B1B" : "#1B4332", background: !presente || scaduto ? "#FEE2E2" : "#D8F3DC" }}>
+          {!presente ? "Non caricato" : `${scaduto ? "Scaduto il" : "Valido fino al"} ${fmtData(certificato.scadenza)}`}
+        </span>
+      </div>
+      {fatto && <div style={{ fontSize: 13, color: "#1B4332", marginTop: 8 }}>✓ Certificato caricato, grazie!</div>}
+      {!aperto ? (
+        <button onClick={() => { setAperto(true); setFatto(false); }}
+          style={{ width: "100%", marginTop: 10, padding: "10px 14px", borderRadius: 10, border: "1px solid #2A6F86", background: "#fff", color: "#2A6F86", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+          📎 {presente ? "Carica il nuovo certificato" : "Carica il certificato"}
+        </button>
+      ) : (
+        <div style={{ marginTop: 12 }}>
+          <label style={{ fontSize: 11, color: "#64748b", display: "block", marginBottom: 3 }}>Data di scadenza del certificato</label>
+          <CampoDataNascita value={scadenza} onChange={setScadenza} cosa="di scadenza" annoMin={new Date().getFullYear()} annoMax={new Date().getFullYear() + 3} anniCrescenti />
+          <p style={{ fontSize: 12, color: "#64748b", margin: "4px 0 10px" }}>⚠️ La data di <b>scadenza</b>, non quella della visita.</p>
+          <label style={{ fontSize: 11, color: "#64748b", display: "block", marginBottom: 3 }}>Foto o PDF del certificato</label>
+          <CampoDocumento onChange={setDocumento} colore="#2A6F86" capture="environment" />
+          {errore && <p style={{ color: "#DC2626", fontSize: 12, marginBottom: 6 }}>{errore}</p>}
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button onClick={() => { setAperto(false); setErrore(""); }} style={{ flex: 1, padding: 10, borderRadius: 10, border: "1px solid #E8E4DC", background: "white", color: "#64748b", fontSize: 13, cursor: "pointer" }}>Annulla</button>
+            <button onClick={invia} disabled={caricando} style={{ flex: 1, padding: 10, borderRadius: 10, border: "none", background: "#2A6F86", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: caricando ? 0.6 : 1 }}>
+              {caricando ? "Carico…" : "✓ Carica"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 async function inviaNotaEmail({ istruttore, corso, testo }) {
   const res = await fetch("https://ebsuqdxflygxhuptnnun.supabase.co/functions/v1/invia-email-iscrizione", {
     method: "POST",
@@ -865,6 +924,7 @@ export default function AreaIstruttori() {
         </div>
 
         {istruttore.tessera && <TesseraIstruttore tessera={istruttore.tessera} />}
+        <CertificatoMioIstruttore certificato={istruttore.certificato} callFnWithAuth={callFnWithAuth} onAggiornato={caricaDati} />
 
         {corsi.length === 0 && (
           <p style={{ color: "#64748b", fontSize: 14 }}>
