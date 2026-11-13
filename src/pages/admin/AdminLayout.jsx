@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import VerificaDueFattori from './VerificaDueFattori.jsx'
 import { supabase } from '../../supabase.js'
 import GestioneProve from './GestioneProve.jsx'
 import GestioneIstruttori from './GestioneIstruttori.jsx'
@@ -211,6 +212,7 @@ export default function AdminLayout({ user, onLogout }) {
       {/* Contenuto principale */}
       <div style={{ flex: 1, marginLeft: window.innerWidth >= 768 ? 220 : 0,
         marginTop: window.innerWidth < 768 ? 52 : 0, minHeight: '100vh' }}>
+        <VerificaDueFattori />
         {pagina === 'note'        && <Note />}
         {pagina === 'verifica-documenti' && <VerificaDocumenti />}
         {pagina === 'anagrafica-soci' && <AnagraficaSoci />}

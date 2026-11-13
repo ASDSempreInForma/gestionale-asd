@@ -8,6 +8,7 @@ import AreaTesserati from './pages/public/AreaTesserati.jsx'
 import AreaIstruttori from './pages/public/AreaIstruttori.jsx'
 import AreaSede from './pages/public/AreaSede.jsx'
 import Login from './pages/admin/Login.jsx'
+import { statoMfa } from './mfa.js'
 import AdminLayout from './pages/admin/AdminLayout.jsx'
 
 // Impostazioni PWA (manifest/titolo/colore) per ciascuna pagina pubblica.
@@ -45,17 +46,26 @@ function usePwaMetaPerPagina() {
 export default function App() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [serveCodice, setServeCodice] = useState(false)
   usePwaMetaPerPagina()
 
   useEffect(() => {
     // Controlla sessione attiva all'avvio
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
+    // 13/11/2026: con la verifica in due passaggi attiva, una sessione aperta
+    // con la sola password (aal1) non basta: si mostra il login al passo "codice".
+    const aggiorna = async (session) => {
+      if (!session?.user) { setUser(null); setServeCodice(false); return }
+      const mfa = await statoMfa()
+      setServeCodice(mfa.serveCodice)
+      setUser(mfa.serveCodice ? null : session.user)
+    }
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      await aggiorna(session)
       setLoading(false)
     })
-    // Ascolta cambi di sessione
+    // Ascolta cambi di sessione (setTimeout: niente chiamate Supabase dentro il callback)
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
+      setTimeout(() => aggiorna(session), 0)
     })
     return () => listener.subscription.unsubscribe()
   }, [])
@@ -81,7 +91,7 @@ export default function App() {
       <Route path="/admin" element={
         user
           ? <AdminLayout user={user} onLogout={() => setUser(null)} />
-          : <Login onLogin={setUser} />
+          : <Login key={serveCodice ? 'codice' : 'password'} richiediCodice={serveCodice} onLogin={(u) => { setServeCodice(false); setUser(u) }} />
       } />
 
       {/* Redirect qualsiasi altra rotta alla home */}
