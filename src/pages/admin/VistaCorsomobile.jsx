@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { preparaSollecitoPagamento, inviaSollecitoPagamento, inviaPromemoriaCertificato, euro } from "../../promemoria.js";
 import { createClient } from "@supabase/supabase-js";
 
 /* =====================================================================
@@ -783,6 +784,38 @@ export default function App() {
     setAnnullando(false);
   }
 
+  // ── Promemoria dal controllo in palestra (17/11/2026, Solomon) ─────
+  const [invioPromemoria, setInvioPromemoria] = useState(null);
+  async function promemoriaPagamento(i) {
+    const nome = `${i.soci?.nome} ${i.soci?.cognome}`;
+    if (!String(i.soci?.email || "").includes("@")) { alert(`${nome} non ha un indirizzo email.`); return; }
+    setInvioPromemoria(i.id + "pag");
+    try {
+      const prep = await preparaSollecitoPagamento(i.soci.cf);
+      if (!prep) { alert(`Per ${nome} non c'è niente da sollecitare: il pagamento risulta già arrivato o c'è una ricevuta in verifica.`); return; }
+      const corsi = prep.righe.map(r => r.corsi?.nome_visualizzato || r.corsi?.disciplina).join(", ");
+      const gia = prep.ultimo ? `\n\nATTENZIONE: promemoria già inviato il ${new Date(prep.ultimo).toLocaleDateString("it-IT")}.` : "";
+      if (!window.confirm(`Inviare il promemoria di pagamento a ${nome} (${i.soci.email})?\n\n${corsi}: ${euro(prep.importo)}\n\nL'email chiede di pagare entro 3 giorni: poi, se il pagamento non risulta, l'iscrizione viene annullata automaticamente.${gia}`)) return;
+      const entro = await inviaSollecitoPagamento(prep);
+      alert(`✓ Promemoria di pagamento inviato a ${nome} (scadenza ${new Date(entro + "T12:00:00").toLocaleDateString("it-IT")}).`);
+    } catch (e) {
+      alert("Invio non riuscito: " + (e.message || e));
+    } finally { setInvioPromemoria(null); }
+  }
+  async function promemoriaCertificato(i, cs) {
+    const nome = `${i.soci?.nome} ${i.soci?.cognome}`;
+    if (!String(i.soci?.email || "").includes("@")) { alert(`${nome} non ha un indirizzo email.`); return; }
+    const scaduto = cs === "scaduto" && !!i.data_scadenza_certificato;
+    if (!window.confirm(`Inviare a ${nome} (${i.soci.email}) il promemoria per il certificato medico ${scaduto ? "scaduto" : "mancante"}?`)) return;
+    setInvioPromemoria(i.id + "cert");
+    try {
+      await inviaPromemoriaCertificato({ email: i.soci.email, nome: i.soci.nome, scaduto, scadenza: i.data_scadenza_certificato });
+      alert(`✓ Promemoria certificato inviato a ${nome}.`);
+    } catch (e) {
+      alert("Invio non riuscito: " + (e.message || e));
+    } finally { setInvioPromemoria(null); }
+  }
+
   // ── Helpers display ───────────────────────────────────────────────
   function pagStatus(i) {
     return i.stato_pagamento === "confermato" ? "ok" : "attesa";
@@ -1170,6 +1203,12 @@ export default function App() {
                           💶 Contanti
                         </button>
                       )}
+                      {ps !== "ok" && (
+                        <button onClick={() => promemoriaPagamento(i)} disabled={invioPromemoria === i.id + "pag"}
+                          style={{ padding: "10px 12px", border: "1px solid #B45309", borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: "#FEF3C7", color: "#92400E", opacity: invioPromemoria === i.id + "pag" ? 0.5 : 1, minHeight: 40 }}>
+                          {invioPromemoria === i.id + "pag" ? "Invio…" : "📧 Promemoria pagamento"}
+                        </button>
+                      )}
                       {cs !== "ok" && (
                         <button onClick={() => { if (window.confirm(`Confermi il certificato di ${i.soci?.nome} ${i.soci?.cognome}?`)) update(i.id, corso.id, "cert", "ok"); }} disabled={saving[certKey]}
                           style={{ padding: "10px 12px", border: `1px solid ${W}`, borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: WL, color: W, opacity: saving[certKey] ? 0.5 : 1, minHeight: 40 }}>
@@ -1180,6 +1219,12 @@ export default function App() {
                         <button onClick={() => { setModaleCertificato(i); setCertificatoFile(null); setCertificatoScadenza(""); setErroreCertificato(""); }}
                           style={{ padding: "10px 12px", border: `1px dashed ${W}`, borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: "white", color: W, minHeight: 40 }}>
                           📎 Carica certificato
+                        </button>
+                      )}
+                      {cs !== "ok" && (
+                        <button onClick={() => promemoriaCertificato(i, cs)} disabled={invioPromemoria === i.id + "cert"}
+                          style={{ padding: "10px 12px", border: `1px solid ${W}`, borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: "white", color: W, opacity: invioPromemoria === i.id + "cert" ? 0.5 : 1, minHeight: 40 }}>
+                          {invioPromemoria === i.id + "cert" ? "Invio…" : "📧 Promemoria certificato"}
                         </button>
                       )}
                       <button onClick={() => { setNotaInputPer(notaInputPer === i.id ? null : i.id); setNotaTesto(""); }}
