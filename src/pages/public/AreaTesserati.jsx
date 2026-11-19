@@ -116,6 +116,15 @@ function certificatoStatoEffettivo(stato, scadenza) {
   return new Date(scadenza) < oggi ? "scaduto" : stato;
 }
 
+// Certificato ancora valido ma che scade entro 30 giorni (oggi compreso):
+// il socio deve poter caricare quello rinnovato prima che scada.
+function certificatoInScadenza(stato, scadenza) {
+  if (stato !== "valido" || !scadenza) return false;
+  const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+  const giorni = (new Date(scadenza) - oggi) / 86400000;
+  return giorni >= 0 && giorni <= 30;
+}
+
 function BadgeCertificato({ stato, scadenza }) {
   const statoEffettivo = certificatoStatoEffettivo(stato, scadenza);
   const map = {
@@ -782,8 +791,14 @@ function CardIscrizione({ iscrizione, onApriRicevuta, onApriCertificato, onVediD
         {["in_attesa", "rifiutato"].includes(iscrizione.stato_pagamento) && (
           <button style={styles.btnSmall} onClick={onApriRicevuta}>📄 Invia ricevuta</button>
         )}
-        {["mancante", "scaduto", "rifiutato"].includes(certificatoStatoEffettivo(iscrizione.stato_certificato, iscrizione.data_scadenza_certificato)) && (
+        {["mancante", "scaduto", "rifiutato"].includes(certificatoStatoEffettivo(iscrizione.stato_certificato, iscrizione.data_scadenza_certificato)) ? (
           <button style={styles.btnSmall} onClick={onApriCertificato}>🩺 Invia certificato</button>
+        ) : certificatoInScadenza(iscrizione.stato_certificato, iscrizione.data_scadenza_certificato) && (
+          // 19/11/2026 (caso Delbarba Daniela): il certificato scadeva OGGI e
+          // risultava ancora "valido", quindi il pulsante non compariva e non
+          // c'era modo di caricare quello rinnovato. Ora si può caricare il
+          // nuovo nei 30 giorni prima della scadenza.
+          <button style={styles.btnSmall} onClick={onApriCertificato}>🩺 Carica il nuovo certificato</button>
         )}
         {/* 07/10/2026: il socio può rivedere i documenti che ha caricato */}
         {iscrizione.ricevuta_url && (
