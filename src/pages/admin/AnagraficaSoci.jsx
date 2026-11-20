@@ -825,6 +825,14 @@ function AllegaModuloCartaceo({ iscrizione, socioCf, onAggiornato }) {
 // documento manca ancora. Di solito ricevuta e certificato sono UNICI per tutti
 // i corsi della persona: si possono applicare anche a quelle con una spunta,
 // come succede quando e' il socio a caricarli dall'area privata.
+// Certificato valido che scade entro 30 giorni (oggi compreso)
+function certificatoInScadenzaAdmin(i) {
+  if (i.stato_certificato !== 'valido' || !i.data_scadenza_certificato) return false
+  const oggi = new Date(); oggi.setHours(0, 0, 0, 0)
+  const giorni = (new Date(i.data_scadenza_certificato) - oggi) / 86400000
+  return giorni >= 0 && giorni <= 30
+}
+
 function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato, altre = [] }) {
   const [altreScelte, setAltreScelte] = useState(() => new Set(altre.map(a => a.id)))
   const [aperto, setAperto] = useState(false)
@@ -921,6 +929,18 @@ function CaricaDocumentoManuale({ iscrizione, socio, tipo, onAggiornato, altre =
   }
 
   if (!aperto) {
+    // 20/11/2026: per un certificato scaduto (o in scadenza) il pulsante diventa
+    // "Carica nuovo certificato" e ben visibile — prima era grigio e passava inosservato.
+    const statoCert = tipo === 'certificato' ? certificatoStatoEffettivo(iscrizione.stato_certificato, iscrizione.data_scadenza_certificato) : null
+    const rinnovoCert = tipo === 'certificato' && iscrizione.certificato_url && (statoCert === 'scaduto' || certificatoInScadenzaAdmin(iscrizione))
+    if (rinnovoCert) {
+      return (
+        <button onClick={() => setAperto(true)}
+          style={{ fontSize: 12, background: '#FFF7ED', color: '#C2410C', border: '1px solid #FDBA74', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', fontWeight: 600 }}>
+          🩺 Carica nuovo certificato
+        </button>
+      )
+    }
     return (
       <button onClick={() => setAperto(true)}
         style={{ fontSize: 12, background: '#F1F5F9', color: SUB, border: `1px dashed ${BD}`, borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>
@@ -2741,7 +2761,7 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
               {/* 09/11/2026 (caso Braga): come per la ricevuta, anche un certificato già
                   segnato valido ma SENZA file (es. consegnato a mano e registrato prima della
                   foto) deve poter ricevere la foto — prima il pulsante non compariva. */}
-              {(certificatoStatoEffettivo(i.stato_certificato, i.data_scadenza_certificato) !== 'valido' || !i.certificato_url) && (
+              {(certificatoStatoEffettivo(i.stato_certificato, i.data_scadenza_certificato) !== 'valido' || !i.certificato_url || certificatoInScadenzaAdmin(i)) && (
                 <CaricaDocumentoManuale iscrizione={i} socio={socio} tipo="certificato" onAggiornato={caricaIscrizioni}
                   altre={(iscrizioni || []).filter(x => x.id !== i.id && x.stagione_id === i.stagione_id
                     && x.stato_pagamento !== 'annullata'
