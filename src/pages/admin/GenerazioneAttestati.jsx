@@ -40,6 +40,7 @@ const oggiIT = () => {
 
 const FORM_VUOTO = {
   socio_cf: '',
+  sede_persona_id: '',
   cfSocio: '',
   nomeSocio: '',
   cognomeSocio: '',
@@ -137,7 +138,7 @@ export default function GenerazioneAttestati() {
   const caricaElenco = useCallback(async () => {
     const { data } = await supabase
       .from('attestati')
-      .select('*, soci(nome, cognome)')
+      .select('*, soci(nome, cognome), sede_persone(nome, cognome, cf)')
       .order('creato_il', { ascending: false })
       .limit(100);
     setElenco(data || []);
@@ -148,12 +149,18 @@ export default function GenerazioneAttestati() {
   async function cercaSoci() {
     if (!query.trim()) return;
     const q = query.trim();
-    const { data } = await supabase
-      .from('soci')
-      .select('cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, indirizzo, cap, comune_residenza, provincia_residenza, sesso')
-      .or(`cognome.ilike.%${q}%,cf.ilike.%${q}%,nome.ilike.%${q}%`)
-      .limit(15);
-    setRisultatiSoci(data || []);
+    const campi = 'cf, nome, cognome, data_nascita, comune_nascita, provincia_nascita, indirizzo, cap, comune_residenza, provincia_residenza, sesso';
+    // 20/11/2026: si cercano anche le persone che frequentano la SEDE (Via del Brolo).
+    // Chi è sia socio delle palestre sia in SEDE compare una volta sola, come socio.
+    const [{ data: soci }, { data: sede }] = await Promise.all([
+      supabase.from('soci').select(campi).or(`cognome.ilike.%${q}%,cf.ilike.%${q}%,nome.ilike.%${q}%`).limit(15),
+      supabase.from('sede_persone').select('id, ' + campi).or(`cognome.ilike.%${q}%,cf.ilike.%${q}%,nome.ilike.%${q}%`).limit(15),
+    ]);
+    const cfSoci = new Set((soci || []).map((x) => (x.cf || '').toUpperCase()));
+    const soloSede = (sede || [])
+      .filter((x) => !x.cf || !cfSoci.has(x.cf.toUpperCase()))
+      .map((x) => ({ ...x, origine: 'sede' }));
+    setRisultatiSoci([...(soci || []), ...soloSede]);
   }
 
   async function selezionaSocio(socio) {
@@ -162,7 +169,8 @@ export default function GenerazioneAttestati() {
     setQuery(`${socio.cognome} ${socio.nome}`);
     setForm((f) => ({
       ...f,
-      socio_cf: socio.cf,
+      socio_cf: socio.origine === 'sede' ? '' : socio.cf,
+      sede_persona_id: socio.origine === 'sede' ? socio.id : '',
       cfSocio: socio.cf,
       nomeSocio: socio.nome,
       cognomeSocio: socio.cognome,
@@ -176,6 +184,7 @@ export default function GenerazioneAttestati() {
       sessoSocio: socio.sesso,
     }));
 
+    if (socio.origine === 'sede') { setIscrizioni([]); return; }
     const { data } = await supabase
       .from('iscrizioni')
       .select(`
@@ -215,7 +224,7 @@ export default function GenerazioneAttestati() {
   }
 
   async function generaEScarica() {
-    if (!form.socio_cf) { setMessaggio({ tipo: 'errore', testo: 'Seleziona prima un socio.' }); return; }
+    if (!form.socio_cf && !form.sede_persona_id) { setMessaggio({ tipo: 'errore', testo: 'Seleziona prima un socio.' }); return; }
     if (!form.importo || !form.nomeAttivita || !form.dataInizio || !form.dataFine) {
       setMessaggio({ tipo: 'errore', testo: 'Compila importo, nome attività e periodo prima di generare.' });
       return;
@@ -238,7 +247,8 @@ export default function GenerazioneAttestati() {
       const { data: riga, error } = await supabase
         .from('attestati')
         .insert({
-          socio_cf: form.socio_cf,
+          socio_cf: form.socio_cf || null,
+          sede_persona_id: form.sede_persona_id || null,
           iscrizione_id: form.iscrizione_id || null,
           stagione_id: form.stagione_id || null,
           nome_attivita: form.nomeAttivita,
@@ -273,7 +283,7 @@ export default function GenerazioneAttestati() {
   }
 
   async function generaConFirmaDigitale() {
-    if (!form.socio_cf) { setMessaggio({ tipo: 'errore', testo: 'Seleziona prima un socio.' }); return; }
+    if (!form.socio_cf && !form.sede_persona_id) { setMessaggio({ tipo: 'errore', testo: 'Seleziona prima un socio.' }); return; }
     if (!form.importo || !form.nomeAttivita || !form.dataInizio || !form.dataFine) {
       setMessaggio({ tipo: 'errore', testo: 'Compila importo, nome attività e periodo prima di generare.' });
       return;
@@ -307,13 +317,14 @@ export default function GenerazioneAttestati() {
 
       // Il PDF (già firmato) viene salvato subito nello storage, ma l'attestato resta
       // in stato "bozza": non è ancora visibile al socio finché non confermi dall'elenco.
-      const path = `${form.socio_cf}/attestato_${Date.now()}.pdf`;
+      const path = `${form.socio_cf || form.cfSocio}/attestato_${Date.now()}.pdf`;
       const pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
       const { error: upErr } = await supabase.storage.from('documenti-soci').upload(path, pdfBlob, { contentType: 'application/pdf' });
       if (upErr) throw upErr;
 
       const { error } = await supabase.from('attestati').insert({
-        socio_cf: form.socio_cf,
+        socio_cf: form.socio_cf || null,
+        sede_persona_id: form.sede_persona_id || null,
         iscrizione_id: form.iscrizione_id || null,
         stagione_id: form.stagione_id || null,
         nome_attivita: form.nomeAttivita,
@@ -345,7 +356,9 @@ export default function GenerazioneAttestati() {
 
   async function ristampaBozza(riga) {
     const durataMesi = calcolaMesi(riga.data_inizio, riga.data_fine);
-    const { data: socio } = await supabase.from('soci').select('*').eq('cf', riga.socio_cf).single();
+    const { data: socio } = riga.socio_cf
+      ? await supabase.from('soci').select('*').eq('cf', riga.socio_cf).single()
+      : await supabase.from('sede_persone').select('*').eq('id', riga.sede_persona_id).single();
     const pdfBytes = await generaAttestatoPdf({
       nomeSocio: socio?.nome, cognomeSocio: socio?.cognome, cfSocio: socio?.cf,
       dataNascitaSocio: socio?.data_nascita, comuneNascitaSocio: socio?.comune_nascita,
@@ -404,7 +417,7 @@ export default function GenerazioneAttestati() {
     if (!file) { setMessaggio({ tipo: 'errore', testo: 'Scegli prima il file firmato da caricare.' }); return; }
     setCaricamento(true);
     try {
-      const path = `${riga.socio_cf}/attestato_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+      const path = `${riga.socio_cf || riga.sede_persone?.cf}/attestato_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
       const { error: upErr } = await supabase.storage.from('documenti-soci').upload(path, file);
       if (upErr) throw upErr;
       const { error: updErr } = await supabase
@@ -483,9 +496,9 @@ export default function GenerazioneAttestati() {
         {risultatiSoci.length > 0 && (
           <ul style={{ listStyle: 'none', padding: 0, marginTop: 10, border: '1px solid #eee', borderRadius: 6 }}>
             {risultatiSoci.map((s) => (
-              <li key={s.cf} onClick={() => selezionaSocio(s)}
+              <li key={s.origine === 'sede' ? s.id : s.cf} onClick={() => selezionaSocio(s)}
                 style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f0f0f0' }}>
-                <strong>{s.cognome} {s.nome}</strong> — {s.cf}
+                <strong>{s.cognome} {s.nome}</strong> — {s.cf}{s.origine === 'sede' && <span style={{ marginLeft: 8, fontSize: 12, background: '#E0F2FE', color: '#075985', borderRadius: 4, padding: '1px 6px' }}>SEDE</span>}
               </li>
             ))}
           </ul>
@@ -494,6 +507,11 @@ export default function GenerazioneAttestati() {
         {socioSelezionato && (
           <>
             <h3>2. Scegli l'iscrizione da cui pre-compilare (facoltativo)</h3>
+            {socioSelezionato.origine === 'sede' && (
+              <p style={{ fontSize: 13, color: '#075985', background: '#F0F9FF', borderRadius: 6, padding: '8px 10px' }}>
+                Persona della SEDE (Via del Brolo): non ci sono iscrizioni da cui pre-compilare, inserisci a mano attività, importo e periodo.
+              </p>
+            )}
             <select onChange={(e) => selezionaIscrizione(e.target.value)} defaultValue=""
               style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #ccc', marginBottom: 16 }}>
               <option value="">— Compila tutto manualmente —</option>
@@ -573,7 +591,7 @@ export default function GenerazioneAttestati() {
         <tbody>
           {elenco.map((riga) => (
             <tr key={riga.id} style={{ borderBottom: '1px solid #eee' }}>
-              <td style={{ padding: 8 }}>{riga.soci?.cognome} {riga.soci?.nome}</td>
+              <td style={{ padding: 8 }}>{riga.soci ? `${riga.soci.cognome} ${riga.soci.nome}` : `${riga.sede_persone?.cognome || ''} ${riga.sede_persone?.nome || ''}`}{!riga.soci && riga.sede_persone && <span style={{ marginLeft: 6, fontSize: 11, background: '#E0F2FE', color: '#075985', borderRadius: 4, padding: '1px 5px' }}>SEDE</span>}</td>
               <td style={{ padding: 8 }}>{riga.nome_attivita}</td>
               <td style={{ padding: 8 }}>€{riga.importo}</td>
               <td style={{ padding: 8 }}>
