@@ -60,12 +60,18 @@ export default function GestioneCorsi() {
     caricaCorsi();
   }, []);
 
+  function statoCertEffettivo(i) {
+    if (i.stato_certificato !== "valido" || !i.data_scadenza_certificato) return i.stato_certificato;
+    const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+    return new Date(i.data_scadenza_certificato) < oggi ? "scaduto" : "valido";
+  }
+
   async function caricaRiepilogo(stagioneId) {
     // Query separate e leggere (solo le colonne che servono) invece di
     // riusare i dati già caricati per le capienze, che coprono solo i campi
     // necessari a quel calcolo.
     const [{ data: iscrizioni }, { data: prove }] = await Promise.all([
-      supabase.from("iscrizioni").select("stato_pagamento, stato_certificato").eq("stagione_id", stagioneId),
+      supabase.from("iscrizioni").select("socio_cf, stato_pagamento, stato_certificato, data_scadenza_certificato").eq("stagione_id", stagioneId),
       // "prove" non ha una colonna stagione_id propria: si filtra tramite il
       // corso collegato, esattamente come fa GestioneProve.jsx.
       supabase.from("prove").select("stato, corsi!inner ( stagione_id )").eq("corsi.stagione_id", stagioneId),
@@ -85,7 +91,10 @@ export default function GestioneCorsi() {
       tassoConversione,
       pagamentiDaVerificare: iscrizioniAttive.filter((i) => i.stato_pagamento === "dichiarato").length,
       certificatiDaVerificare: iscrizioniAttive.filter((i) => i.stato_certificato === "dichiarato").length,
-      certificatiMancanti: iscrizioniAttive.filter((i) => ["mancante", "scaduto"].includes(i.stato_certificato)).length,
+      // 20/11/2026: si contano le PERSONE (chi fa due corsi contava doppio) e lo
+      // stato effettivo (un "valido" con scadenza passata è scaduto; anche i rifiutati).
+      certificatiMancanti: new Set(iscrizioniAttive.filter((i) => ["mancante", "scaduto", "rifiutato"].includes(statoCertEffettivo(i))).map((i) => i.socio_cf)).size,
+      personeTotali: new Set(iscrizioniAttive.map((i) => i.socio_cf)).size,
     });
   }
 
@@ -338,7 +347,7 @@ export default function GestioneCorsi() {
         {riepilogo && (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
             {[
-              { label: "Iscritti totali", valore: riepilogo.iscrittiTotali, colore: C.green },
+              { label: "Iscritti totali", valore: riepilogo.iscrittiTotali, sotto: `${riepilogo.personeTotali} persone`, colore: C.green },
               { label: "Persone in prova", valore: riepilogo.proveInCorso, colore: C.textSub },
               {
                 label: "Prove convertite",
@@ -359,6 +368,7 @@ export default function GestioneCorsi() {
               {
                 label: "Certificati mancanti/scaduti",
                 valore: riepilogo.certificatiMancanti,
+                sotto: "persone",
                 colore: riepilogo.certificatiMancanti > 0 ? C.red : C.textSub,
               },
             ].map((n) => (
