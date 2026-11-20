@@ -74,7 +74,10 @@ export function erroreScadenzaCertificato(scadenza) {
   if (!scadenza) return "Indica la data di scadenza del certificato.";
   const [y, m, d] = scadenza.split("-").map(Number);
   const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
-  if (new Date(y, m - 1, d) < oggi)
-    return "Questa data è già passata: probabilmente hai scritto la data di rilascio (o della visita). Indica la data di SCADENZA del certificato — di solito un anno dopo la visita.";
+  // 20/11/2026 (caso Arrighini Claudia): anche la data di OGGI va rifiutata —
+  // chi carica il certificato appena fatto la visita tende a scrivere la data
+  // della visita, che coincide con oggi, e il certificato risultava scaduto il giorno dopo.
+  if (new Date(y, m - 1, d) <= oggi)
+    return "Questa data non è una scadenza valida: probabilmente hai scritto la data di rilascio (o della visita). Indica la data di SCADENZA del certificato — di solito un anno dopo la visita.";
   return "";
 }

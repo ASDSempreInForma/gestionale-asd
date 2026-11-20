@@ -4,6 +4,14 @@ import { supabase } from '../../supabase.js'
 import { percorsoOriginale, apriDocumentoStorage, riconosciFile, eImmagine } from '../../scansioneDocumento.js'
 import RitaglioDocumento from '../../RitaglioDocumento.jsx'
 import { calcolaQuotaAttesa, spiegaDifferenza, CAMPI_CORSO_MOTORE } from '../../quotaAttesa.js'
+
+// Scadenza certificato già passata o di oggi (20/11/2026, caso Arrighini)
+function scadenzaNonFutura(d) {
+  if (!d) return false
+  const oggi = new Date(); oggi.setHours(0, 0, 0, 0)
+  const [y, m, g] = d.slice(0, 10).split('-').map(Number)
+  return new Date(y, m - 1, g) <= oggi
+}
 import PannelloSolleciti from './PannelloSolleciti.jsx'
 
 // 12/10/2026: campi necessari anche per calcolare la quota attesa
@@ -549,6 +557,11 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
             ) : (
               <div style={{ fontSize: 12.5, color: SUB, lineHeight: 1.6 }}>
                 Scadenza: <b>{fmtData(row.data_scadenza_certificato)}</b>
+                {row.stato_certificato === 'dichiarato' && scadenzaNonFutura(row.data_scadenza_certificato) && (
+                  <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', color: '#991B1B', borderRadius: 6, padding: '6px 8px', margin: '4px 0', fontSize: 12, fontWeight: 600 }}>
+                    ⚠️ Data già passata o di oggi: probabilmente è la data della visita. Controlla il certificato e correggi la scadenza prima di confermare.
+                  </div>
+                )}
                 {row.verificato_il && <><br />Verificato il {fmtData(row.verificato_il.slice(0,10))} da {row.verificato_da || '—'}</>}
               </div>
             )}
@@ -585,6 +598,7 @@ function RigaIscritto({ row, soloConsultazione, onAggiorna, solo = 'tutti' }) {
                 <>
                   <button
                     onClick={() => {
+                      if (scadenzaNonFutura(scadenzaModificata) && !window.confirm('La data di scadenza è già passata (o è oggi): il certificato risulterà subito scaduto. Confermare comunque?')) return
                       aggiornaIscrizione({ stato_certificato: 'valido', data_scadenza_certificato: scadenzaModificata })
                       inviaEmailDocumento({ tipo: 'documento_confermato', tipoDocumento: 'certificato', socio })
                     }}
