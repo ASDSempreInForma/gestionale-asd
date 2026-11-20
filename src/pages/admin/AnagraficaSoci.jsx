@@ -825,6 +825,64 @@ function AllegaModuloCartaceo({ iscrizione, socioCf, onAggiornato }) {
 // documento manca ancora. Di solito ricevuta e certificato sono UNICI per tutti
 // i corsi della persona: si possono applicare anche a quelle con una spunta,
 // come succede quando e' il socio a caricarli dall'area privata.
+// 20/11/2026: correzione della data di scadenza di un certificato già caricato
+// (es. approvato con la data sbagliata). Aggiorna tutte le iscrizioni della stessa
+// stagione che usano lo stesso file; lo stato torna "valido" se la nuova data non
+// è passata, altrimenti "scaduto".
+function ModificaScadenzaCertificato({ iscrizione, iscrizioni, onAggiornato }) {
+  const [aperto, setAperto] = useState(false)
+  const [data, setData] = useState(iscrizione.data_scadenza_certificato || '')
+  const [salvando, setSalvando] = useState(false)
+  const [errore, setErrore] = useState('')
+
+  const salva = async () => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) { setErrore('Indica una data valida.'); return }
+    setSalvando(true); setErrore('')
+    const oggi = new Date(); oggi.setHours(0, 0, 0, 0)
+    const stato = new Date(data) < oggi ? 'scaduto' : 'valido'
+    const ids = (iscrizioni || [])
+      .filter(x => x.stagione_id === iscrizione.stagione_id && x.certificato_url === iscrizione.certificato_url && x.stato_pagamento !== 'annullata')
+      .map(x => x.id)
+    if (!ids.includes(iscrizione.id)) ids.push(iscrizione.id)
+    const vecchia = iscrizione.data_scadenza_certificato ? iscrizione.data_scadenza_certificato.split('-').reverse().join('/') : '—'
+    const nota = `Scadenza certificato corretta dalla segreteria il ${new Date().toLocaleDateString('it-IT')} (era ${vecchia}).`
+    for (const id of ids) {
+      const isc = (iscrizioni || []).find(x => x.id === id) || iscrizione
+      const { error } = await supabase.from('iscrizioni').update({
+        data_scadenza_certificato: data,
+        stato_certificato: stato,
+        note: isc.note ? `${isc.note} | ${nota}` : nota,
+      }).eq('id', id)
+      if (error) { setErrore('Errore: ' + error.message); setSalvando(false); return }
+    }
+    setSalvando(false); setAperto(false)
+    onAggiornato && onAggiornato()
+  }
+
+  if (!aperto) {
+    return (
+      <button onClick={() => { setData(iscrizione.data_scadenza_certificato || ''); setAperto(true) }}
+        title="Correggi la data di scadenza del certificato"
+        style={{ fontSize: 12, background: '#F5F3FF', color: '#6D28D9', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>
+        ✏️ Scadenza{iscrizione.data_scadenza_certificato ? ` ${iscrizione.data_scadenza_certificato.split('-').reverse().join('/')}` : ''}
+      </button>
+    )
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#F5F3FF', borderRadius: 6, padding: '4px 8px', flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 12, color: '#6D28D9' }}>Scadenza certificato:</span>
+      <input type="date" value={data} onChange={e => setData(e.target.value)}
+        style={{ padding: '4px 6px', borderRadius: 6, border: '1px solid #C4B5FD', fontSize: 12.5 }} />
+      <button onClick={salva} disabled={salvando}
+        style={{ fontSize: 12, background: '#6D28D9', color: 'white', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', fontWeight: 600 }}>
+        {salvando ? 'Salvo...' : 'Salva'}
+      </button>
+      <button onClick={() => setAperto(false)} style={{ fontSize: 12, background: 'none', border: 'none', color: '#64748B', cursor: 'pointer' }}>Annulla</button>
+      {errore && <span style={{ fontSize: 11, color: '#B91C1C' }}>{errore}</span>}
+    </span>
+  )
+}
+
 // Certificato valido che scade entro 30 giorni (oggi compreso)
 function certificatoInScadenzaAdmin(i) {
   if (i.stato_certificato !== 'valido' || !i.data_scadenza_certificato) return false
@@ -2758,6 +2816,7 @@ Per l'ente: se compare \"Libertas\" o il codice societa' BS481 e' \"Libertas\"; 
               )}
               {i.certificato_url && <button onClick={() => apriDocumento(i.certificato_url)} style={{ fontSize: 12, background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>👁️ Certificato</button>}
               {i.certificato_url && <button onClick={() => apriOriginale(i.certificato_url)} title="Foto originale, prima del ritaglio" style={{ fontSize: 11.5, background: 'none', color: SUB, border: 'none', padding: '5px 2px', cursor: 'pointer', textDecoration: 'underline' }}>originale</button>}
+              {i.certificato_url && <ModificaScadenzaCertificato iscrizione={i} iscrizioni={iscrizioni} onAggiornato={caricaIscrizioni} />}
               {/* 09/11/2026 (caso Braga): come per la ricevuta, anche un certificato già
                   segnato valido ma SENZA file (es. consegnato a mano e registrato prima della
                   foto) deve poter ricevere la foto — prima il pulsante non compariva. */}
